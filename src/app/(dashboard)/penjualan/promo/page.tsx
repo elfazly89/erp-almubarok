@@ -157,7 +157,12 @@ export default function PromoPage() {
       // 1. Fetch Promos
       const res = await fetch("/api/promo");
       const data = await res.json();
-      setList(data);
+      if (Array.isArray(data)) {
+        setList(data);
+      } else {
+        console.error("Gagal memuat daftar promo:", data?.error || data);
+        setList([]);
+      }
 
       // 2. Fetch Branches
       const branchRes = await fetch("/api/cabang");
