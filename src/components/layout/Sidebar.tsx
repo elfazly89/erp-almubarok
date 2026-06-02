@@ -76,6 +76,15 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: "Kasir POS", href: "/penjualan/pos", icon: <ShoppingCart className="w-4 h-4" /> },
       { label: "Riwayat Nota", href: "/penjualan/history", icon: <FileText className="w-4 h-4" /> },
+      { label: "Manajemen Promo", href: "/penjualan/promo", icon: <Tags className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Pelanggan",
+    icon: <Users className="w-5 h-5" />,
+    children: [
+      { label: "Daftar Pelanggan", href: "/pelanggan", icon: <Users className="w-4 h-4" /> },
+      { label: "Riwayat Poin", href: "/pelanggan/poin", icon: <Clock className="w-4 h-4" /> },
     ],
   },
   {

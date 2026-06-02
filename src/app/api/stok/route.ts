@@ -8,6 +8,7 @@ import { eq, and } from "drizzle-orm";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const paramCabang = searchParams.get("id_cabang");
+  const paramBarang = searchParams.get("id_barang");
 
   let idCabang: number | null = paramCabang ? parseInt(paramCabang) : null;
 
@@ -20,6 +21,32 @@ export async function GET(request: Request) {
 
   if (!idCabang) {
     return NextResponse.json({ error: "Cabang tidak teridentifikasi" }, { status: 400 });
+  }
+
+  if (paramBarang) {
+    const idBarang = parseInt(paramBarang);
+    const [item] = await db
+      .select({
+        id: stok_barang.id,
+        id_barang: stok_barang.id_barang,
+        barcode: barang.barcode,
+        nama_barang: barang.nama_barang,
+        id_cabang: stok_barang.id_cabang,
+        stok_akhir: stok_barang.stok_akhir,
+        minimal_stok: stok_barang.minimal_stok,
+        maksimal_stok: stok_barang.maksimal_stok,
+      })
+      .from(stok_barang)
+      .innerJoin(barang, eq(stok_barang.id_barang, barang.id_barang))
+      .where(
+        and(
+          eq(stok_barang.id_cabang, idCabang),
+          eq(stok_barang.id_barang, idBarang)
+        )
+      )
+      .limit(1);
+
+    return NextResponse.json(item || { stok_akhir: 0 });
   }
 
   const data = await db

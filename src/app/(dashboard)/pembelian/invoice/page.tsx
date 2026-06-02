@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, Import, Tag, Percent, DollarSign } from "lucide-react";
+import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, Import, Tag, Percent, DollarSign, ChevronDown } from "lucide-react";
 
 interface PO {
   id_pesan_beli: number;
@@ -58,6 +58,9 @@ export default function PurchaseInvoicePage() {
   const [cart, setCart] = useState<InvoiceItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [searchProd, setSearchProd] = useState("");
+
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+  const [searchSupplier, setSearchSupplier] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -167,6 +170,13 @@ export default function PurchaseInvoicePage() {
     updated[idx].subtotal = updated[idx].qty * updated[idx].harga_satuan;
     setCart(updated);
   };
+
+  const selectedSupplier = suppliers.find((s) => s.id_supplier.toString() === supplierId);
+  const displaySupplierName = selectedSupplier ? selectedSupplier.nama_supplier : "-- Pilih Supplier --";
+
+  const filteredSuppliers = suppliers.filter((s) =>
+    s.nama_supplier.toLowerCase().includes(searchSupplier.toLowerCase())
+  );
 
   // Pricing calculations
   const subtotalCart = cart.reduce((sum, item) => sum + item.subtotal, 0);
@@ -279,20 +289,75 @@ export default function PurchaseInvoicePage() {
             </div>
           )}
 
-          <div>
+          <div className="relative">
             <label className="block text-on-surface-variant font-bold mb-1.5">Pilih Supplier *</label>
-            <select
-              value={supplierId}
-              onChange={(e) => setSupplierId(e.target.value)}
-              className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-              disabled={!!poId} // lock supplier if from PO
-              required
+            
+            <button
+              type="button"
+              onClick={() => !poId && setShowSupplierDropdown(!showSupplierDropdown)}
+              disabled={!!poId}
+              className={`w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2.5 text-xs text-left focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-colors ${
+                poId ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-surface-container-high/40"
+              }`}
             >
-              <option value="" className="bg-surface text-on-surface-variant">-- Pilih Supplier --</option>
-              {suppliers.map((s) => (
-                <option key={s.id_supplier} value={s.id_supplier} className="bg-surface text-on-surface">{s.nama_supplier}</option>
-              ))}
-            </select>
+              <span className={supplierId ? "text-on-surface font-medium" : "text-on-surface-variant/70"}>
+                {displaySupplierName}
+              </span>
+              <ChevronDown className="w-4 h-4 text-on-surface-variant/60 shrink-0" />
+            </button>
+
+            {showSupplierDropdown && (
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => {
+                  setShowSupplierDropdown(false);
+                  setSearchSupplier("");
+                }} 
+              />
+            )}
+
+            {showSupplierDropdown && (
+              <div className="absolute left-0 right-0 mt-1 bg-surface border border-outline-variant rounded-xl shadow-2xl z-20 p-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-on-surface-variant/60" />
+                  <input
+                    type="text"
+                    value={searchSupplier}
+                    onChange={(e) => setSearchSupplier(e.target.value)}
+                    placeholder="Cari nama supplier..."
+                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-primary/80"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="max-h-40 overflow-y-auto space-y-0.5 scrollbar-thin">
+                  {filteredSuppliers.length === 0 ? (
+                    <div className="p-2.5 text-center text-on-surface-variant/60 text-xs italic">
+                      Supplier tidak ditemukan
+                    </div>
+                  ) : (
+                    filteredSuppliers.map((s) => (
+                      <button
+                        key={s.id_supplier}
+                        type="button"
+                        onClick={() => {
+                          setSupplierId(s.id_supplier.toString());
+                          setShowSupplierDropdown(false);
+                          setSearchSupplier("");
+                        }}
+                        className={`w-full px-3 py-2 text-left rounded-lg text-xs transition-colors flex items-center justify-between hover:bg-surface-container-high/50 ${
+                          supplierId === s.id_supplier.toString()
+                            ? "bg-primary/10 text-primary font-semibold"
+                            : "text-on-surface"
+                        }`}
+                      >
+                        <span>{s.nama_supplier}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

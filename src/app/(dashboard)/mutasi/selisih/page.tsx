@@ -146,7 +146,7 @@ export default function SelisihMutasiPage() {
                           <FileText className="w-3.5 h-3.5 text-primary" /> {item.kode_pengiriman}
                         </div>
                         <span className="text-[10px] text-on-surface-variant block mt-1 flex items-center gap-0.5 font-mono">
-                          <Calendar className="w-3 h-3" /> {item.tanggal_terima.slice(0, 10)}
+                          <Calendar className="w-3 h-3" /> {item.tanggal_terima ? item.tanggal_terima.slice(0, 10) : "-"}
                         </span>
                       </td>
                       <td className="px-5 py-2.5">

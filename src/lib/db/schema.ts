@@ -281,8 +281,10 @@ export const pelanggan = sqliteTable("pelanggan", {
   id_pelanggan: integer("id_pelanggan").primaryKey({ autoIncrement: true }),
   kode_pelanggan: text("kode_pelanggan").notNull(),
   nama_lengkap: text("nama_lengkap").notNull(),
+  email: text("email"),
   alamat: text("alamat"),
   telepon: text("telepon"),
+  level_harga: integer("level_harga").default(1),
   total_poin: integer("total_poin").default(0),
 });
 
@@ -491,6 +493,137 @@ export const jurnal_umum = sqliteTable("jurnal_umum", {
   dibuat_oleh: integer("dibuat_oleh").references(() => users.id),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
+
+// ─── PROMO ───────────────────────────────────────────────────────────────────
+export const promo = sqliteTable("promo", {
+  id_promo: integer("id_promo").primaryKey({ autoIncrement: true }),
+  nama_promo: text("nama_promo").notNull(),
+  tipe_promo: text("tipe_promo").notNull(),
+  deskripsi: text("deskripsi"),
+  berlaku_untuk: text("berlaku_untuk").notNull(), // e.g. "UMUM,1,2,3"
+  tanggal_mulai: text("tanggal_mulai").notNull(),
+  tanggal_selesai: text("tanggal_selesai").notNull(),
+  status: text("status").default("Aktif").notNull(),
+  berlaku_kelipatan: integer("berlaku_kelipatan").default(0).notNull(),
+  created_by: integer("created_by"),
+  updated_by: integer("updated_by"),
+  id_cabang_pembuat: integer("id_cabang_pembuat"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const promo_cabang = sqliteTable("promo_cabang", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+});
+
+export const promo_syarat_pembelanjaan = sqliteTable("promo_syarat_pembelanjaan", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  minimum_pembelanjaan: integer("minimum_pembelanjaan").notNull(),
+  berlaku_kelipatan: integer("berlaku_kelipatan").default(0).notNull(),
+});
+
+export const promo_syarat_kategori = sqliteTable("promo_syarat_kategori", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_kategori: integer("id_kategori").references(() => kategori_barang.id_kategori).notNull(),
+});
+
+export const promo_syarat_supplier = sqliteTable("promo_syarat_supplier", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_supplier: integer("id_supplier").references(() => supplier.id_supplier).notNull(),
+});
+
+export const promo_hadiah_poin = sqliteTable("promo_hadiah_poin", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  jumlah_poin: integer("jumlah_poin").notNull(),
+});
+
+export const promo_hadiah_diskon = sqliteTable("promo_hadiah_diskon", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  jenis_diskon: text("jenis_diskon").notNull(), // "PERSEN" or "NOMINAL"
+  nilai_diskon: integer("nilai_diskon").notNull(),
+});
+
+export const promo_syarat_barang_tertentu = sqliteTable("promo_syarat_barang_tertentu", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+});
+
+export const promo_syarat_beli = sqliteTable("promo_syarat_beli", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah: integer("jumlah").notNull(),
+  id_satuan: integer("id_satuan").notNull(),
+});
+
+export const promo_hadiah_gratis = sqliteTable("promo_hadiah_gratis", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah: integer("jumlah").notNull(),
+  id_satuan: integer("id_satuan").notNull(),
+});
+
+export const promo_diskon_barang = sqliteTable("promo_diskon_barang", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah: integer("jumlah").notNull(),
+  id_satuan: integer("id_satuan").notNull(),
+  jenis_diskon: text("jenis_diskon").notNull(), // "PERSEN" or "NOMINAL"
+  nilai_diskon: integer("nilai_diskon").notNull(),
+  berlaku_kelipatan: integer("berlaku_kelipatan").default(0).notNull(),
+});
+
+export const promo_poin_barang = sqliteTable("promo_poin_barang", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah_barang: integer("jumlah_barang").notNull(),
+  id_satuan: integer("id_satuan").notNull(),
+  jumlah_poin: integer("jumlah_poin").notNull(),
+  berlaku_kelipatan: integer("berlaku_kelipatan").default(0).notNull(),
+});
+
+export const promo_hadiah_barang = sqliteTable("promo_hadiah_barang", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah: integer("jumlah").notNull(),
+  id_satuan: integer("id_satuan").notNull(),
+});
+
+export const promo_barang_tebus_murah = sqliteTable("promo_barang_tebus_murah", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_promo: integer("id_promo").references(() => promo.id_promo).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah: integer("jumlah").notNull(),
+  id_satuan: integer("id_satuan").notNull(),
+  harga_tebus: integer("harga_tebus").notNull(),
+});
+
+export type Promo = typeof promo.$inferSelect;
+export type PromoCabang = typeof promo_cabang.$inferSelect;
+export type PromoSyaratPembelanjaan = typeof promo_syarat_pembelanjaan.$inferSelect;
+export type PromoSyaratKategori = typeof promo_syarat_kategori.$inferSelect;
+export type PromoSyaratSupplier = typeof promo_syarat_supplier.$inferSelect;
+export type PromoHadiahPoin = typeof promo_hadiah_poin.$inferSelect;
+export type PromoHadiahDiskon = typeof promo_hadiah_diskon.$inferSelect;
+export type PromoSyaratBarangTertentu = typeof promo_syarat_barang_tertentu.$inferSelect;
+export type PromoSyaratBeli = typeof promo_syarat_beli.$inferSelect;
+export type PromoHadiahGratis = typeof promo_hadiah_gratis.$inferSelect;
+export type PromoDiskonBarang = typeof promo_diskon_barang.$inferSelect;
+export type PromoPoinBarang = typeof promo_poin_barang.$inferSelect;
+export type PromoHadiahBarang = typeof promo_hadiah_barang.$inferSelect;
+export type PromoBarangTebusMurah = typeof promo_barang_tebus_murah.$inferSelect;
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 export type User = typeof users.$inferSelect;

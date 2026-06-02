@@ -94,7 +94,7 @@ export default function RequestMutasiPage() {
     const delayDebounce = setTimeout(async () => {
       setSearchingProducts(true);
       try {
-        const res = await fetch(`/api/barang?search=${encodeURIComponent(productSearch)}`);
+        const res = await fetch(`/api/barang?q=${encodeURIComponent(productSearch)}`);
         const list = await res.json();
         setProducts(list.slice(0, 8)); // Limit results
       } catch (e) {

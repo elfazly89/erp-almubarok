@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users, Plus, Search, Edit2, Trash2, Eye, RefreshCw,
   ChevronLeft, ChevronRight, Phone, Briefcase, Building2,
-  Camera, Upload, Key, ChevronUp, ChevronDown, User, FileText, MapPin, ShieldCheck, Calendar
+  Camera, Upload, Key, ChevronUp, ChevronDown, User, FileText, MapPin, ShieldCheck, Calendar,
+  Download, CheckCircle2, AlertCircle, FileSpreadsheet, X, AlertTriangle
 } from "lucide-react";
 import { getStatusColor, formatDate } from "@/lib/utils";
 import { compressAndCropToPassport } from "@/lib/image";
+import * as XLSX from "xlsx";
 
 interface User {
   id: number;
@@ -39,6 +41,436 @@ export default function UsersPage() {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [sortField, setSortField] = useState("nama_user");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+  // Import states
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importStep, setImportStep] = useState(1); // 1: Choose, 2: Preview, 3: Success
+  const [parsedData, setParsedData] = useState<any[]>([]);
+  const [validationErrors, setValidationErrors] = useState<{ row: number; errors: string[] }[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cabangList, setCabangList] = useState<{ id_cabang: number; nama_cabang: string }[]>([]);
+
+  // Export states
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportDelimiter, setExportDelimiter] = useState(","); // "," or ";"
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv">("xlsx"); // "xlsx" or "csv"
+  const [exportFields, setExportFields] = useState({
+    kode_user: true,
+    nama_user: true,
+    no_hp: true,
+    status: true,
+    tanggal_masuk: true,
+    tempat_lahir: true,
+    tanggal_lahir: true,
+    no_ktp: true,
+    pendidikan_terakhir: true,
+    riwayat_lembaga: true,
+    riwayat_pekerjaan: true,
+    jabatan: true,
+    nama_cabang: true,
+  });
+
+  const parseCSV = (text: string, delimiter: string = ",") => {
+    const lines = [];
+    let row = [""];
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          row[row.length - 1] += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        row.push("");
+      } else if ((char === "\r" || char === "\n") && !inQuotes) {
+        if (char === "\r" && nextChar === "\n") {
+          i++;
+        }
+        lines.push(row);
+        row = [""];
+      } else {
+        row[row.length - 1] += char;
+      }
+    }
+    if (row.length > 1 || row[0] !== "") {
+      lines.push(row);
+    }
+    return lines;
+  };
+
+  const mapHeaders = (headers: string[]) => {
+    const fieldMapping: { [key: string]: string } = {
+      kode_user: "kode_user",
+      kodeuser: "kode_user",
+      kode: "kode_user",
+      nama_user: "nama_user",
+      namauser: "nama_user",
+      nama: "nama_user",
+      namalengkap: "nama_user",
+      no_hp: "no_hp",
+      nohp: "no_hp",
+      hp: "no_hp",
+      telepon: "no_hp",
+      status: "status",
+      tanggal_masuk: "tanggal_masuk",
+      tanggalmasuk: "tanggal_masuk",
+      tempat_lahir: "tempat_lahir",
+      tempatlahir: "tempat_lahir",
+      tanggal_lahir: "tanggal_lahir",
+      tanggallahir: "tanggal_lahir",
+      no_ktp: "no_ktp",
+      noktp: "no_ktp",
+      nik: "no_ktp",
+      pendidikan_terakhir: "pendidikan_terakhir",
+      pendidikanterakhir: "pendidikan_terakhir",
+      pendidikan: "pendidikan_terakhir",
+      riwayat_lembaga: "riwayat_lembaga",
+      riwayatlembaga: "riwayat_lembaga",
+      pondok: "riwayat_lembaga",
+      riwayat_pekerjaan: "riwayat_pekerjaan",
+      riwayatpekerjaan: "riwayat_pekerjaan",
+      jabatan: "jabatan",
+      nama_cabang: "nama_cabang",
+      namacabang: "nama_cabang",
+      cabang: "nama_cabang",
+      unit: "nama_cabang",
+      unitkerja: "nama_cabang",
+      password: "password"
+    };
+
+    return headers.map((h) => {
+      const cleanH = h.toLowerCase().trim().replace(/[\s._-]/g, "");
+      return fieldMapping[cleanH] || null;
+    });
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      "Kode User",
+      "Nama Lengkap",
+      "No HP",
+      "Status",
+      "Tanggal Masuk",
+      "Tempat Lahir",
+      "Tanggal Lahir",
+      "No KTP",
+      "Pendidikan Terakhir",
+      "Riwayat Lembaga",
+      "Riwayat Pekerjaan",
+      "Jabatan",
+      "Cabang",
+      "Password",
+    ];
+    const examples = [
+      [
+        "USR001",
+        "Ahmad Fauzi",
+        "08123456789",
+        "Abdi Tetap",
+        "2025-01-15",
+        "Gresik",
+        "1995-08-20",
+        "3525012345678901",
+        "S1 PAI",
+        "Pondok Pesantren Al-Mubarok",
+        "Staf TU MA",
+        "Staf Admin",
+        "Pusat",
+        "pass123",
+      ],
+      [
+        "USR002",
+        "Siti Aisyah",
+        "08987654321",
+        "Kontrak",
+        "2026-03-01",
+        "Surabaya",
+        "1998-11-12",
+        "3578012345678902",
+        "SMA",
+        "Pondok Pesantren Lirboyo",
+        "Guru Madin",
+        "Guru",
+        "Cabang A",
+        "pass456",
+      ],
+    ];
+
+    const csvContent =
+      "\uFEFF" +
+      [
+        headers.join(","),
+        ...examples.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")),
+      ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "template_import_abdi.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const processFile = (file: File) => {
+    if (!file.name.endsWith(".csv")) {
+      alert("Harap unggah file dengan format .csv");
+      return;
+    }
+    setImportFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+
+      // Auto-detect delimiter
+      const firstLine = text.split("\n")[0] || "";
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const semicolonCount = (firstLine.match(/;/g) || []).length;
+      const delimiter = semicolonCount > commaCount ? ";" : ",";
+
+      const parsedLines = parseCSV(text, delimiter);
+      if (parsedLines.length <= 1) {
+        alert("File CSV kosong atau tidak memiliki baris data.");
+        setImportFile(null);
+        return;
+      }
+
+      const rawHeaders = parsedLines[0];
+      const mappedFields = mapHeaders(rawHeaders);
+
+      const rows = parsedLines.slice(1);
+      const data: any[] = [];
+      const errors: { row: number; errors: string[] }[] = [];
+
+      rows.forEach((row, index) => {
+        if (row.length === 1 && row[0] === "") return;
+
+        const rowData: any = {};
+        mappedFields.forEach((field, i) => {
+          if (field) {
+            rowData[field] = row[i]?.trim() || "";
+          }
+        });
+
+        const rowErrors: string[] = [];
+        if (!rowData.kode_user) {
+          rowErrors.push("Kode User wajib diisi.");
+        }
+        if (!rowData.nama_user) {
+          rowErrors.push("Nama Lengkap wajib diisi.");
+        }
+        if (!rowData.no_hp) {
+          rowErrors.push("No HP wajib diisi.");
+        }
+
+        // Normalize status
+        if (rowData.status) {
+          const matchedStatus = STATUS_OPTIONS.find((s) => s.toLowerCase() === rowData.status.toLowerCase());
+          if (matchedStatus) {
+            rowData.status = matchedStatus;
+          } else {
+            rowErrors.push(`Status '${rowData.status}' tidak valid. Harus salah satu dari: ${STATUS_OPTIONS.join(", ")}`);
+          }
+        } else {
+          rowData.status = "Kontrak";
+        }
+
+        // Map Jabatan name to id_jabatan
+        if (rowData.jabatan) {
+          const matchedJ = jabatanList.find((j) => j.jabatan.toLowerCase() === rowData.jabatan.toLowerCase());
+          if (matchedJ) {
+            rowData.id_jabatan = matchedJ.id_jabatan;
+          } else {
+            rowErrors.push(`Jabatan '${rowData.jabatan}' tidak ditemukan di sistem.`);
+          }
+        }
+
+        // Map Cabang name to id_cabang
+        if (rowData.nama_cabang) {
+          const matchedC = cabangList.find((c) => c.nama_cabang.toLowerCase() === rowData.nama_cabang.toLowerCase());
+          if (matchedC) {
+            rowData.id_cabang = matchedC.id_cabang;
+          } else {
+            rowErrors.push(`Cabang/Unit '${rowData.nama_cabang}' tidak ditemukan di sistem.`);
+          }
+        }
+
+        data.push({
+          ...rowData,
+          rowNum: index + 2,
+        });
+
+        if (rowErrors.length > 0) {
+          errors.push({
+            row: index + 2,
+            errors: rowErrors,
+          });
+        }
+      });
+
+      setParsedData(data);
+      setValidationErrors(errors);
+      setImportStep(2);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportSubmit = async () => {
+    if (parsedData.length === 0 || validationErrors.length > 0) return;
+    setImporting(true);
+    try {
+      const response = await fetch("/api/hrd/users/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsedData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Terjadi kesalahan saat mengimpor.");
+      }
+
+      setImportStep(3);
+      fetchUsers();
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleExportSubmit = () => {
+    if (users.length === 0) {
+      alert("Tidak ada data abdi untuk diekspor.");
+      return;
+    }
+
+    const separator = exportDelimiter;
+    const selectedHeaders: string[] = [];
+    const fieldKeys: string[] = [];
+
+    const fieldLabels: { [key: string]: string } = {
+      kode_user: "Kode User",
+      nama_user: "Nama Lengkap",
+      no_hp: "No HP",
+      status: "Status",
+      tanggal_masuk: "Tanggal Masuk",
+      tempat_lahir: "Tempat Lahir",
+      tanggal_lahir: "Tanggal Lahir",
+      no_ktp: "No KTP",
+      pendidikan_terakhir: "Pendidikan Terakhir",
+      riwayat_lembaga: "Riwayat Lembaga",
+      riwayat_pekerjaan: "Riwayat Pekerjaan",
+      jabatan: "Jabatan",
+      nama_cabang: "Cabang",
+    };
+
+    Object.entries(exportFields).forEach(([key, val]) => {
+      if (val) {
+        selectedHeaders.push(fieldLabels[key] || key);
+        fieldKeys.push(key);
+      }
+    });
+
+    if (fieldKeys.length === 0) {
+      alert("Pilih setidaknya satu kolom untuk diekspor.");
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (exportFormat === "xlsx") {
+      // Real Excel Spreadsheet Generation using SheetJS
+      const sheetData = [
+        selectedHeaders,
+        ...users.map((item) => fieldKeys.map((key) => item[key as keyof User] ?? "")),
+      ];
+
+      const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Daftar Abdi");
+
+      // Beautify column widths
+      const colWidths = fieldKeys.map((_, colIdx) => {
+        let maxLen = selectedHeaders[colIdx].length;
+        users.forEach((item) => {
+          const val = String(item[fieldKeys[colIdx] as keyof User] ?? "");
+          if (val.length > maxLen) maxLen = val.length;
+        });
+        return { wch: Math.min(maxLen + 4, 40) };
+      });
+      worksheet["!cols"] = colWidths;
+
+      XLSX.writeFile(workbook, `daftar_abdi_${today}.xlsx`);
+    } else {
+      // CSV Format
+      const rows = users.map((item) => {
+        return fieldKeys
+          .map((key) => {
+            const value = item[key as keyof User] ?? "";
+            return `"${String(value).replace(/"/g, '""')}"`;
+          })
+          .join(separator);
+      });
+
+      const csvContent = "\uFEFF" + [selectedHeaders.join(separator), ...rows].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.setAttribute("download", `daftar_abdi_${today}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    setShowExportModal(false);
+  };
+
+  const openImportWizard = () => {
+    setImportFile(null);
+    setImportStep(1);
+    setParsedData([]);
+    setValidationErrors([]);
+    setShowImportModal(true);
+  };
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -78,6 +510,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetch("/api/hrd/jabatan").then(r => r.json()).then(setJabatanList);
+    fetch("/api/cabang").then(r => r.json()).then(res => setCabangList(res.data || res));
   }, []);
 
   const handleDelete = async (id: number) => {
@@ -130,13 +563,27 @@ export default function UsersPage() {
           </h1>
           <p className="text-on-background/70 text-sm mt-1">{total} total abdi terdaftar</p>
         </div>
-        <button
-          id="btn-tambah-user"
-          onClick={() => { setEditUser(null); setShowModal(true); }}
-          className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Tambah Abdi
-        </button>
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <button
+            onClick={openImportWizard}
+            className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm cursor-pointer"
+          >
+            <Upload className="w-4 h-4 text-primary" /> Import
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-primary" /> Export
+          </button>
+          <button
+            id="btn-tambah-user"
+            onClick={() => { setEditUser(null); setShowModal(true); }}
+            className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" /> Tambah Abdi
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -322,6 +769,489 @@ export default function UsersPage() {
           user={viewUser}
           onClose={() => setShowViewModal(false)}
         />
+      )}
+
+      {/* ================================== MODAL IMPORT ================================== */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8 text-on-background">
+            
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-outline-variant/40 flex items-center justify-between bg-surface-container-high/40">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-on-surface text-base">Import Data Abdi Massal</h2>
+                  <p className="text-xs text-on-surface-variant">Tambahkan banyak data abdi sekaligus via CSV</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowImportModal(false)} 
+                className="text-on-surface-variant hover:text-on-surface p-1 hover:bg-surface-container-high rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Stepper Progress */}
+            <div className="px-6 py-4 bg-surface-container-low/40 border-b border-outline-variant/20 flex justify-center items-center gap-8 select-none">
+              <div className="flex items-center gap-2">
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${importStep >= 1 ? "bg-primary text-on-primary" : "bg-surface-container-high text-on-surface-variant"}`}>1</span>
+                <span className={`text-xs font-medium ${importStep === 1 ? "text-primary font-bold" : "text-on-surface-variant"}`}>Pilih File</span>
+              </div>
+              <div className="w-12 h-0.5 bg-outline-variant/40" />
+              <div className="flex items-center gap-2">
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${importStep >= 2 ? "bg-primary text-on-primary" : "bg-surface-container-high text-on-surface-variant"}`}>2</span>
+                <span className={`text-xs font-medium ${importStep === 2 ? "text-primary font-bold" : "text-on-surface-variant"}`}>Validasi & Preview</span>
+              </div>
+              <div className="w-12 h-0.5 bg-outline-variant/40" />
+              <div className="flex items-center gap-2">
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${importStep >= 3 ? "bg-success text-white" : "bg-surface-container-high text-on-surface-variant"}`}>3</span>
+                <span className={`text-xs font-medium ${importStep === 3 ? "text-success font-bold" : "text-on-surface-variant"}`}>Selesai</span>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              
+              {/* Step 1: Upload */}
+              {importStep === 1 && (
+                <div className="space-y-6">
+                  {/* Info Row */}
+                  <div className="flex gap-4 p-4 bg-primary/5 rounded-2xl border border-primary/20">
+                    <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                    <div className="text-xs text-on-surface-variant leading-relaxed">
+                      <strong className="text-on-surface block mb-1">Panduan Pengisian CSV:</strong>
+                      Pastikan file CSV memiliki kolom <code className="bg-primary/10 text-primary px-1 py-0.5 rounded font-mono font-semibold">Kode User</code>, <code className="bg-primary/10 text-primary px-1 py-0.5 rounded font-mono font-semibold">Nama Lengkap</code>, dan <code className="bg-primary/10 text-primary px-1 py-0.5 rounded font-mono font-semibold">No HP</code> (wajib diisi).
+                      Kolom lain opsional. Gunakan nama Jabatan dan Cabang yang sesuai dengan sistem agar terpetakan secara otomatis.
+                    </div>
+                  </div>
+
+                  {/* Template Card */}
+                  <div className="flex items-center justify-between p-4 bg-surface-container-low border border-outline-variant/40 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-success/10 text-success rounded-xl">
+                        <FileSpreadsheet className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-on-surface">Template CSV Abdi</h4>
+                        <p className="text-xs text-on-surface-variant">Gunakan file excel/csv standar ini untuk mengisi data abdi</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="flex items-center gap-2 bg-success/10 hover:bg-success/20 text-success px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" /> Unduh Template
+                    </button>
+                  </div>
+
+                  {/* Drag and Drop Zone */}
+                  <div
+                    onDragEnter={handleDrag}
+                    onDragOver={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
+                      dragActive
+                        ? "border-primary bg-primary/5 shadow-inner scale-[0.99]"
+                        : "border-outline-variant hover:border-primary hover:bg-surface-container-low/40"
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      accept=".csv"
+                      className="hidden"
+                    />
+                    <div className="p-4 bg-surface-container-high rounded-full text-on-surface-variant">
+                      <Upload className="w-8 h-8 text-primary animate-pulse" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-on-surface">Pilih File CSV Anda</p>
+                      <p className="text-xs text-on-surface-variant mt-1">Tarik & lepas file Anda ke sini, atau klik untuk merambah folder</p>
+                    </div>
+                    <span className="text-[10px] bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full text-on-surface-variant font-mono">Format yang didukung: .csv</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Preview & Validation */}
+              {importStep === 2 && (
+                <div className="space-y-4">
+                  {/* Statistics */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-3 bg-surface-container-low border border-outline-variant/30 rounded-xl text-center">
+                      <span className="text-[10px] uppercase font-semibold text-on-surface-variant tracking-wider">Total Baris</span>
+                      <p className="text-xl font-bold text-on-surface mt-1">{parsedData.length}</p>
+                    </div>
+                    <div className="p-3 bg-success/5 border border-success/20 rounded-xl text-center">
+                      <span className="text-[10px] uppercase font-semibold text-success tracking-wider">Siap di-import</span>
+                      <p className="text-xl font-bold text-success mt-1">{parsedData.length - validationErrors.length}</p>
+                    </div>
+                    <div className="p-3 bg-error/5 border border-error/20 rounded-xl text-center">
+                      <span className="text-[10px] uppercase font-semibold text-error tracking-wider">Error Terdeteksi</span>
+                      <p className="text-xl font-bold text-error mt-1">{validationErrors.length}</p>
+                    </div>
+                  </div>
+
+                  {/* Warning banner if there are errors */}
+                  {validationErrors.length > 0 && (
+                    <div className="flex gap-3 p-3 bg-error/5 border border-error/20 rounded-xl">
+                      <AlertTriangle className="w-5 h-5 text-error shrink-0 mt-0.5" />
+                      <div className="text-xs text-error leading-relaxed">
+                        Terdeteksi {validationErrors.length} baris dengan kesalahan. Perbaiki file CSV Anda terlebih dahulu. Tombol import akan dinonaktifkan sampai semua baris valid.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Preview Table */}
+                  <div className="border border-outline-variant/30 rounded-xl overflow-hidden bg-surface">
+                    <div className="overflow-x-auto max-h-[30vh]">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead className="bg-surface-container-low border-b border-outline-variant/40 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-16">Baris</th>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-28">Status</th>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-28">Kode User</th>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-44">Nama Abdi</th>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-32">No HP</th>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-28">Jabatan</th>
+                            <th className="px-4 py-2.5 font-semibold text-on-surface-variant w-28">Cabang</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-outline-variant/20">
+                          {parsedData.map((row, idx) => {
+                            const rowErr = validationErrors.find(e => e.row === row.rowNum);
+                            return (
+                              <tr key={idx} className={`hover:bg-surface-container-high/20 transition-colors ${rowErr ? "bg-error/5" : ""}`}>
+                                <td className="px-4 py-2.5 font-mono text-on-surface-variant">#{row.rowNum}</td>
+                                <td className="px-4 py-2.5">
+                                  {rowErr ? (
+                                    <span className="inline-flex items-center gap-1 bg-error/10 text-error text-[10px] px-2 py-0.5 rounded-full font-semibold">
+                                      <AlertCircle className="w-3 h-3" /> Error
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 bg-success/10 text-success text-[10px] px-2 py-0.5 rounded-full font-semibold">
+                                      <CheckCircle2 className="w-3 h-3" /> Valid
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className={`font-mono font-semibold ${rowErr?.errors.some(e => e.includes("Kode User")) ? "text-error border-b border-dashed border-error/55" : "text-on-surface"}`}>
+                                    {row.kode_user || "[Kosong]"}
+                                  </span>
+                                  {rowErr?.errors.some(e => e.includes("Kode User")) && (
+                                    <span className="block text-[10px] text-error mt-0.5">Kode wajib diisi</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className={`font-semibold ${rowErr?.errors.some(e => e.includes("Nama Lengkap")) ? "text-error border-b border-dashed border-error/55" : "text-on-surface"}`}>
+                                    {row.nama_user || "[Kosong]"}
+                                  </span>
+                                  {rowErr?.errors.some(e => e.includes("Nama Lengkap")) && (
+                                    <span className="block text-[10px] text-error mt-0.5">Nama wajib diisi</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-on-surface-variant font-mono">{row.no_hp || "-"}</td>
+                                <td className="px-4 py-2.5 text-on-surface-variant">
+                                  {row.jabatan ? (
+                                    <span className={rowErr?.errors.some(e => e.includes("Jabatan")) ? "text-error border-b border-dashed border-error/55" : ""}>
+                                      {row.jabatan}
+                                    </span>
+                                  ) : (
+                                    "—"
+                                  )}
+                                  {rowErr?.errors.some(e => e.includes("Jabatan")) && (
+                                    <span className="block text-[10px] text-error mt-0.5">Jabatan tidak valid</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-on-surface-variant">
+                                  {row.nama_cabang ? (
+                                    <span className={rowErr?.errors.some(e => e.includes("Cabang")) ? "text-error border-b border-dashed border-error/55" : ""}>
+                                      {row.nama_cabang}
+                                    </span>
+                                  ) : (
+                                    "—"
+                                  )}
+                                  {rowErr?.errors.some(e => e.includes("Cabang")) && (
+                                    <span className="block text-[10px] text-error mt-0.5">Cabang tidak valid</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Success */}
+              {importStep === 3 && (
+                <div className="flex flex-col items-center justify-center py-10 space-y-4">
+                  <div className="w-16 h-16 bg-success/10 rounded-full flex items-center justify-center text-success animate-bounce shadow-lg shadow-success/10">
+                    <CheckCircle2 className="w-10 h-10" />
+                  </div>
+                  <div className="text-center space-y-1">
+                    <h3 className="text-lg font-bold text-on-surface">Proses Import Selesai!</h3>
+                    <p className="text-sm text-on-surface-variant max-w-sm leading-relaxed">
+                      Berhasil mengimpor <strong className="text-success">{parsedData.length} data abdi</strong> baru ke dalam sistem. Password default abdi yang di-import adalah <code className="bg-primary/10 text-primary px-1.5 py-0.5 rounded font-mono font-semibold">123456</code> (kecuali ditentukan lain dalam file).
+                    </p>
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-outline-variant/40 flex justify-end gap-3 bg-surface-container-high/20">
+              {importStep === 1 && (
+                <>
+                  <button
+                    onClick={() => setShowImportModal(false)}
+                    className="bg-surface hover:bg-surface-container-high text-on-surface px-5 py-2.5 rounded-xl text-xs font-semibold border border-outline-variant/50 transition-colors cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                </>
+              )}
+
+              {importStep === 2 && (
+                <>
+                  <button
+                    onClick={() => setImportStep(1)}
+                    className="bg-surface hover:bg-surface-container-high text-on-surface px-5 py-2.5 rounded-xl text-xs font-semibold border border-outline-variant/50 transition-colors cursor-pointer"
+                  >
+                    Kembali
+                  </button>
+                  <button
+                    onClick={handleImportSubmit}
+                    disabled={importing || validationErrors.length > 0}
+                    className="bg-primary hover:bg-primary/95 disabled:opacity-50 text-on-primary px-6 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-primary/20"
+                  >
+                    {importing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Mengimpor...
+                      </>
+                    ) : (
+                      <>
+                        Mulai Import ({parsedData.length - validationErrors.length} Baris)
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+
+              {importStep === 3 && (
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="bg-primary hover:bg-primary/95 text-on-primary px-6 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-md shadow-primary/20 cursor-pointer"
+                >
+                  Selesai
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================================== MODAL EXPORT ================================== */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8 text-on-background">
+            
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-outline-variant/40 flex items-center justify-between bg-surface-container-high/40">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-on-surface text-base">Ekspor Data Abdi</h2>
+                  <p className="text-xs text-on-surface-variant">Unduh data abdi aktif dalam format Excel atau CSV</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowExportModal(false)} 
+                className="text-on-surface-variant hover:text-on-surface p-1 hover:bg-surface-container-high rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-5">
+              
+              {/* Statistic */}
+              <div className="p-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-on-surface-variant font-medium">Jumlah data yang diekspor</span>
+                  <p className="text-lg font-bold text-on-surface mt-0.5">{users.length} Abdi</p>
+                </div>
+                <div className="p-2.5 bg-primary/5 rounded-xl border border-primary/15 text-primary">
+                  <FileText className="w-6 h-6" />
+                </div>
+              </div>
+
+              {/* Format Selector */}
+              <div>
+                <label className="block text-xs font-semibold uppercase text-on-surface-variant tracking-wider mb-2">Pilih Format File</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setExportFormat("xlsx")}
+                    className={`flex flex-col items-start gap-1.5 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      exportFormat === "xlsx"
+                        ? "border-primary bg-primary/5 shadow-sm text-primary font-semibold"
+                        : "border-outline-variant/60 hover:bg-surface-container-low/40 text-on-surface"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-success" />
+                      <span className="text-xs font-bold">Excel (.xlsx)</span>
+                    </div>
+                    <span className={`text-[10px] text-left leading-normal ${exportFormat === "xlsx" ? "text-primary/80" : "text-on-surface-variant"}`}>Spreadsheet Excel modern & auto-width</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExportFormat("csv")}
+                    className={`flex flex-col items-start gap-1.5 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      exportFormat === "csv"
+                        ? "border-primary bg-primary/5 shadow-sm text-primary font-semibold"
+                        : "border-outline-variant/60 hover:bg-surface-container-low/40 text-on-surface"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-bold">CSV (.csv)</span>
+                    </div>
+                    <span className={`text-[10px] text-left leading-normal ${exportFormat === "csv" ? "text-primary/80" : "text-on-surface-variant"}`}>Dokumen teks terpisah tanda baca</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Separator / Delimiter Selector (Show only if CSV selected) */}
+              {exportFormat === "csv" && (
+                <div className="animate-in fade-in slide-in-from-top-1 duration-150">
+                  <label className="block text-xs font-semibold uppercase text-on-surface-variant tracking-wider mb-2">Pilih Separator File CSV</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setExportDelimiter(",")}
+                      className={`flex flex-col items-start gap-1 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        exportDelimiter === ","
+                          ? "border-primary bg-primary/5 shadow-sm text-primary"
+                          : "border-outline-variant/60 hover:bg-surface-container-low/40 text-on-surface"
+                      }`}
+                    >
+                      <span className="text-xs font-bold">Koma ( , )</span>
+                      <span className={`text-[10px] ${exportDelimiter === "," ? "text-primary/80" : "text-on-surface-variant"}`}>Format standar internasional</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExportDelimiter(";")}
+                      className={`flex flex-col items-start gap-1 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        exportDelimiter === ";"
+                          ? "border-primary bg-primary/5 shadow-sm text-primary"
+                          : "border-outline-variant/60 hover:bg-surface-container-low/40 text-on-surface"
+                      }`}
+                    >
+                      <span className="text-xs font-bold">Titik Koma ( ; )</span>
+                      <span className={`text-[10px] ${exportDelimiter === ";" ? "text-primary/80" : "text-on-surface-variant"}`}>Kompatibel Excel regional ID</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Columns Selector */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold uppercase text-on-surface-variant tracking-wider">Pilih Kolom Data</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allSelected = Object.values(exportFields).every(v => v);
+                      setExportFields({
+                        kode_user: !allSelected,
+                        nama_user: !allSelected,
+                        no_hp: !allSelected,
+                        status: !allSelected,
+                        tanggal_masuk: !allSelected,
+                        tempat_lahir: !allSelected,
+                        tanggal_lahir: !allSelected,
+                        no_ktp: !allSelected,
+                        pendidikan_terakhir: !allSelected,
+                        riwayat_lembaga: !allSelected,
+                        riwayat_pekerjaan: !allSelected,
+                        jabatan: !allSelected,
+                        nama_cabang: !allSelected,
+                      });
+                    }}
+                    className="text-xs text-primary font-bold hover:underline cursor-pointer"
+                  >
+                    {Object.values(exportFields).every(v => v) ? "Batal Pilih Semua" : "Pilih Semua"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-surface-container-low/50 p-4 border border-outline-variant/30 rounded-2xl">
+                  {Object.entries(exportFields).map(([key, val]) => {
+                    const labelMapping: { [key: string]: string } = {
+                      kode_user: "Kode",
+                      nama_user: "Nama",
+                      no_hp: "No HP",
+                      status: "Status",
+                      tanggal_masuk: "Masuk",
+                      tempat_lahir: "Tempat Lahir",
+                      tanggal_lahir: "Tanggal Lahir",
+                      no_ktp: "No KTP",
+                      pendidikan_terakhir: "Pendidikan",
+                      riwayat_lembaga: "Riwayat Lembaga",
+                      riwayat_pekerjaan: "Riwayat Kerja",
+                      jabatan: "Jabatan",
+                      nama_cabang: "Cabang",
+                    };
+                    return (
+                      <label key={key} className="flex items-center gap-2 text-xs text-on-surface font-medium cursor-pointer p-1 rounded-lg hover:bg-surface-container-high/40 select-none">
+                        <input
+                          type="checkbox"
+                          checked={val}
+                          onChange={(e) => setExportFields(prev => ({ ...prev, [key]: e.target.checked }))}
+                          className="accent-primary w-3.5 h-3.5 rounded border-outline-variant focus:ring-primary"
+                        />
+                        {labelMapping[key] || key}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-outline-variant/40 flex justify-end gap-3 bg-surface-container-high/20">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="bg-surface hover:bg-surface-container-high text-on-surface px-5 py-2.5 rounded-xl text-xs font-semibold border border-outline-variant/50 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleExportSubmit}
+                className="bg-primary hover:bg-primary/95 text-on-primary px-6 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-md shadow-primary/20 cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Ekspor Sekarang
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );

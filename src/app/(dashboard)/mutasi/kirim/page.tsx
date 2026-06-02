@@ -124,7 +124,7 @@ export default function KirimMutasiPage() {
     const delayDebounce = setTimeout(async () => {
       setSearchingProducts(true);
       try {
-        const res = await fetch(`/api/barang?search=${encodeURIComponent(productSearch)}`);
+        const res = await fetch(`/api/barang?q=${encodeURIComponent(productSearch)}`);
         const list = await res.json();
 
         // Also fetch current sender branch stock for each found item
@@ -172,7 +172,7 @@ export default function KirimMutasiPage() {
       const mappedItems = await Promise.all(
         details.map(async (d) => {
           // Get product detail
-          const resProd = await fetch(`/api/barang?search=${encodeURIComponent(d.nama_barang)}`);
+          const resProd = await fetch(`/api/barang?q=${encodeURIComponent(d.nama_barang)}`);
           const plist: Product[] = await resProd.json();
           const p = plist.find((prod) => prod.id_barang === d.id_barang) || {
             id_barang: d.id_barang,

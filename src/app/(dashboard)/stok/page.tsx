@@ -220,6 +220,14 @@ export default function StokPage() {
                   </th>
                   <th
                     className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider cursor-pointer hover:bg-surface-container-high/40"
+                    onClick={() => handleSort("nama_cabang")}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Cabang {renderSortIndicator("nama_cabang")}
+                    </div>
+                  </th>
+                  <th
+                    className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider cursor-pointer hover:bg-surface-container-high/40"
                     onClick={() => handleSort("posisi_rak")}
                   >
                     <div className="flex items-center gap-1.5">
@@ -256,7 +264,7 @@ export default function StokPage() {
               <tbody className="divide-y divide-outline-variant/20">
                 {sortedList.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-8 text-center text-on-surface-variant text-sm">
+                    <td colSpan={8} className="px-5 py-8 text-center text-on-surface-variant text-sm">
                       Belum ada stok barang terdaftar di cabang ini.
                     </td>
                   </tr>
@@ -269,6 +277,9 @@ export default function StokPage() {
                         <td className="px-5 py-2.5">
                           <span className="text-on-surface font-semibold block">{s.nama_barang}</span>
                           <span className="text-on-surface-variant font-mono text-xs bg-surface-container/50 px-1.5 py-0.5 rounded border border-outline-variant/20">{s.barcode}</span>
+                        </td>
+                        <td className="px-5 py-2.5">
+                          <span className="text-on-surface font-medium block">{s.nama_cabang}</span>
                         </td>
                         <td className="px-5 py-2.5">
                           <span className="text-on-surface font-mono text-sm">{s.posisi_rak || "-"}</span>

@@ -5,7 +5,7 @@ import { like, or, eq } from "drizzle-orm";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const q = searchParams.get("q");
+  const q = searchParams.get("q") || searchParams.get("search");
   const barcode = searchParams.get("barcode");
 
   const query = db

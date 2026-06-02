@@ -7,7 +7,7 @@ import { getErrorMessage } from "@/lib/utils";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const search = searchParams.get("search") || "";
+  const search = searchParams.get("search") || searchParams.get("q") || "";
   const status = searchParams.get("status") || "";
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "20");
