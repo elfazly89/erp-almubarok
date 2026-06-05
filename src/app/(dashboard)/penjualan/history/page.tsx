@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { DollarSign, Printer, Search, RefreshCw, FileText, CheckCircle } from "lucide-react";
+import { DollarSign, Printer, Search, RefreshCw, FileText, CheckCircle, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Invoice {
   id_penjualan: number;
@@ -21,6 +22,7 @@ interface Invoice {
 }
 
 export default function HistoryPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -59,6 +61,16 @@ export default function HistoryPage() {
       inv.nama_pelanggan.toLowerCase().includes(search.toLowerCase()) ||
       inv.jenis_pembayaran.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden">

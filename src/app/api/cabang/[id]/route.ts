@@ -14,7 +14,7 @@ export async function PUT(request: Request, { params }: Params) {
     const idCabang = parseInt(id);
 
     const body = await request.json();
-    const { kode_cabang, nama_cabang, alamat, telepon, email, admin } = body;
+    const { kode_cabang, nama_cabang, alamat, telepon, email, admin, latitude, longitude } = body;
 
     if (!kode_cabang || !nama_cabang || !alamat) {
       return NextResponse.json(
@@ -51,6 +51,8 @@ export async function PUT(request: Request, { params }: Params) {
         telepon: telepon || null,
         email: email || null,
         admin: admin ? parseInt(admin) : null,
+        latitude: latitude || null,
+        longitude: longitude || null,
         updated_at: new Date().toISOString(),
       })
       .where(eq(cabang.id_cabang, idCabang))

@@ -20,6 +20,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Supplier {
   id_supplier: number;
@@ -38,6 +39,7 @@ interface Supplier {
 }
 
 export default function SupplierPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -585,6 +587,16 @@ export default function SupplierPage() {
     return 0;
   });
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
       <div className="flex items-center justify-between shrink-0">
@@ -594,24 +606,28 @@ export default function SupplierPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={openImportWizard}
-            className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm cursor-pointer"
-          >
-            <Upload className="w-4 h-4 text-primary" /> Import
-          </button>
+          {can_create && (
+            <button
+              onClick={openImportWizard}
+              className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm cursor-pointer"
+            >
+              <Upload className="w-4 h-4 text-primary" /> Import
+            </button>
+          )}
           <button
             onClick={() => setShowExportModal(true)}
             className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm cursor-pointer"
           >
             <Download className="w-4 h-4 text-primary" /> Export
           </button>
-          <button
-            onClick={() => openModal()}
-            className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Tambah Supplier
-          </button>
+          {can_create && (
+            <button
+              onClick={() => openModal()}
+              className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Supplier
+            </button>
+          )}
         </div>
       </div>
 
@@ -701,12 +717,16 @@ export default function SupplierPage() {
                       </td>
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => openModal(s)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDelete(s.id_supplier)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {can_update && (
+                            <button onClick={() => openModal(s)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can_delete && (
+                            <button onClick={() => handleDelete(s.id_supplier)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

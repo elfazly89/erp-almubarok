@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { AlertTriangle, RefreshCw, CheckCircle2, Search, Calendar, FileText, ArrowRight } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface DiscrepancyItem {
   id_detail_kirim: number;
@@ -20,6 +21,7 @@ interface DiscrepancyItem {
 }
 
 export default function SelisihMutasiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [items, setItems] = useState<DiscrepancyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -76,6 +78,16 @@ export default function SelisihMutasiPage() {
       item.nama_barang.toLowerCase().includes(search.toLowerCase()) ||
       item.cabang_tujuan.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
@@ -166,18 +178,20 @@ export default function SelisihMutasiPage() {
                         {item.catatan_penerima ? `"${item.catatan_penerima}"` : "-"}
                       </td>
                       <td className="px-5 py-2.5 text-right">
-                        <button
-                          onClick={() => handleApproveDiscrepancy(item)}
-                          disabled={approvingId === item.id_detail_kirim}
-                          className="bg-primary hover:bg-primary-container disabled:opacity-50 text-on-primary px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-sm transition-colors"
-                        >
-                          {approvingId === item.id_detail_kirim ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                          )}
-                          Setujui & Refund
-                        </button>
+                        {can_update && (
+                          <button
+                            onClick={() => handleApproveDiscrepancy(item)}
+                            disabled={approvingId === item.id_detail_kirim}
+                            className="bg-primary hover:bg-primary-container disabled:opacity-50 text-on-primary px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-sm transition-colors"
+                          >
+                            {approvingId === item.id_detail_kirim ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            )}
+                            Setujui & Refund
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

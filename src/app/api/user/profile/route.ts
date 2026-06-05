@@ -5,6 +5,24 @@ import { getServerSession } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { getErrorMessage } from "@/lib/utils";
 
+export async function GET() {
+  try {
+    const session = await getServerSession();
+    if (!session) {
+      return NextResponse.json(
+        { message: "Sesi Anda telah berakhir, silakan login kembali" },
+        { status: 401 }
+      );
+    }
+    return NextResponse.json(session);
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { message: "Gagal mengambil data profil", error: getErrorMessage(error) },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PUT(request: Request) {
   try {
     const session = await getServerSession();

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { CalendarDays, Plus, CheckCircle, XCircle, Clock, RefreshCw } from "lucide-react";
+import { CalendarDays, Plus, CheckCircle, XCircle, Clock, RefreshCw, AlertTriangle } from "lucide-react";
 import { formatDate, getStatusColor } from "@/lib/utils";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface IzinCuti {
   id: number;
@@ -32,6 +33,7 @@ const STATUS_TABS = [
 ];
 
 export default function IzinCutiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [data, setData] = useState<IzinCuti[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("pending");
@@ -66,6 +68,16 @@ export default function IzinCutiPage() {
     fetchData();
   };
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden">
       <div className="flex items-center justify-between">
@@ -79,12 +91,14 @@ export default function IzinCutiPage() {
           <button onClick={fetchData} className="bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-on-surface p-2.5 rounded-xl transition-colors cursor-pointer">
             <RefreshCw className="w-4 h-4 text-primary" />
           </button>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Ajukan
-          </button>
+          {can_create && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Ajukan
+            </button>
+          )}
         </div>
       </div>
 
@@ -141,18 +155,22 @@ export default function IzinCutiPage() {
 
               {item.status === "pending" && (
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setApproveModal({ id: item.id, action: "approve" })}
-                    className="flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    <CheckCircle className="w-4 h-4" /> Setujui
-                  </button>
-                  <button
-                    onClick={() => setApproveModal({ id: item.id, action: "reject" })}
-                    className="flex items-center gap-1.5 bg-error/10 hover:bg-error/20 border border-error/20 text-error px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    <XCircle className="w-4 h-4" /> Tolak
-                  </button>
+                  {can_update && (
+                    <button
+                      onClick={() => setApproveModal({ id: item.id, action: "approve" })}
+                      className="flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      <CheckCircle className="w-4 h-4" /> Setujui
+                    </button>
+                  )}
+                  {can_update && (
+                    <button
+                      onClick={() => setApproveModal({ id: item.id, action: "reject" })}
+                      className="flex items-center gap-1.5 bg-error/10 hover:bg-error/20 border border-error/20 text-error px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      <XCircle className="w-4 h-4" /> Tolak
+                    </button>
+                  )}
                 </div>
               )}
             </div>

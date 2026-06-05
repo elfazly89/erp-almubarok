@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Customer {
   id_pelanggan: number;
@@ -40,6 +41,7 @@ interface Customer {
 }
 
 export default function PelangganPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -604,6 +606,16 @@ export default function PelangganPage() {
     }
   };
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 text-on-background">
       {/* Page Header */}
@@ -619,24 +631,28 @@ export default function PelangganPage() {
         
         {/* Proportional Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={openImportWizard}
-            className="flex items-center justify-center gap-1.5 bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant/30 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 shadow-sm cursor-pointer hover:scale-[1.01]"
-          >
-            <Upload className="w-4 h-4 text-primary" /> Import
-          </button>
+          {can_create && (
+            <button
+              onClick={openImportWizard}
+              className="flex items-center justify-center gap-1.5 bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant/30 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 shadow-sm cursor-pointer hover:scale-[1.01]"
+            >
+              <Upload className="w-4 h-4 text-primary" /> Import
+            </button>
+          )}
           <button
             onClick={() => setShowExportModal(true)}
             className="flex items-center justify-center gap-1.5 bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant/30 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 shadow-sm cursor-pointer hover:scale-[1.01]"
           >
             <Download className="w-4 h-4 text-primary" /> Export
           </button>
-          <button
-            onClick={openCreateModal}
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-md hover:scale-[1.02] cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Tambah Pelanggan
-          </button>
+          {can_create && (
+            <button
+              onClick={openCreateModal}
+              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-md hover:scale-[1.02] cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Tambah Pelanggan
+            </button>
+          )}
         </div>
       </div>
 
@@ -754,12 +770,14 @@ export default function PelangganPage() {
                     <td className="px-6 py-4">{getLevelBadge(c.level_harga)}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="text-sm font-bold text-on-surface font-mono">{c.total_poin.toLocaleString()}</div>
-                      <button
-                        onClick={() => openAdjustPoinModal(c)}
-                        className="text-[9px] font-bold text-primary hover:text-primary-container hover:underline mt-1 inline-flex items-center gap-0.5 cursor-pointer"
-                      >
-                        Adjust Poin <Plus className="w-2.5 h-2.5" />
-                      </button>
+                      {can_update && (
+                        <button
+                          onClick={() => openAdjustPoinModal(c)}
+                          className="text-[9px] font-bold text-primary hover:text-primary-container hover:underline mt-1 inline-flex items-center gap-0.5 cursor-pointer"
+                        >
+                          Adjust Poin <Plus className="w-2.5 h-2.5" />
+                        </button>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
@@ -770,20 +788,24 @@ export default function PelangganPage() {
                         >
                           <Clock className="w-4 h-4" />
                         </Link>
-                        <button
-                          onClick={() => openEditModal(c)}
-                          className="p-2 hover:bg-primary/10 hover:text-primary text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
-                          title="Edit Pelanggan"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(c.id_pelanggan)}
-                          className="p-2 hover:bg-error/10 hover:text-error text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
-                          title="Hapus Pelanggan"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {can_update && (
+                          <button
+                            onClick={() => openEditModal(c)}
+                            className="p-2 hover:bg-primary/10 hover:text-primary text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
+                            title="Edit Pelanggan"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can_delete && (
+                          <button
+                            onClick={() => handleDelete(c.id_pelanggan)}
+                            className="p-2 hover:bg-error/10 hover:text-error text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
+                            title="Hapus Pelanggan"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

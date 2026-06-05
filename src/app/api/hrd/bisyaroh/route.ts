@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, jabatan, cabang, absensi, hutang_karyawan, bisyaroh, jurnal_umum } from "@/lib/db/schema";
+import { users, jabatan, cabang, absensi, hutang_karyawan, bisyaroh, jurnal_umum, daftar_gaji_jabatan } from "@/lib/db/schema";
 import { eq, and, like, sql } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/session";
 import { getErrorMessage } from "@/lib/utils";
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
       .orderBy(users.nama_user);
 
     // Fetch the salary configuration mappings directly
-    const salaryConfigs = await db.select().from(sql`daftar_gaji_jabatan`);
+    const salaryConfigs = await db.select().from(daftar_gaji_jabatan);
     const salaryMap = new Map();
     salaryConfigs.forEach((c: any) => {
       salaryMap.set(c.id_jabatan, c);
@@ -140,6 +140,14 @@ export async function GET(request: Request) {
       const outstandingLoan = loanMap.get(user.id) || 0;
 
       if (savedPayroll) {
+        // Still compute live values from absensi for comparison/recalculation
+        const liveGajiPokok = config.gaji_pokok || 0;
+        const liveGajiPerJam = config.gaji_per_jam || 0;
+        const liveLemburPerJam = config.lembur_per_jam || 0;
+        const liveGajiKehadiran = Math.round(totalJamKerja * liveGajiPerJam);
+        const liveGajiLembur = Math.round(totalJamLembur * liveLemburPerJam);
+        const liveTotalDiterima = liveGajiPokok + liveGajiKehadiran + liveGajiLembur;
+
         return {
           id: user.id,
           kode_user: user.kode_user,
@@ -163,6 +171,24 @@ export async function GET(request: Request) {
           tanggal_bayar: savedPayroll.tanggal_bayar,
           catatan: savedPayroll.catatan,
           bisyaroh_id: savedPayroll.id,
+          // Live data from current absensi (for recalculation comparison)
+          live_hari_kerja: hariKerja,
+          live_jam_kerja: totalJamKerja,
+          live_jam_lembur: totalJamLembur,
+          live_gaji_pokok: liveGajiPokok,
+          live_gaji_per_jam: liveGajiPerJam,
+          live_lembur_per_jam: liveLemburPerJam,
+          live_gaji_kehadiran: liveGajiKehadiran,
+          live_gaji_lembur: liveGajiLembur,
+          live_total_diterima: liveTotalDiterima,
+          has_changes: (
+            hariKerja !== savedPayroll.hari_kerja ||
+            totalJamKerja !== savedPayroll.total_jam_kerja ||
+            totalJamLembur !== savedPayroll.total_jam_lembur ||
+            liveGajiPokok !== savedPayroll.gaji_pokok ||
+            liveGajiPerJam !== savedPayroll.gaji_per_jam ||
+            liveLemburPerJam !== savedPayroll.lembur_per_jam
+          ),
         };
       }
 
@@ -250,15 +276,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const cabangId = parseInt(id_cabang) || 2; // Default to Sukosari if missing
+    const cabangId = parseInt(id_cabang) || 8; // Default to Sukosari (ID 8) if missing
 
-    await db.transaction(async (tx) => {
+    db.transaction((tx) => {
       // 1. Check if payroll record already exists
-      const existing = await tx
+      const existing = tx
         .select()
         .from(bisyaroh)
         .where(and(eq(bisyaroh.user_id, user_id), eq(bisyaroh.bulan, bulan), eq(bisyaroh.tahun, tahun)))
-        .limit(1);
+        .limit(1)
+        .all();
 
       const payrollValues = {
         user_id,
@@ -282,39 +309,43 @@ export async function POST(request: Request) {
       };
 
       if (existing.length > 0) {
-        await tx
+        tx
           .update(bisyaroh)
           .set(payrollValues)
-          .where(eq(bisyaroh.id, existing[0].id));
+          .where(eq(bisyaroh.id, existing[0].id))
+          .run();
       } else {
-        await tx.insert(bisyaroh).values(payrollValues);
+        tx.insert(bisyaroh).values(payrollValues).run();
       }
 
       // 2. Handle Loan Repayment if any
       const debtAmount = parseInt(potong_hutang_nominal) || 0;
       if (debtAmount > 0) {
         let remainingToDeduct = debtAmount;
-        const activeLoans = await tx
+        const activeLoans = tx
           .select()
           .from(hutang_karyawan)
           .where(and(eq(hutang_karyawan.user_id, user_id), eq(hutang_karyawan.status, "aktif")))
-          .orderBy(hutang_karyawan.tanggal);
+          .orderBy(hutang_karyawan.tanggal)
+          .all();
 
         for (const loan of activeLoans) {
           if (remainingToDeduct <= 0) break;
           if (loan.nominal <= remainingToDeduct) {
             remainingToDeduct -= loan.nominal;
-            await tx
+            tx
               .update(hutang_karyawan)
               .set({ status: "lunas", nominal: 0 })
-              .where(eq(hutang_karyawan.id, loan.id));
+              .where(eq(hutang_karyawan.id, loan.id))
+              .run();
           } else {
             const newNominal = loan.nominal - remainingToDeduct;
             remainingToDeduct = 0;
-            await tx
+            tx
               .update(hutang_karyawan)
               .set({ nominal: newNominal })
-              .where(eq(hutang_karyawan.id, loan.id));
+              .where(eq(hutang_karyawan.id, loan.id))
+              .run();
           }
         }
       }
@@ -323,26 +354,27 @@ export async function POST(request: Request) {
       const refCode = `BYS-${user_id}-${tahun}-${String(bulan).padStart(2, "0")}`;
       
       // Delete old journal for this period/user if re-processing
-      await tx
+      tx
         .delete(jurnal_umum)
-        .where(eq(jurnal_umum.no_referensi_bukti, refCode));
+        .where(eq(jurnal_umum.no_referensi_bukti, refCode))
+        .run();
 
       const todayStr = new Date().toISOString().split("T")[0];
 
-      // Debit Entry: Beban Gaji Abdi (COA ID 8)
-      await tx.insert(jurnal_umum).values({
+      // Debit Entry: Beban Gaji Karyawan (COA ID 37)
+      tx.insert(jurnal_umum).values({
         tanggal_transaksi: todayStr,
         no_referensi_bukti: refCode,
         deskripsi: `Beban Gaji Abdi: ${nama_user} (Periode ${bulan}/${tahun})`,
-        akun_id: 8, // Beban Gaji Abdi
+        akun_id: 37, // Beban Gaji Karyawan
         cabang_id: cabangId,
         debit: parseInt(total_diterima) || 0,
         kredit: 0,
         dibuat_oleh: session.id,
-      });
+      }).run();
 
       // Credit Entry: Selected Cash/Bank Account
-      await tx.insert(jurnal_umum).values({
+      tx.insert(jurnal_umum).values({
         tanggal_transaksi: todayStr,
         no_referensi_bukti: refCode,
         deskripsi: `Pembayaran Gaji Abdi: ${nama_user} (Periode ${bulan}/${tahun})`,
@@ -351,7 +383,7 @@ export async function POST(request: Request) {
         debit: 0,
         kredit: parseInt(total_diterima) || 0,
         dibuat_oleh: session.id,
-      });
+      }).run();
     });
 
     return NextResponse.json({ success: true });

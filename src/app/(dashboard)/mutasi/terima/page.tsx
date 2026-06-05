@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, Eye, CheckCircle2, Search, RefreshCw, AlertTriangle, Check, BookOpen, Clock } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface ShipmentHeader {
   id_pengiriman: number;
@@ -27,6 +28,7 @@ interface ShipmentDetail {
 }
 
 export default function TerimaMutasiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
   const [transitShipments, setTransitShipments] = useState<ShipmentHeader[]>([]);
   const [historyShipments, setHistoryShipments] = useState<ShipmentHeader[]>([]);
@@ -169,6 +171,16 @@ export default function TerimaMutasiPage() {
     h.cabang_sumber.toLowerCase().includes(search.toLowerCase())
   );
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -254,12 +266,14 @@ export default function TerimaMutasiPage() {
                         </span>
                       </td>
                       <td className="px-5 py-2.5 text-right">
-                        <button
-                          onClick={() => handleOpenReceiveModal(t)}
-                          className="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-sm transition-colors"
-                        >
-                          <Check className="w-3.5 h-3.5" /> Konfirmasi Fisik
-                        </button>
+                        {can_create && (
+                          <button
+                            onClick={() => handleOpenReceiveModal(t)}
+                            className="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-sm transition-colors"
+                          >
+                            <Check className="w-3.5 h-3.5" /> Konfirmasi Fisik
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

@@ -16,9 +16,11 @@ import {
   RefreshCw,
   X,
   CreditCard,
-  QrCode
+  QrCode,
+  AlertTriangle
 } from "lucide-react";
 import jsQR from "jsqr";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Barang {
   id_barang: number;
@@ -84,6 +86,7 @@ interface CompletedInvoice {
 
 
 export default function PosPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [products, setProducts] = useState<Barang[]>([]);
   const [customers, setCustomers] = useState<Pelanggan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -536,6 +539,16 @@ export default function PosPage() {
     return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
   };
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-h-[88vh] flex flex-col md:grid md:grid-cols-12 gap-6 overflow-hidden">
       
@@ -878,11 +891,11 @@ export default function PosPage() {
           {/* Checkout Button */}
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || !can_create}
             className="w-full bg-primary hover:bg-primary/95 text-on-primary disabled:opacity-40 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 mt-2 text-xs shadow-lg shadow-primary/25 hover:shadow-primary/35 cursor-pointer"
-            title="Selesaikan Transaksi (F12)"
+            title={can_create ? "Selesaikan Transaksi (F12)" : "Akses Ditolak"}
           >
-            <DollarSign className="w-4 h-4" /> SELESAIKAN TRANSAKSI [F12]
+            <DollarSign className="w-4 h-4" /> {can_create ? "SELESAIKAN TRANSAKSI [F12]" : "TIDAK MEMILIKI AKSES TAMBAH"}
           </button>
 
         </div>

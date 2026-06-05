@@ -22,7 +22,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Info,
+  AlertTriangle,
 } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Branch {
   id_cabang: number;
@@ -89,6 +91,7 @@ interface TebusMurahItem {
 }
 
 export default function PromoPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<PromoListItem[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -550,6 +553,16 @@ export default function PromoPage() {
     return matchesSearch && matchesStatus && matchesType;
   });
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 text-on-background">
       {/* Page Header */}
@@ -563,12 +576,14 @@ export default function PromoPage() {
           </p>
         </div>
 
-        <button
-          onClick={openCreateWizard}
-          className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-md hover:scale-[1.02] cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Buat Promo Baru
-        </button>
+        {can_create && (
+          <button
+            onClick={openCreateWizard}
+            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-md hover:scale-[1.02] cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Buat Promo Baru
+          </button>
+        )}
       </div>
 
       {/* Grid Summary Cards */}
@@ -733,20 +748,24 @@ export default function PromoPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => openEditWizard(item.id_promo)}
-                          className="p-2 hover:bg-primary/10 hover:text-primary text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
-                          title="Edit Aturan"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(item.id_promo)}
-                          className="p-2 hover:bg-error/10 hover:text-error text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
-                          title="Hapus Promo"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {can_update && (
+                          <button
+                            onClick={() => openEditWizard(item.id_promo)}
+                            className="p-2 hover:bg-primary/10 hover:text-primary text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
+                            title="Edit Aturan"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can_delete && (
+                          <button
+                            onClick={() => handleDelete(item.id_promo)}
+                            className="p-2 hover:bg-error/10 hover:text-error text-on-surface-variant rounded-xl border border-outline-variant/10 shadow-sm transition-all duration-150 cursor-pointer"
+                            title="Hapus Promo"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

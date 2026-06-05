@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Clock, Plus, Edit2, Trash2, RefreshCw } from "lucide-react";
+import { Clock, Plus, Edit2, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface JamKerja {
   id: number;
@@ -23,6 +24,7 @@ const defaultForm = {
 };
 
 export default function JamKerjaPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<JamKerja[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -78,6 +80,16 @@ export default function JamKerjaPage() {
     fetchData();
   };
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -87,12 +99,14 @@ export default function JamKerjaPage() {
           </h1>
           <p className="text-on-background/70 text-sm mt-1">{list.length} shift terdaftar</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Tambah Shift
-        </button>
+        {can_create && (
+          <button
+            onClick={() => openModal()}
+            className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Tambah Shift
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -110,12 +124,16 @@ export default function JamKerjaPage() {
                 {shift.keterangan && <p className="text-on-surface-variant text-xs mt-0.5">{shift.keterangan}</p>}
               </div>
               <div className="flex gap-1">
-                <button onClick={() => openModal(shift)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/15 rounded-lg transition-colors cursor-pointer" title="Edit">
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button onClick={() => handleDelete(shift.id)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/15 rounded-lg transition-colors cursor-pointer" title="Hapus">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {can_update && (
+                  <button onClick={() => openModal(shift)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/15 rounded-lg transition-colors cursor-pointer" title="Edit">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                )}
+                {can_delete && (
+                  <button onClick={() => handleDelete(shift.id)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/15 rounded-lg transition-colors cursor-pointer" title="Hapus">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
             <div className="space-y-2 text-sm">

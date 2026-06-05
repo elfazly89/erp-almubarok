@@ -39,15 +39,22 @@ export default function RoleMenuPage() {
   const [selectedJabatanId, setSelectedJabatanId] = useState<string>("");
   const [selectedJabatanName, setSelectedJabatanName] = useState<string>("");
 
-  // Active role IDs
-  const [activeMainIds, setActiveMainIds] = useState<number[]>([]);
-  const [activeSubIds, setActiveSubIds] = useState<number[]>([]);
+  // CRUD permission states mapped by menu/submenu ID
+  const [mainPermissions, setMainPermissions] = useState<Record<number, RolePermission>>({});
+  const [subPermissions, setSubPermissions] = useState<Record<number, RolePermission>>({});
 
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
-  // Fetch master data on load (including auto-seeding menus if database is empty!)
+  interface RolePermission {
+    can_create: boolean;
+    can_read: boolean;
+    can_update: boolean;
+    can_delete: boolean;
+  }
+
+  // Fetch master data on load
   const fetchMasterData = useCallback(async () => {
     setLoading(true);
     try {
@@ -68,11 +75,11 @@ export default function RoleMenuPage() {
     fetchMasterData();
   }, [fetchMasterData]);
 
-  // Fetch currently active role permission IDs when jabatan is selected
+  // Fetch currently active role permission details when jabatan is selected
   const fetchActivePermissions = useCallback(async (id: string) => {
     if (!id) {
-      setActiveMainIds([]);
-      setActiveSubIds([]);
+      setMainPermissions({});
+      setSubPermissions({});
       setHasChanges(false);
       return;
     }
@@ -82,8 +89,33 @@ export default function RoleMenuPage() {
       if (res.ok) {
         const result = await res.json();
         if (result.success) {
-          setActiveMainIds(result.data.main || []);
-          setActiveSubIds(result.data.sub || []);
+          const mainPerms: Record<number, RolePermission> = {};
+          const subPerms: Record<number, RolePermission> = {};
+
+          if (Array.isArray(result.data.main)) {
+            result.data.main.forEach((m: any) => {
+              mainPerms[m.id_menu_main] = {
+                can_create: !!m.can_create,
+                can_read: !!m.can_read,
+                can_update: !!m.can_update,
+                can_delete: !!m.can_delete,
+              };
+            });
+          }
+
+          if (Array.isArray(result.data.sub)) {
+            result.data.sub.forEach((s: any) => {
+              subPerms[s.id_menu_sub] = {
+                can_create: !!s.can_create,
+                can_read: !!s.can_read,
+                can_update: !!s.can_update,
+                can_delete: !!s.can_delete,
+              };
+            });
+          }
+
+          setMainPermissions(mainPerms);
+          setSubPermissions(subPerms);
           setHasChanges(false);
         }
       }
@@ -100,43 +132,82 @@ export default function RoleMenuPage() {
     setMessage(null);
   };
 
-  const isParentChecked = (id: number) => activeMainIds.includes(id);
-  const isChildChecked = (id: number) => activeSubIds.includes(id);
-
-  // Handle main menu checking
-  const handleParentChange = (id: number, checked: boolean) => {
-    setHasChanges(true);
-    if (checked) {
-      if (!activeMainIds.includes(id)) {
-        setActiveMainIds([...activeMainIds, id]);
-      }
-    } else {
-      // Uncheck parent
-      setActiveMainIds(activeMainIds.filter((pId) => pId !== id));
-
-      // Cascade: Uncheck all submenus inside this main menu
-      const main = menus.find((m) => m.id === id);
-      if (main && main.sub_menus.length > 0) {
-        const subIdsToFilter = main.sub_menus.map((s) => s.id);
-        setActiveSubIds(activeSubIds.filter((sId) => !subIdsToFilter.includes(sId)));
-      }
-    }
+  // Helper to fetch permission object for specific ID
+  const getMenuPerm = (id: number, type: "main" | "sub"): RolePermission => {
+    const defaults = { can_create: false, can_read: false, can_update: false, can_delete: false };
+    const dict = type === "main" ? mainPermissions : subPermissions;
+    return dict[id] || defaults;
   };
 
-  // Handle submenu checking
-  const handleChildChange = (parentId: number, childId: number, checked: boolean) => {
+  // Set individual permission value
+  const setMenuPermVal = (
+    id: number,
+    type: "main" | "sub",
+    key: "can_create" | "can_read" | "can_update" | "can_delete",
+    val: boolean
+  ) => {
     setHasChanges(true);
-    if (checked) {
-      // Auto-check parent if a child is checked
-      if (!activeMainIds.includes(parentId)) {
-        setActiveMainIds([...activeMainIds, parentId]);
-      }
-      if (!activeSubIds.includes(childId)) {
-        setActiveSubIds([...activeSubIds, childId]);
+
+    if (type === "main") {
+      setMainPermissions((prev) => {
+        const current = prev[id] || { can_create: false, can_read: false, can_update: false, can_delete: false };
+        const next = { ...current, [key]: val };
+
+        // If disabling read, disable all other actions
+        if (key === "can_read" && !val) {
+          next.can_create = false;
+          next.can_update = false;
+          next.can_delete = false;
+        }
+        // If enabling create/update/delete, force enable read
+        if ((key === "can_create" || key === "can_update" || key === "can_delete") && val) {
+          next.can_read = true;
+        }
+
+        return { ...prev, [id]: next };
+      });
+
+      // Cascade: If turning off main read, turn off all child submenus
+      if (key === "can_read" && !val) {
+        const main = menus.find((m) => m.id === id);
+        if (main && main.sub_menus.length > 0) {
+          setSubPermissions((prev) => {
+            const next = { ...prev };
+            main.sub_menus.forEach((s) => {
+              next[s.id] = { can_create: false, can_read: false, can_update: false, can_delete: false };
+            });
+            return next;
+          });
+        }
       }
     } else {
-      // Uncheck child
-      setActiveSubIds(activeSubIds.filter((cId) => cId !== childId));
+      // Submenu
+      setSubPermissions((prev) => {
+        const current = prev[id] || { can_create: false, can_read: false, can_update: false, can_delete: false };
+        const next = { ...current, [key]: val };
+
+        if (key === "can_read" && !val) {
+          next.can_create = false;
+          next.can_update = false;
+          next.can_delete = false;
+        }
+        if ((key === "can_create" || key === "can_update" || key === "can_delete") && val) {
+          next.can_read = true;
+        }
+
+        return { ...prev, [id]: next };
+      });
+
+      // Cascade: If enabling child permission, force enable parent can_read
+      if (val) {
+        const parentId = menus.find((m) => m.sub_menus.some((s) => s.id === id))?.id;
+        if (parentId) {
+          setMainPermissions((prev) => {
+            const current = prev[parentId] || { can_create: false, can_read: false, can_update: false, can_delete: false };
+            return { ...prev, [parentId]: { ...current, can_read: true } };
+          });
+        }
+      }
     }
   };
 
@@ -144,13 +215,19 @@ export default function RoleMenuPage() {
   const handleToggleAll = (check: boolean) => {
     setHasChanges(true);
     if (check) {
-      const allMainIds = menus.map((m) => m.id);
-      const allSubIds = menus.flatMap((m) => m.sub_menus.map((s) => s.id));
-      setActiveMainIds(allMainIds);
-      setActiveSubIds(allSubIds);
+      const newMain: Record<number, RolePermission> = {};
+      menus.forEach((m) => {
+        newMain[m.id] = { can_create: true, can_read: true, can_update: true, can_delete: true };
+      });
+      const newSub: Record<number, RolePermission> = {};
+      menus.flatMap((m) => m.sub_menus).forEach((s) => {
+        newSub[s.id] = { can_create: true, can_read: true, can_update: true, can_delete: true };
+      });
+      setMainPermissions(newMain);
+      setSubPermissions(newSub);
     } else {
-      setActiveMainIds([]);
-      setActiveSubIds([]);
+      setMainPermissions({});
+      setSubPermissions({});
     }
   };
 
@@ -160,14 +237,32 @@ export default function RoleMenuPage() {
 
     setSaving(true);
     setMessage(null);
+
+    // Convert dictionaries to list of CRUD objects
+    const main_menu = Object.keys(mainPermissions).map((idStr) => {
+      const id = parseInt(idStr);
+      return {
+        id,
+        ...mainPermissions[id],
+      };
+    });
+
+    const sub_menu = Object.keys(subPermissions).map((idStr) => {
+      const id = parseInt(idStr);
+      return {
+        id,
+        ...subPermissions[id],
+      };
+    });
+
     try {
       const res = await fetch("/api/pengaturan/role-menu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id_jabatan: selectedJabatanId,
-          main_menu: activeMainIds,
-          sub_menu: activeSubIds,
+          main_menu,
+          sub_menu,
         }),
       });
 
@@ -183,6 +278,51 @@ export default function RoleMenuPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const renderCheckboxes = (id: number, type: "main" | "sub") => {
+    const perm = getMenuPerm(id, type);
+    const keys: Array<"can_read" | "can_create" | "can_update" | "can_delete"> = [
+      "can_read",
+      "can_create",
+      "can_update",
+      "can_delete",
+    ];
+    const colors = {
+      can_read: "bg-[#0284c7]/10 text-[#0284c7] border-[#0284c7]/20 dark:bg-[#38bdf8]/15 dark:text-[#38bdf8]",
+      can_create: "bg-[#16a34a]/10 text-[#16a34a] border-[#16a34a]/20 dark:bg-[#4ade80]/15 dark:text-[#4ade80]",
+      can_update: "bg-[#ca8a04]/10 text-[#ca8a04] border-[#ca8a04]/20 dark:bg-[#facc15]/15 dark:text-[#facc15]",
+      can_delete: "bg-[#dc2626]/10 text-[#dc2626] border-[#dc2626]/20 dark:bg-[#f87171]/15 dark:text-[#f87171]",
+    };
+    const shortLabels = {
+      can_read: "R",
+      can_create: "C",
+      can_update: "U",
+      can_delete: "D",
+    };
+
+    return (
+      <div className="flex items-center gap-1 bg-surface-container-high/30 p-1 rounded-lg border border-outline-variant/20 shrink-0">
+        {keys.map((key) => {
+          const active = perm[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMenuPermVal(id, type, key, !active)}
+              className={`w-7 h-7 flex items-center justify-center rounded-md border text-xs font-bold transition-all cursor-pointer ${
+                active
+                  ? `${colors[key]} shadow-sm scale-105`
+                  : "bg-surface-container-low border-outline-variant/40 text-on-surface-variant/40 hover:bg-surface-container-high hover:text-on-surface-variant"
+              }`}
+              title={key === "can_read" ? "Read" : key === "can_create" ? "Create" : key === "can_update" ? "Update" : "Delete"}
+            >
+              {shortLabels[key]}
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -272,7 +412,7 @@ export default function RoleMenuPage() {
           {/* Menus Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {menus.map((main) => {
-              const checked = isParentChecked(main.id);
+              const checked = getMenuPerm(main.id, "main").can_read;
               return (
                 <div
                   key={main.id}
@@ -282,51 +422,62 @@ export default function RoleMenuPage() {
                       : "bg-surface border-outline-variant/30 hover:border-outline-variant/60"
                   }`}
                 >
-                  <div className="flex items-start">
-                    <input
-                      type="checkbox"
-                      id={`main-${main.id}`}
-                      checked={checked}
-                      onChange={(e) => handleParentChange(main.id, e.target.checked)}
-                      className="h-5 w-5 rounded border-outline-variant text-primary focus:ring-primary/40 mt-0.5 cursor-pointer shrink-0"
-                    />
-                    <div className="ml-3 flex-1 space-y-3">
-                      <label
-                        htmlFor={`main-${main.id}`}
-                        className={`block text-base font-bold cursor-pointer select-none ${
-                          checked ? "text-primary font-extrabold" : "text-on-surface"
-                        }`}
-                      >
-                        {main.nama}
-                      </label>
+                  <div className="flex flex-col h-full space-y-4">
+                    {/* Main Menu Row */}
+                    <div className="flex items-center justify-between gap-3 border-b border-outline-variant/20 pb-3">
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id={`main-${main.id}`}
+                          checked={checked}
+                          onChange={(e) => setMenuPermVal(main.id, "main", "can_read", e.target.checked)}
+                          className="h-5 w-5 rounded border-outline-variant text-primary focus:ring-primary/40 cursor-pointer shrink-0"
+                        />
+                        <label
+                          htmlFor={`main-${main.id}`}
+                          className={`ml-2.5 block text-base font-bold cursor-pointer select-none ${
+                            checked ? "text-primary font-extrabold" : "text-on-surface"
+                          }`}
+                        >
+                          {main.nama}
+                        </label>
+                      </div>
+                      {renderCheckboxes(main.id, "main")}
+                    </div>
 
-                      {main.sub_menus.length > 0 && (
-                        <div className="space-y-2.5 pt-2 border-t border-outline-variant/20">
-                          {main.sub_menus.map((sub) => {
-                            const subChecked = isChildChecked(sub.id);
-                            return (
-                              <div key={sub.id} className="flex items-center">
+                    {/* Sub Menus List */}
+                    {main.sub_menus.length > 0 && (
+                      <div className="space-y-3 pt-1 flex-1">
+                        {main.sub_menus.map((sub) => {
+                          const subChecked = getMenuPerm(sub.id, "sub").can_read;
+                          return (
+                            <div
+                              key={sub.id}
+                              className="flex items-center justify-between py-1.5 border-b border-dashed border-outline-variant/10 gap-3"
+                            >
+                              <div className="flex items-center">
                                 <input
                                   type="checkbox"
                                   id={`sub-${sub.id}`}
                                   checked={subChecked}
-                                  onChange={(e) => handleChildChange(main.id, sub.id, e.target.checked)}
+                                  onChange={(e) => setMenuPermVal(sub.id, "sub", "can_read", e.target.checked)}
                                   className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/40 cursor-pointer shrink-0"
                                 />
                                 <label
                                   htmlFor={`sub-${sub.id}`}
-                                  className={`ml-2.5 block text-xs font-semibold cursor-pointer select-none ${
+                                  className={`ml-2 block text-xs font-semibold cursor-pointer select-none ${
                                     subChecked ? "text-on-surface font-bold" : "text-on-surface-variant/80"
                                   }`}
                                 >
                                   {sub.nama}
                                 </label>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                              {renderCheckboxes(sub.id, "sub")}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

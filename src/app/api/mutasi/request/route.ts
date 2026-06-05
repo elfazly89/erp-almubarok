@@ -138,9 +138,9 @@ export async function POST(request: Request) {
   const kodeRequest = `TR-${timestampStr}`;
 
   try {
-    const result = await db.transaction(async (tx) => {
+    const result = db.transaction((tx) => {
       // 1. Save header
-      const [newReq] = await tx
+      const [newReq] = tx
         .insert(pesan_cabang)
         .values({
           kode_request: kodeRequest,
@@ -150,16 +150,17 @@ export async function POST(request: Request) {
           tanggal_request: tanggal_request || now.toISOString().slice(0, 10),
           status: "Pending",
         })
-        .returning();
+        .returning()
+        .all();
 
       // 2. Save items
       for (const item of items) {
-        await tx.insert(pesan_cabang_detail).values({
+        tx.insert(pesan_cabang_detail).values({
           id_request: newReq.id_request,
           id_barang: parseInt(item.id_barang),
           jumlah_diminta: parseInt(item.jumlah_diminta), // in base units (pcs)
           status_item: "Diproses",
-        });
+        }).run();
       }
 
       return { success: true, id_request: newReq.id_request, kode_request: kodeRequest };

@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Clock, ArrowLeft, CalendarDays, Filter, RefreshCw, FileText, ArrowUpRight, ArrowDownRight, Award, Plus } from "lucide-react";
+import { Clock, ArrowLeft, CalendarDays, Filter, RefreshCw, FileText, ArrowUpRight, ArrowDownRight, Award, Plus, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface PointRecord {
   id: number;
@@ -25,6 +26,7 @@ interface Customer {
 }
 
 function RiwayatPoinContent() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialIdPelanggan = searchParams.get("id_pelanggan") || "";
@@ -126,6 +128,16 @@ function RiwayatPoinContent() {
       return dateTimeStr;
     }
   };
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-on-background">

@@ -14,7 +14,9 @@ import {
   ChevronRight,
   TrendingDown,
   Percent,
+  AlertTriangle,
 } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 import {
   BarChart,
   Bar,
@@ -81,6 +83,7 @@ interface BalanceSheetData {
 }
 
 export default function LaporanAkuntansiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [activeTab, setActiveTab] = useState<"ledger" | "trial-balance" | "profit-loss" | "balance-sheet">("ledger");
 
   // Date Filters (default to current month)
@@ -244,8 +247,18 @@ export default function LaporanAkuntansiPage() {
   const totalLiability = bsData?.liabilities.reduce((sum, item) => sum + item.total, 0) || 0;
   const totalEquity = (bsData?.equities.reduce((sum, item) => sum + item.total, 0) || 0) + (bsData?.retained_earnings || 0);
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 text-on-background print:space-y-4 print:text-black">
+    <div className="space-y-6 text-on-background print:space-y-4 print:text-black font-sans">
       {/* Title & Print Actions */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 print:hidden">
         <div>

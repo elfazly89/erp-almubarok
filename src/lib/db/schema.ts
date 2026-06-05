@@ -16,6 +16,9 @@ export const cabang = sqliteTable("cabang", {
   telepon: text("telepon"),
   email: text("email"),
   admin: integer("admin"),
+  latitude: text("latitude"),
+  longitude: text("longitude"),
+  data_kode: text("data_kode"),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
   updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
@@ -180,6 +183,10 @@ export const role_menu = sqliteTable("role_menu", {
   id_jabatan: integer("id_jabatan").notNull(),
   id_menu_main: integer("id_menu_main").notNull(),
   aktif: integer("aktif", { mode: "boolean" }).default(true),
+  can_create: integer("can_create", { mode: "boolean" }).default(false),
+  can_read: integer("can_read", { mode: "boolean" }).default(true),
+  can_update: integer("can_update", { mode: "boolean" }).default(false),
+  can_delete: integer("can_delete", { mode: "boolean" }).default(false),
 });
 
 // ─── ROLE MENU SUB ───────────────────────────────────────────────────────────
@@ -188,6 +195,10 @@ export const role_menu_sub = sqliteTable("role_menu_sub", {
   id_jabatan: integer("id_jabatan").notNull(),
   id_menu_sub: integer("id_menu_sub").notNull(),
   aktif: integer("aktif", { mode: "boolean" }).default(true),
+  can_create: integer("can_create", { mode: "boolean" }).default(false),
+  can_read: integer("can_read", { mode: "boolean" }).default(true),
+  can_update: integer("can_update", { mode: "boolean" }).default(false),
+  can_delete: integer("can_delete", { mode: "boolean" }).default(false),
 });
 
 // ─── LOGIN ATTEMPTS ──────────────────────────────────────────────────────────

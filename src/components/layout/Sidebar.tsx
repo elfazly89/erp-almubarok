@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import Logo from "./Logo";
+import { usePermissions } from "@/components/providers/PermissionProvider";
 import {
   LayoutDashboard,
   Users,
@@ -32,6 +33,7 @@ import {
   Inbox,
   AlertTriangle,
   Tags,
+  CreditCard,
 } from "lucide-react";
 
 interface NavItem {
@@ -57,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Jam Kerja", href: "/hrd/jam-kerja", icon: <Clock className="w-4 h-4" /> },
       { label: "Hari Libur", href: "/hrd/hari-libur", icon: <CalendarOff className="w-4 h-4" /> },
       { label: "Izin & Cuti", href: "/hrd/izin-cuti", icon: <CalendarDays className="w-4 h-4" /> },
+      { label: "Hutang Abdi", href: "/hrd/hutang", icon: <CreditCard className="w-4 h-4" /> },
       { label: "Bisyaroh", href: "/hrd/bisyaroh", icon: <Wallet className="w-4 h-4" /> },
     ],
   },
@@ -161,6 +164,24 @@ function SidebarContent({
   isCollapsed,
   toggleCollapse,
 }: SidebarContentProps) {
+  const { hasAccess, loading } = usePermissions();
+
+  const filteredItems = NAV_ITEMS.map((item) => {
+    if (item.href) {
+      return hasAccess(item.href) ? item : null;
+    }
+
+    const visibleChildren = item.children?.filter((child) => hasAccess(child.href)) || [];
+    if (visibleChildren.length > 0) {
+      return {
+        ...item,
+        children: visibleChildren,
+      };
+    }
+
+    return null;
+  }).filter((item): item is NavItem => item !== null);
+
   return (
     <div className="flex flex-col h-full bg-surface-container-low transition-all duration-300">
       {/* Logo */}
@@ -182,7 +203,12 @@ function SidebarContent({
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-1 scrollbar-none">
-        {NAV_ITEMS.map((item) => {
+        {loading ? (
+          <div className="flex items-center justify-center py-8 text-xs text-on-surface-variant/60">
+            Memuat menu...
+          </div>
+        ) : (
+          filteredItems.map((item) => {
           if (item.href) {
             return (
               <Link
@@ -272,7 +298,8 @@ function SidebarContent({
               )}
             </div>
           );
-        })}
+        })
+       )}
       </nav>
     </div>
   );

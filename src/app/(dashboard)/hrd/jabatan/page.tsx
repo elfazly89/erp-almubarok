@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Briefcase, Plus, Edit2, Trash2, RefreshCw } from "lucide-react";
+import { Briefcase, Plus, Edit2, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Jabatan {
   id_jabatan: number;
@@ -9,6 +10,7 @@ interface Jabatan {
 }
 
 export default function JabatanPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Jabatan[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -58,6 +60,16 @@ export default function JabatanPage() {
     fetchData();
   };
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden">
       <div className="flex items-center justify-between">
@@ -67,12 +79,14 @@ export default function JabatanPage() {
           </h1>
           <p className="text-on-background/70 text-sm mt-1">{list.length} jabatan terdaftar</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Tambah Jabatan
-        </button>
+        {can_create && (
+          <button
+            onClick={() => openModal()}
+            className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Tambah Jabatan
+          </button>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 bg-surface border border-outline-variant/30 rounded-2xl overflow-hidden shadow-sm flex flex-col">
@@ -99,12 +113,16 @@ export default function JabatanPage() {
                   </td>
                   <td className="px-5 py-2.5">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => openModal(j)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/15 rounded-lg transition-colors cursor-pointer" title="Edit">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleDelete(j.id_jabatan)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/15 rounded-lg transition-colors cursor-pointer" title="Hapus">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {can_update && (
+                        <button onClick={() => openModal(j)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/15 rounded-lg transition-colors cursor-pointer" title="Edit">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {can_delete && (
+                        <button onClick={() => handleDelete(j.id_jabatan)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/15 rounded-lg transition-colors cursor-pointer" title="Hapus">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

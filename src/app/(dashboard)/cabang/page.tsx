@@ -18,7 +18,12 @@ import {
   Settings,
   ChevronUp,
   ChevronDown,
+  AlertTriangle,
+  Eye,
+  Printer,
+  QrCode
 } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Cabang {
   id_cabang: number;
@@ -29,6 +34,9 @@ interface Cabang {
   email: string | null;
   admin: number | null;
   nama_admin: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  data_kode: string | null;
 }
 
 interface DBUser {
@@ -38,6 +46,7 @@ interface DBUser {
 }
 
 export default function CabangManagementPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Cabang[]>([]);
   const [userList, setUserList] = useState<DBUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,6 +54,7 @@ export default function CabangManagementPage() {
 
   // Modal states
   const [showModal, setShowModal] = useState(false);
+  const [viewCabang, setViewCabang] = useState<Cabang | null>(null);
   const [editItem, setEditItem] = useState<Cabang | null>(null);
 
   // Form states
@@ -54,6 +64,9 @@ export default function CabangManagementPage() {
   const [formTelepon, setFormTelepon] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formAdmin, setFormAdmin] = useState("");
+  const [formLatitude, setFormLatitude] = useState("");
+  const [formLongitude, setFormLongitude] = useState("");
+
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -110,6 +123,8 @@ export default function CabangManagementPage() {
       setFormTelepon(item.telepon || "");
       setFormEmail(item.email || "");
       setFormAdmin(item.admin ? item.admin.toString() : "");
+      setFormLatitude(item.latitude || "");
+      setFormLongitude(item.longitude || "");
     } else {
       setEditItem(null);
       setFormKode("");
@@ -118,6 +133,8 @@ export default function CabangManagementPage() {
       setFormTelepon("");
       setFormEmail("");
       setFormAdmin("");
+      setFormLatitude("");
+      setFormLongitude("");
     }
     setErrorMsg("");
     setShowModal(true);
@@ -139,6 +156,8 @@ export default function CabangManagementPage() {
         telepon: formTelepon || null,
         email: formEmail || null,
         admin: formAdmin ? parseInt(formAdmin) : null,
+        latitude: formLatitude || null,
+        longitude: formLongitude || null,
       };
 
       let res;
@@ -180,13 +199,35 @@ export default function CabangManagementPage() {
     }
   };
 
+  const handlePrint = () => {
+    const printArea = document.getElementById("print-area-cabang");
+    if (!printArea) return;
+
+    const tempContainer = document.createElement("div");
+    tempContainer.id = "temp-print-container";
+
+    const clone = printArea.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-content";
+    clone.classList.remove("hidden");
+
+    tempContainer.appendChild(clone);
+    document.body.appendChild(tempContainer);
+    document.body.classList.add("printing-active");
+
+    window.print();
+
+    document.body.classList.remove("printing-active");
+    document.body.removeChild(tempContainer);
+  };
+
   // Filter list
   const filteredList = list.filter((item) => {
     const s = search.toLowerCase();
     return (
       item.kode_cabang.toLowerCase().includes(s) ||
       item.nama_cabang.toLowerCase().includes(s) ||
-      item.alamat.toLowerCase().includes(s)
+      item.alamat.toLowerCase().includes(s) ||
+      (item.data_kode || "").toLowerCase().includes(s)
     );
   });
 
@@ -204,8 +245,54 @@ export default function CabangManagementPage() {
     return 0;
   });
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
+      <style dangerouslySetInnerHTML={{__html: `
+        #temp-print-container {
+          display: none;
+        }
+        @media print {
+          @page {
+            margin: 0;
+          }
+          body.printing-active > :not(#temp-print-container) {
+            display: none !important;
+          }
+          body.printing-active {
+            background: white !important;
+            color: black !important;
+          }
+          #temp-print-container {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 100% !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
+          }
+          #temp-print-content {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+        }
+      `}} />
       {/* Title Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
@@ -224,12 +311,14 @@ export default function CabangManagementPage() {
               className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
-          <button
-            onClick={() => openModal()}
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-150 shadow-sm shadow-primary-container/20 shrink-0"
-          >
-            <Plus className="w-4 h-4" /> Tambah Cabang
-          </button>
+          {can_create && (
+            <button
+              onClick={() => openModal()}
+              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-150 shadow-sm shadow-primary-container/20 shrink-0"
+            >
+              <Plus className="w-4 h-4" /> Tambah Cabang
+            </button>
+          )}
         </div>
       </div>
 
@@ -292,7 +381,7 @@ export default function CabangManagementPage() {
                     </div>
                   </th>
                   <th
-                    className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-56 cursor-pointer hover:bg-surface-container-high/40"
+                    className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-48 cursor-pointer hover:bg-surface-container-high/40"
                     onClick={() => handleSort("nama_cabang")}
                   >
                     <div className="flex items-center gap-1.5">
@@ -307,8 +396,11 @@ export default function CabangManagementPage() {
                       Alamat Lengkap {renderSortIndicator("alamat")}
                     </div>
                   </th>
+                  <th className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-40">
+                    Koordinat Absensi
+                  </th>
                   <th
-                    className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-44 cursor-pointer hover:bg-surface-container-high/40"
+                    className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-40 cursor-pointer hover:bg-surface-container-high/40"
                     onClick={() => handleSort("telepon")}
                   >
                     <div className="flex items-center gap-1.5">
@@ -323,13 +415,13 @@ export default function CabangManagementPage() {
                       Administrator {renderSortIndicator("nama_admin")}
                     </div>
                   </th>
-                  <th className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider text-right w-24">Aksi</th>
+                  <th className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider text-right w-32">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/20">
                 {sortedList.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-on-surface-variant">
+                    <td colSpan={7} className="px-5 py-8 text-center text-on-surface-variant">
                       Tidak ada cabang yang cocok dengan pencarian Anda.
                     </td>
                   </tr>
@@ -341,14 +433,29 @@ export default function CabangManagementPage() {
                           {item.kode_cabang}
                         </span>
                       </td>
-                      <td className="px-5 py-2.5 text-on-surface font-semibold">
+                      <td className="px-5 py-2.5 text-on-surface font-semibold text-xs">
                         {item.nama_cabang}
                       </td>
-                      <td className="px-5 py-2.5 text-on-surface-variant max-w-xs truncate" title={item.alamat}>
+                      <td className="px-5 py-2.5 text-on-surface-variant max-w-xs truncate text-xs" title={item.alamat}>
                         <span className="flex items-center gap-1.5">
                           <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
                           {item.alamat}
                         </span>
+                      </td>
+                      <td className="px-5 py-2.5 text-on-surface-variant text-xs">
+                        {item.latitude && item.longitude ? (
+                          <a
+                            href={`https://www.google.com/maps?q=${item.latitude},${item.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-mono"
+                          >
+                            <MapPin className="w-3.5 h-3.5 text-secondary shrink-0" />
+                            {parseFloat(item.latitude).toFixed(4)}, {parseFloat(item.longitude).toFixed(4)}
+                          </a>
+                        ) : (
+                          <span className="text-on-surface-variant/40 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-5 py-2.5 text-on-surface-variant text-xs space-y-1">
                         {item.telepon && (
@@ -378,19 +485,30 @@ export default function CabangManagementPage() {
                       <td className="px-5 py-2.5">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => openModal(item)}
-                            className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                            title="Ubah data"
+                            onClick={() => setViewCabang(item)}
+                            className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-secondary/10 rounded-lg transition-colors cursor-pointer"
+                            title="Detail cabang"
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(item.id_cabang)}
-                            className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors"
-                            title="Hapus"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {can_update && (
+                            <button
+                              onClick={() => openModal(item)}
+                              className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors cursor-pointer"
+                              title="Ubah data"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can_delete && (
+                            <button
+                              onClick={() => handleDelete(item.id_cabang)}
+                              className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -449,6 +567,18 @@ export default function CabangManagementPage() {
                 </div>
               </div>
 
+              {editItem && (
+                <div>
+                  <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">Data Kode QR (Absensi - Auto-Generated)</label>
+                  <input
+                    type="text"
+                    value={editItem.data_kode || "—"}
+                    disabled
+                    className="w-full bg-surface-container border border-outline-variant/60 text-on-surface-variant/80 rounded-xl px-4 py-2.5 text-sm cursor-not-allowed font-mono"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">Alamat Lengkap</label>
                 <input
@@ -484,6 +614,29 @@ export default function CabangManagementPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">Latitude</label>
+                  <input
+                    type="text"
+                    value={formLatitude}
+                    onChange={(e) => setFormLatitude(e.target.value)}
+                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+                    placeholder="Contoh: -7.12345"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">Longitude</label>
+                  <input
+                    type="text"
+                    value={formLongitude}
+                    onChange={(e) => setFormLongitude(e.target.value)}
+                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+                    placeholder="Contoh: 113.12345"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">Administrator Cabang</label>
                 <select
@@ -515,6 +668,107 @@ export default function CabangManagementPage() {
                   {saving ? "Menyimpan..." : "Simpan"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DETAIL VIEW & PRINT QR MODAL */}
+      {viewCabang && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print animate-in fade-in duration-200">
+          <div className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="px-6 py-5 border-b border-outline-variant/30 flex items-center justify-between bg-surface-container-low">
+              <div>
+                <h2 className="font-bold text-on-surface text-lg">Detail Cabang</h2>
+                <p className="text-on-surface-variant/60 text-xs mt-0.5">Informasi lengkap dan QR Code absensi</p>
+              </div>
+              <button 
+                onClick={() => setViewCabang(null)} 
+                className="text-on-surface-variant hover:text-on-surface p-1.5 hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+              {/* Printed area wrapper */}
+              <div id="print-area-cabang" className="hidden">
+                <div className="flex flex-col items-center p-8 bg-white border border-slate-200 rounded-3xl text-center text-slate-800 w-[380px] max-w-full">
+                  <h2 className="text-2xl font-black text-slate-950 uppercase tracking-tight">{viewCabang.nama_cabang}</h2>
+                  <p className="text-slate-500 text-xs mt-1.5 max-w-xs leading-relaxed">
+                    {viewCabang.alamat}
+                  </p>
+
+                  {/* QR Code visualization */}
+                  <div className="my-6 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm flex items-center justify-center">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(viewCabang.data_kode || "")}`}
+                      alt={`QR Code ${viewCabang.nama_cabang}`}
+                      className="w-48 h-48"
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 font-medium max-w-xs mt-1 italic">
+                    Posisikan kode di dalam area scanner absensi untuk masuk atau pulang.
+                  </p>
+                </div>
+              </div>
+
+              {/* General Details Grid */}
+              <div className="grid grid-cols-2 gap-4 text-xs bg-surface-container/35 p-4 rounded-xl border border-outline-variant/25">
+                <div className="space-y-1 col-span-2">
+                  <span className="text-on-surface-variant/60 font-semibold block uppercase tracking-wider text-[10px]">Alamat Lengkap</span>
+                  <span className="text-on-surface font-medium block">{viewCabang.alamat}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-on-surface-variant/60 font-semibold block uppercase tracking-wider text-[10px]">Telepon</span>
+                  <span className="text-on-surface font-medium block">{viewCabang.telepon || "—"}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-on-surface-variant/60 font-semibold block uppercase tracking-wider text-[10px]">Email</span>
+                  <span className="text-on-surface font-medium block truncate" title={viewCabang.email || ""}>{viewCabang.email || "—"}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-on-surface-variant/60 font-semibold block uppercase tracking-wider text-[10px]">Administrator</span>
+                  <span className="text-on-surface font-medium block">{viewCabang.nama_admin || "— Belum Ditunjuk —"}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-on-surface-variant/60 font-semibold block uppercase tracking-wider text-[10px]">Koordinat Absensi</span>
+                  {viewCabang.latitude && viewCabang.longitude ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${viewCabang.latitude},${viewCabang.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline font-mono font-semibold block"
+                    >
+                      {parseFloat(viewCabang.latitude).toFixed(4)}, {parseFloat(viewCabang.longitude).toFixed(4)}
+                    </a>
+                  ) : (
+                    <span className="text-on-surface-variant/50 block font-mono">— Belum Diset —</span>
+                  )}
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <span className="text-on-surface-variant/60 font-semibold block uppercase tracking-wider text-[10px]">Data Kode QR (Absensi)</span>
+                  <span className="text-on-surface font-medium block font-mono bg-surface-container px-2.5 py-1 rounded border border-outline-variant/20 max-w-max select-all">
+                    {viewCabang.data_kode || "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-outline-variant/30 flex gap-3 bg-surface-container-low text-xs no-print">
+              <button 
+                onClick={() => setViewCabang(null)} 
+                className="flex-1 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-on-surface py-3 rounded-xl font-semibold cursor-pointer transition-colors"
+              >
+                Tutup
+              </button>
+              <button 
+                onClick={handlePrint} 
+                className="flex-1 bg-primary hover:bg-primary/95 text-on-primary py-3 rounded-xl font-bold shadow-lg shadow-primary/15 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Printer className="w-4 h-4" /> Cetak QR Code
+              </button>
             </div>
           </div>
         </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, CheckCircle2, Clock } from "lucide-react";
+import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, CheckCircle2, Clock, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface PO {
   id_pesan_beli: number;
@@ -43,6 +44,7 @@ interface POItem {
 }
 
 export default function PoPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<PO[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Barang[]>([]);
@@ -196,6 +198,16 @@ export default function PoPage() {
       p.barcode.includes(searchProd)
   );
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 text-on-background">
       {view === "list" ? (
@@ -207,12 +219,14 @@ export default function PoPage() {
               </h1>
               <p className="text-on-surface-variant text-sm mt-1">{list.length} PO terdaftar</p>
             </div>
-            <button
-              onClick={() => setView("create")}
-              className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> Buat PO Baru
-            </button>
+            {can_create && (
+              <button
+                onClick={() => setView("create")}
+                className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+              >
+                <Plus className="w-4 h-4" /> Buat PO Baru
+              </button>
+            )}
           </div>
 
           <div className="bg-surface border border-outline-variant/30 rounded-2xl overflow-hidden shadow-xl">

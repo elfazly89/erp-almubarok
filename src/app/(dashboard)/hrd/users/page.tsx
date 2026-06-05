@@ -10,6 +10,7 @@ import {
 import { getStatusColor, formatDate } from "@/lib/utils";
 import { compressAndCropToPassport } from "@/lib/image";
 import * as XLSX from "xlsx";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface User {
   id: number;
@@ -23,15 +24,25 @@ interface User {
   nama_cabang: string | null;
   tanggal_masuk: string | null;
   foto: string | null;
+  tempat_lahir?: string | null;
+  tanggal_lahir?: string | null;
+  no_ktp?: string | null;
+  pendidikan_terakhir?: string | null;
+  riwayat_lembaga?: string | null;
+  riwayat_pekerjaan?: string | null;
 }
 
 const STATUS_OPTIONS = ["Abdi Tetap", "Kontrak", "Training", "Non-Aktif"];
 
 export default function UsersPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [selectedJabatan, setSelectedJabatan] = useState("");
+  const [selectedCabang, setSelectedCabang] = useState("");
+  const [selectedTahunMasuk, setSelectedTahunMasuk] = useState("");
   const [total, setTotal] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -496,6 +507,9 @@ export default function UsersPage() {
       limit: "999999",
       search,
       status,
+      id_jabatan: selectedJabatan,
+      id_cabang: selectedCabang,
+      tahun_masuk: selectedTahunMasuk,
       sortBy: sortField,
       sortOrder: sortOrder,
     });
@@ -504,13 +518,24 @@ export default function UsersPage() {
     setUsers(data.data || []);
     setTotal(data.total || 0);
     setLoading(false);
-  }, [search, status, sortField, sortOrder]);
+  }, [search, status, selectedJabatan, selectedCabang, selectedTahunMasuk, sortField, sortOrder]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   useEffect(() => {
     fetch("/api/hrd/jabatan").then(r => r.json()).then(setJabatanList);
     fetch("/api/cabang").then(r => r.json()).then(res => setCabangList(res.data || res));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowImportModal(false);
+        setShowExportModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   const handleDelete = async (id: number) => {
@@ -552,6 +577,16 @@ export default function UsersPage() {
     }
   };
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden">
       {/* Header */}
@@ -564,25 +599,29 @@ export default function UsersPage() {
           <p className="text-on-background/70 text-sm mt-1">{total} total abdi terdaftar</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <button
-            onClick={openImportWizard}
-            className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm cursor-pointer"
-          >
-            <Upload className="w-4 h-4 text-primary" /> Import
-          </button>
+          {can_create && (
+            <button
+              onClick={openImportWizard}
+              className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm cursor-pointer"
+            >
+              <Upload className="w-4 h-4 text-primary" /> Import
+            </button>
+          )}
           <button
             onClick={() => setShowExportModal(true)}
             className="flex items-center gap-2 bg-surface hover:bg-surface-container-high text-on-surface-variant border border-outline-variant/60 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm cursor-pointer"
           >
             <Download className="w-4 h-4 text-primary" /> Export
           </button>
-          <button
-            id="btn-tambah-user"
-            onClick={() => { setEditUser(null); setShowModal(true); }}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" /> Tambah Abdi
-          </button>
+          {can_create && (
+            <button
+              id="btn-tambah-user"
+              onClick={() => { setEditUser(null); setShowModal(true); }}
+              className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" /> Tambah Abdi
+            </button>
+          )}
         </div>
       </div>
 
@@ -599,6 +638,26 @@ export default function UsersPage() {
           />
         </div>
         <select
+          value={selectedJabatan}
+          onChange={(e) => setSelectedJabatan(e.target.value)}
+          className="bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-primary/80 cursor-pointer"
+        >
+          <option value="">Semua Jabatan</option>
+          {jabatanList.map((j) => (
+            <option key={j.id_jabatan} value={j.id_jabatan}>{j.jabatan}</option>
+          ))}
+        </select>
+        <select
+          value={selectedCabang}
+          onChange={(e) => setSelectedCabang(e.target.value)}
+          className="bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-primary/80 cursor-pointer"
+        >
+          <option value="">Semua Cabang</option>
+          {cabangList.map((c) => (
+            <option key={c.id_cabang} value={c.id_cabang}>{c.nama_cabang}</option>
+          ))}
+        </select>
+        <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           className="bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-primary/80 cursor-pointer"
@@ -606,6 +665,16 @@ export default function UsersPage() {
           <option value="">Semua Status</option>
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <select
+          value={selectedTahunMasuk}
+          onChange={(e) => setSelectedTahunMasuk(e.target.value)}
+          className="bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-primary/80 cursor-pointer"
+        >
+          <option value="">Semua Tahun Masuk</option>
+          {Array.from({ length: new Date().getFullYear() - 2015 + 2 }, (_, i) => String(2015 + i)).reverse().map((year) => (
+            <option key={year} value={year}>{year}</option>
           ))}
         </select>
         <button
@@ -721,29 +790,35 @@ export default function UsersPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                         <button
-                          onClick={() => { setEditUser(user); setShowModal(true); }}
-                          className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/15 rounded-lg transition-colors cursor-pointer"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleResetPassword(user)}
-                          disabled={resettingPassword === user.id}
-                          className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-secondary/15 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                          title="Reset Password"
-                        >
-                          <Key className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(user.id)}
-                          disabled={deleting === user.id}
-                          className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/15 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                          title="Hapus"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {can_update && (
+                          <>
+                            <button
+                              onClick={() => { setEditUser(user); setShowModal(true); }}
+                              className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/15 rounded-lg transition-colors cursor-pointer"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleResetPassword(user)}
+                              disabled={resettingPassword === user.id}
+                              className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-secondary/15 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+                              title="Reset Password"
+                            >
+                              <Key className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                        {can_delete && (
+                          <button
+                            onClick={() => handleDelete(user.id)}
+                            disabled={deleting === user.id}
+                            className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/15 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+                            title="Hapus"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -759,6 +834,7 @@ export default function UsersPage() {
         <UserModal
           user={editUser}
           jabatanList={jabatanList}
+          cabangList={cabangList}
           onClose={() => setShowModal(false)}
           onSaved={() => { setShowModal(false); fetchUsers(); }}
         />
@@ -1260,11 +1336,13 @@ export default function UsersPage() {
 function UserModal({
   user,
   jabatanList,
+  cabangList,
   onClose,
   onSaved,
 }: {
   user: User | null;
   jabatanList: { id_jabatan: number; jabatan: string }[];
+  cabangList: { id_cabang: number; nama_cabang: string }[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1275,12 +1353,27 @@ function UserModal({
     no_hp: user?.no_hp ?? "",
     status: user?.status ?? "Kontrak",
     id_jabatan: user?.id_jabatan ?? "",
+    id_cabang: user?.id_cabang ?? "",
+    tempat_lahir: user?.tempat_lahir ?? "",
+    tanggal_lahir: user?.tanggal_lahir ?? "",
+    no_ktp: user?.no_ktp ?? "",
+    pendidikan_terakhir: user?.pendidikan_terakhir ?? "",
+    riwayat_lembaga: user?.riwayat_lembaga ?? "",
+    riwayat_pekerjaan: user?.riwayat_pekerjaan ?? "",
     password: "",
     tanggal_masuk: user?.tanggal_masuk ?? "",
     foto: user?.foto ?? (null as string | null),
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1299,7 +1392,18 @@ function UserModal({
     setLoading(true);
 
     try {
-      const payload = { ...form, id_jabatan: form.id_jabatan || null };
+      const payload = {
+        ...form,
+        id_jabatan: form.id_jabatan ? Number(form.id_jabatan) : null,
+        id_cabang: form.id_cabang ? Number(form.id_cabang) : null,
+        tempat_lahir: form.tempat_lahir || null,
+        tanggal_lahir: form.tanggal_lahir || null,
+        no_ktp: form.no_ktp || null,
+        pendidikan_terakhir: form.pendidikan_terakhir || null,
+        riwayat_lembaga: form.riwayat_lembaga || null,
+        riwayat_pekerjaan: form.riwayat_pekerjaan || null,
+        tanggal_masuk: form.tanggal_masuk || null,
+      };
       if (isEdit && !payload.password) delete (payload as any).password;
 
       const res = await fetch(
@@ -1320,12 +1424,12 @@ function UserModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl animate-in fade-in zoom-in-95 duration-150">
         <div className="px-6 py-5 border-b border-outline-variant/30 flex items-center justify-between sticky top-0 bg-surface z-10">
           <h2 className="font-semibold text-on-surface">{isEdit ? "Edit Abdi" : "Tambah Abdi Baru"}</h2>
-          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface text-2xl leading-none transition-colors cursor-pointer">&times;</button>
+          <button type="button" onClick={onClose} className="text-on-surface-variant hover:text-on-surface text-2xl leading-none transition-colors cursor-pointer">&times;</button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5 text-xs text-on-background">
           {error && (
             <div className="bg-error/15 border border-error/25 text-error px-4 py-3 rounded-xl font-medium">{error}</div>
           )}
@@ -1366,46 +1470,175 @@ function UserModal({
               </button>
             )}
           </div>
-          {[
-            { label: "Kode User", key: "kode_user", type: "text", required: true },
-            { label: "Nama Lengkap", key: "nama_user", type: "text", required: true },
-            { label: "No. HP", key: "no_hp", type: "text", required: true },
-            { label: "Tanggal Masuk", key: "tanggal_masuk", type: "date" },
-            { label: isEdit ? "Password Baru (kosongkan jika tidak diubah)" : "Password", key: "password", type: "password", required: !isEdit },
-          ].map(({ label, key, type, required }) => (
-            <div key={key}>
-              <label className="block text-sm font-semibold text-on-surface-variant mb-1.5">{label}</label>
-              <input
-                type={type}
-                value={(form as any)[key]}
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                required={required}
-                className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-primary/80"
-              />
+
+          {/* Section 1: Informasi Keanggotaan & Akun */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-primary uppercase tracking-wider border-b border-outline-variant/20 pb-1">
+              Informasi Keanggotaan & Akun
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Kode User <span className="text-error">*</span></label>
+                <input
+                  type="text"
+                  value={form.kode_user}
+                  onChange={(e) => setForm((f) => ({ ...f, kode_user: e.target.value }))}
+                  required
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Nama Lengkap <span className="text-error">*</span></label>
+                <input
+                  type="text"
+                  value={form.nama_user}
+                  onChange={(e) => setForm((f) => ({ ...f, nama_user: e.target.value }))}
+                  required
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">No. HP <span className="text-error">*</span></label>
+                <input
+                  type="text"
+                  value={form.no_hp}
+                  onChange={(e) => setForm((f) => ({ ...f, no_hp: e.target.value }))}
+                  required
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Tanggal Masuk</label>
+                <input
+                  type="date"
+                  value={form.tanggal_masuk}
+                  onChange={(e) => setForm((f) => ({ ...f, tanggal_masuk: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                  {isEdit ? "Password Baru (kosongkan jika tidak diubah)" : "Password *"}
+                </label>
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  required={!isEdit}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Status</label>
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80 cursor-pointer"
+                >
+                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Jabatan</label>
+                <select
+                  value={form.id_jabatan}
+                  onChange={(e) => setForm((f) => ({ ...f, id_jabatan: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80 cursor-pointer"
+                >
+                  <option value="">— Pilih Jabatan —</option>
+                  {jabatanList.map((j) => <option key={j.id_jabatan} value={j.id_jabatan}>{j.jabatan}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Cabang/Unit Kerja</label>
+                <select
+                  value={form.id_cabang}
+                  onChange={(e) => setForm((f) => ({ ...f, id_cabang: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80 cursor-pointer"
+                >
+                  <option value="">— Pilih Cabang —</option>
+                  {cabangList.map((c) => <option key={c.id_cabang} value={c.id_cabang}>{c.nama_cabang}</option>)}
+                </select>
+              </div>
             </div>
-          ))}
-          <div>
-            <label className="block text-sm font-semibold text-on-surface-variant mb-1.5">Status</label>
-            <select
-              value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-              className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-primary/80 cursor-pointer"
-            >
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
           </div>
-          <div>
-            <label className="block text-sm font-semibold text-on-surface-variant mb-1.5">Jabatan</label>
-            <select
-              value={form.id_jabatan}
-              onChange={(e) => setForm((f) => ({ ...f, id_jabatan: e.target.value }))}
-              className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-primary/80 cursor-pointer"
-            >
-              <option value="">— Pilih Jabatan —</option>
-              {jabatanList.map((j) => <option key={j.id_jabatan} value={j.id_jabatan}>{j.jabatan}</option>)}
-            </select>
+
+          {/* Section 2: Data Pribadi */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-primary uppercase tracking-wider border-b border-outline-variant/20 pb-1">
+              Data Pribadi
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">No. KTP</label>
+                <input
+                  type="text"
+                  value={form.no_ktp}
+                  onChange={(e) => setForm((f) => ({ ...f, no_ktp: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Pendidikan Terakhir</label>
+                <input
+                  type="text"
+                  value={form.pendidikan_terakhir}
+                  onChange={(e) => setForm((f) => ({ ...f, pendidikan_terakhir: e.target.value }))}
+                  placeholder="Contoh: S1 PAI, SMA, dll."
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Tempat Lahir</label>
+                <input
+                  type="text"
+                  value={form.tempat_lahir}
+                  onChange={(e) => setForm((f) => ({ ...f, tempat_lahir: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Tanggal Lahir</label>
+                <input
+                  type="date"
+                  value={form.tanggal_lahir}
+                  onChange={(e) => setForm((f) => ({ ...f, tanggal_lahir: e.target.value }))}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80"
+                />
+              </div>
+            </div>
           </div>
-          <div className="flex gap-3 pt-2">
+
+          {/* Section 3: Riwayat Khidmat & Pekerjaan */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-primary uppercase tracking-wider border-b border-outline-variant/20 pb-1">
+              Riwayat Pendidikan Lembaga & Pekerjaan
+            </h3>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Riwayat Pendidikan Lembaga / Pondok Pesantren</label>
+                <textarea
+                  value={form.riwayat_lembaga}
+                  onChange={(e) => setForm((f) => ({ ...f, riwayat_lembaga: e.target.value }))}
+                  rows={2}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80 resize-y"
+                  placeholder="Detail riwayat pendidikan atau pondok pesantren..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface-variant mb-1">Riwayat Pekerjaan Sebelumnya</label>
+                <textarea
+                  value={form.riwayat_pekerjaan}
+                  onChange={(e) => setForm((f) => ({ ...f, riwayat_pekerjaan: e.target.value }))}
+                  rows={2}
+                  className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3.5 py-2 focus:outline-none focus:border-primary/80 resize-y"
+                  placeholder="Detail riwayat pekerjaan sebelumnya..."
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-3 border-t border-outline-variant/20">
             <button type="button" onClick={onClose} className="flex-1 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-on-surface py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer">
               Batal
             </button>
@@ -1429,6 +1662,14 @@ function UserDetailModal({
   const [detail, setDetail] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     async function fetchDetail() {

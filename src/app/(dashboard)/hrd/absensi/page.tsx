@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   UserCheck, Plus, RefreshCw, Camera, MapPin, Clock,
-  ChevronLeft, ChevronRight, QrCode, Loader2, CheckCircle2, XCircle
+  ChevronLeft, ChevronRight, QrCode, Loader2, CheckCircle2, XCircle, AlertTriangle
 } from "lucide-react";
 import jsQR from "jsqr";
 import { getStatusColor, formatDate } from "@/lib/utils";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface AbsensiRow {
   id: number;
@@ -42,6 +43,7 @@ const JENIS_COLORS: Record<string, string> = {
 };
 
 export default function AbsensiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [data, setData] = useState<AbsensiRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tanggal, setTanggal] = useState(new Date().toISOString().split("T")[0]);
@@ -60,6 +62,16 @@ export default function AbsensiPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden">
       {/* Header */}
@@ -72,18 +84,22 @@ export default function AbsensiPage() {
           <p className="text-on-background/70 text-sm mt-1">{total} catatan absensi</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowQR(true)}
-            className="flex items-center gap-2 bg-secondary hover:bg-secondary/90 text-on-secondary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md shadow-secondary/15 cursor-pointer"
-          >
-            <QrCode className="w-4 h-4" /> Scan QR
-          </button>
-          <button
-            onClick={() => setShowAbsenModal(true)}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Input Manual
-          </button>
+          {can_create && (
+            <button
+              onClick={() => setShowQR(true)}
+              className="flex items-center gap-2 bg-secondary hover:bg-secondary/90 text-on-secondary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md shadow-secondary/15 cursor-pointer"
+            >
+              <QrCode className="w-4 h-4" /> Scan QR
+            </button>
+          )}
+          {can_create && (
+            <button
+              onClick={() => setShowAbsenModal(true)}
+              className="flex items-center gap-2 bg-primary hover:bg-primary/95 text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-primary/25 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Input Manual
+            </button>
+          )}
         </div>
       </div>
 

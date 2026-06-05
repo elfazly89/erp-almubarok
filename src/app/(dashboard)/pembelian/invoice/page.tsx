@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, Import, Tag, Percent, DollarSign, ChevronDown } from "lucide-react";
+import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, Import, Tag, Percent, DollarSign, ChevronDown, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface PO {
   id_pesan_beli: number;
@@ -41,6 +42,7 @@ interface InvoiceItem {
 }
 
 export default function PurchaseInvoicePage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [activePOs, setActivePOs] = useState<PO[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Barang[]>([]);
@@ -250,6 +252,16 @@ export default function PurchaseInvoicePage() {
       p.nama_barang.toLowerCase().includes(searchProd.toLowerCase()) ||
       p.barcode.includes(searchProd)
   );
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-on-background">
@@ -564,10 +576,10 @@ export default function PurchaseInvoicePage() {
 
                 <button
                   onClick={handleSaveInvoice}
-                  disabled={saving || !supplierId || !nomorFaktur}
+                  disabled={saving || !supplierId || !nomorFaktur || !can_create}
                   className="w-full bg-primary hover:bg-primary-container disabled:opacity-40 text-on-primary py-3 rounded-xl font-bold transition-colors mt-2 text-xs uppercase tracking-wide flex items-center justify-center gap-1.5 shadow-sm"
                 >
-                  <DollarSign className="w-4 h-4" /> {saving ? "Menyimpan Faktur..." : "Simpan Faktur Pembelian"}
+                  <DollarSign className="w-4 h-4" /> {can_create ? (saving ? "Menyimpan Faktur..." : "Simpan Faktur Pembelian") : "TIDAK MEMILIKI AKSES TAMBAH"}
                 </button>
               </div>
             )}

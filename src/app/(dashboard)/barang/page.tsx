@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Package, Plus, Edit2, Trash2, RefreshCw, Search, Eye, ChevronUp, ChevronDown } from "lucide-react";
+import { Package, Plus, Edit2, Trash2, RefreshCw, Search, Eye, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Kategori {
   id_kategori: number;
@@ -46,6 +47,7 @@ interface Barang {
 }
 
 export default function BarangPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Barang[]>([]);
   const [categories, setCategories] = useState<Kategori[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -261,6 +263,16 @@ export default function BarangPage() {
     return 0;
   });
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-4 overflow-hidden text-on-background">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
@@ -281,12 +293,14 @@ export default function BarangPage() {
               className="w-full bg-surface border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
-          <button
-            onClick={() => openModal()}
-            className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 shadow-sm"
-          >
-            <Plus className="w-4 h-4" /> Tambah Barang
-          </button>
+          {can_create && (
+            <button
+              onClick={() => openModal()}
+              className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 shadow-sm"
+            >
+              <Plus className="w-4 h-4" /> Tambah Barang
+            </button>
+          )}
         </div>
       </div>
 
@@ -385,12 +399,16 @@ export default function BarangPage() {
                           <button onClick={() => openViewModal(b)} className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-secondary/10 rounded-lg transition-colors" title="Lihat detail">
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button onClick={() => openModal(b)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Edit">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDelete(b.id_barang)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors" title="Hapus">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {can_update && (
+                            <button onClick={() => openModal(b)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Edit">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can_delete && (
+                            <button onClick={() => handleDelete(b.id_barang)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors" title="Hapus">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

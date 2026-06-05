@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Layers, Edit2, RefreshCw, Search, CheckCircle, AlertTriangle, ChevronUp, ChevronDown } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Stok {
   id: number;
@@ -31,6 +32,7 @@ interface Stok {
 }
 
 export default function StokPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Stok[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -138,6 +140,16 @@ export default function StokPage() {
     if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
     return 0;
   });
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
@@ -297,12 +309,14 @@ export default function StokPage() {
                           {formatRupiah(s.stok_akhir * (s.harga_rata || s.harga_beli || 0))}
                         </td>
                         <td className="px-5 py-2.5 text-right">
-                          <button
-                            onClick={() => openModal(s)}
-                            className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" /> Adjust
-                          </button>
+                          {can_update && (
+                            <button
+                              onClick={() => openModal(s)}
+                              className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" /> Adjust
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

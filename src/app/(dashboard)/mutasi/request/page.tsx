@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { FileText, Plus, Search, RefreshCw, Send, Trash2, Eye, Building2, CheckCircle, Clock } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { FileText, Plus, Search, RefreshCw, Send, Trash2, Eye, Building2, CheckCircle, Clock, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface RequestHeader {
   id_request: number;
@@ -43,8 +44,10 @@ interface Product {
 }
 
 export default function RequestMutasiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [requests, setRequests] = useState<RequestHeader[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -64,16 +67,22 @@ export default function RequestMutasiPage() {
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [searchingProducts, setSearchingProducts] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [resReq, resBranches] = await Promise.all([
+      const [resReq, resBranches, resProfile] = await Promise.all([
         fetch("/api/mutasi/request?filter=outgoing"),
         fetch("/api/cabang"),
+        fetch("/api/user/profile"),
       ]);
       setRequests(await resReq.json());
       setBranches(await resBranches.json());
+      if (resProfile.ok) {
+        setCurrentUser(await resProfile.json());
+      }
     } catch (e) {
       console.error("Error loading request page data:", e);
     } finally {
@@ -85,10 +94,55 @@ export default function RequestMutasiPage() {
     loadData();
   }, [loadData]);
 
+  // Close suggestion list on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleCloseFormModal = () => {
+    setShowFormModal(false);
+    setProductSearch("");
+    setProducts([]);
+    setShowSuggestions(false);
+    setBasket([]);
+    setSumberCabangId("");
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowFormModal(false);
+        setProductSearch("");
+        setProducts([]);
+        setShowSuggestions(false);
+        setViewRequest(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Pre-select DC-001 branch when modal is opened
+  useEffect(() => {
+    if (showFormModal && branches.length > 0) {
+      const dcBranch = branches.find((b) => b.kode_cabang === "DC-001");
+      if (dcBranch) {
+        setSumberCabangId(dcBranch.id_cabang.toString());
+      }
+    }
+  }, [showFormModal, branches]);
+
   // Autocomplete search
   useEffect(() => {
     if (productSearch.trim().length < 2) {
       setProducts([]);
+      setShowSuggestions(false);
       return;
     }
     const delayDebounce = setTimeout(async () => {
@@ -97,6 +151,7 @@ export default function RequestMutasiPage() {
         const res = await fetch(`/api/barang?q=${encodeURIComponent(productSearch)}`);
         const list = await res.json();
         setProducts(list.slice(0, 8)); // Limit results
+        setShowSuggestions(true);
       } catch (e) {
         console.error(e);
       } finally {
@@ -130,6 +185,7 @@ export default function RequestMutasiPage() {
     setBasket((prev) => [...prev, { product: p, qty: 1, unit: p.satuan_1 }]);
     setProductSearch("");
     setProducts([]);
+    setShowSuggestions(false);
   };
 
   const handleQtyChange = (idx: number, val: string) => {
@@ -189,9 +245,7 @@ export default function RequestMutasiPage() {
 
       const data = await res.json();
       if (data.success) {
-        setShowFormModal(false);
-        setBasket([]);
-        setSumberCabangId("");
+        handleCloseFormModal();
         loadData();
       } else {
         alert("Gagal mengirim permintaan: " + data.error);
@@ -207,6 +261,16 @@ export default function RequestMutasiPage() {
     r.kode_request.toLowerCase().includes(searchQuery.toLowerCase()) ||
     r.cabang_sumber.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
@@ -230,12 +294,14 @@ export default function RequestMutasiPage() {
               className="w-full bg-surface border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
-          <button
-            onClick={() => setShowFormModal(true)}
-            className="bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-all flex-shrink-0 shadow-sm"
-          >
-            <Plus className="w-4 h-4" /> Ajukan Mutasi
-          </button>
+          {can_create && (
+            <button
+              onClick={() => setShowFormModal(true)}
+              className="bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-all flex-shrink-0 shadow-sm"
+            >
+              <Plus className="w-4 h-4" /> Ajukan Mutasi
+            </button>
+          )}
         </div>
       </div>
 
@@ -307,7 +373,7 @@ export default function RequestMutasiPage() {
                 <Plus className="w-5 h-5 text-primary" /> Ajukan Permintaan Mutasi Stok
               </h2>
               <button
-                onClick={() => setShowFormModal(false)}
+                onClick={handleCloseFormModal}
                 className="text-on-surface-variant hover:text-on-surface text-2xl"
               >
                 &times;
@@ -325,11 +391,13 @@ export default function RequestMutasiPage() {
                     required
                   >
                     <option value="" className="bg-surface text-on-surface-variant">-- Pilih Cabang Sumber --</option>
-                    {branches.map((b) => (
-                      <option key={b.id_cabang} value={b.id_cabang} className="bg-surface text-on-surface">
-                        {b.nama_cabang} ({b.kode_cabang})
-                      </option>
-                    ))}
+                    {branches
+                      .filter((b) => b.kode_cabang === "DC-001" && b.id_cabang !== currentUser?.id_cabang)
+                      .map((b) => (
+                        <option key={b.id_cabang} value={b.id_cabang} className="bg-surface text-on-surface">
+                          {b.nama_cabang} ({b.kode_cabang})
+                        </option>
+                      ))}
                   </select>
                 </div>
                 <div>
@@ -345,7 +413,7 @@ export default function RequestMutasiPage() {
               </div>
 
               {/* Product Autocomplete Picker */}
-              <div className="relative">
+              <div className="relative" ref={searchContainerRef}>
                 <label className="block text-on-surface-variant mb-1.5 font-semibold">Cari & Tambah Produk *</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-on-surface-variant" />
@@ -353,6 +421,11 @@ export default function RequestMutasiPage() {
                     type="text"
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
+                    onFocus={() => {
+                      if (productSearch.trim().length >= 2) {
+                        setShowSuggestions(true);
+                      }
+                    }}
                     placeholder="Ketik barcode atau nama barang..."
                     className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg pl-9 pr-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
@@ -362,24 +435,32 @@ export default function RequestMutasiPage() {
                 </div>
 
                 {/* Dropdown Results */}
-                {products.length > 0 && (
+                {showSuggestions && (
                   <div className="absolute left-0 right-0 mt-1 bg-surface border border-outline-variant rounded-xl overflow-hidden shadow-2xl z-50 divide-y divide-outline-variant/30 max-h-48 overflow-y-auto">
-                    {products.map((p) => (
-                      <button
-                        key={p.id_barang}
-                        type="button"
-                        onClick={() => handleAddToBasket(p)}
-                        className="w-full px-4 py-2.5 text-left text-on-surface hover:bg-surface-container-high flex justify-between items-center transition-colors font-sans"
-                      >
-                        <div>
-                          <span className="font-semibold block">{p.nama_barang}</span>
-                          <span className="text-[10px] text-on-surface-variant font-mono">{p.barcode}</span>
+                    {products.length === 0 ? (
+                      !searchingProducts && (
+                        <div className="px-4 py-3 text-on-surface-variant text-xs text-center">
+                          Produk tidak ditemukan
                         </div>
-                        <span className="text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded uppercase font-semibold">
-                          {p.satuan_1}
-                        </span>
-                      </button>
-                    ))}
+                      )
+                    ) : (
+                      products.map((p) => (
+                        <button
+                          key={p.id_barang}
+                          type="button"
+                          onClick={() => handleAddToBasket(p)}
+                          className="w-full px-4 py-2.5 text-left text-on-surface hover:bg-surface-container-high flex justify-between items-center transition-colors font-sans"
+                        >
+                          <div>
+                            <span className="font-semibold block">{p.nama_barang}</span>
+                            <span className="text-[10px] text-on-surface-variant font-mono">{p.barcode}</span>
+                          </div>
+                          <span className="text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded uppercase font-semibold">
+                            {p.satuan_1}
+                          </span>
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -441,7 +522,7 @@ export default function RequestMutasiPage() {
 
             <div className="px-6 py-4 border-t border-outline-variant/40 flex justify-end gap-3 bg-surface-container-high/20">
               <button
-                onClick={() => setShowFormModal(false)}
+                onClick={handleCloseFormModal}
                 className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface px-5 py-2.5 rounded-xl font-semibold transition-colors"
               >
                 Batal

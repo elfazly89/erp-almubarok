@@ -114,6 +114,25 @@ const guides: Record<string, PageGuide> = {
     ],
     tips: "Selalu tinjau alasan dan bukti file secara seksama sebelum menekan tombol Approve."
   },
+  "/hrd/hutang": {
+    title: "Hutang Abdi",
+    description: "Modul pencatatan kewajiban finansial abdi kepada pesantren, termasuk pinjaman tunai, iuran seragam, dan potongan stok opname.",
+    workflow: [
+      "Klik 'Tambah Hutang' dan pilih nama abdi yang bersangkutan.",
+      "Isi nominal hutang, tanggal, dan keterangan (atau pilih dari preset kategori: Pinjaman Tunai, Iuran Seragam, dll).",
+      "Simpan. Data akan otomatis terhubung ke modul Bisyaroh saat memproses gaji abdi tersebut.",
+      "Saat memproses gaji di Bisyaroh, masukkan nominal angsuran hutang di kolom 'Potong Gaji'. Sistem akan otomatis mengurangi saldo hutang aktif.",
+      "Tandai hutang sebagai 'Lunas' secara manual bila sudah sepenuhnya terlunasi."
+    ],
+    features: [
+      "Pencatatan Pinjaman, Iuran & Potongan Abdi",
+      "Integrasi otomatis ke modul Bisyaroh (Potongan Gaji)",
+      "Filter status Aktif / Lunas",
+      "Preset kategori cepat (Iuran Seragam, Stok Opname, dll)",
+      "CRUD penuh dengan konfirmasi hapus"
+    ],
+    tips: "Hutang dengan status Aktif akan muncul sebagai peringatan di form Proses Bisyaroh. Masukkan angsuran di kolom 'Potong Gaji' agar saldo hutang berkurang secara otomatis."
+  },
   "/hrd/bisyaroh": {
     title: "Bisyaroh (Penggajian Abdi)",
     description: "Pusat pemrosesan gaji bulanan abdi dalem dan staf pesantren terintegrasi dengan absensi, utang, dan jurnal akuntansi.",

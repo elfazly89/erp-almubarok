@@ -25,7 +25,8 @@ const MASTER_MENUS = [
       { nama: "Jam Kerja", link: "/hrd/jam-kerja", urutan: 4 },
       { nama: "Hari Libur", link: "/hrd/hari-libur", urutan: 5 },
       { nama: "Izin & Cuti", link: "/hrd/izin-cuti", urutan: 6 },
-      { nama: "Bisyaroh", link: "/hrd/bisyaroh", urutan: 7 },
+      { nama: "Hutang Abdi", link: "/hrd/hutang", urutan: 7 },
+      { nama: "Bisyaroh", link: "/hrd/bisyaroh", urutan: 8 },
     ],
   },
   {
@@ -48,13 +49,24 @@ const MASTER_MENUS = [
     subs: [
       { nama: "Kasir POS", link: "/penjualan/pos", urutan: 1 },
       { nama: "Riwayat Nota", link: "/penjualan/history", urutan: 2 },
+      { nama: "Manajemen Promo", link: "/penjualan/promo", urutan: 3 },
+    ],
+  },
+  {
+    nama: "Pelanggan",
+    link: "#",
+    icon: "Users",
+    urutan: 5,
+    subs: [
+      { nama: "Daftar Pelanggan", link: "/pelanggan", urutan: 1 },
+      { nama: "Riwayat Poin", link: "/pelanggan/poin", urutan: 2 },
     ],
   },
   {
     nama: "Pembelian",
     link: "#",
     icon: "ShoppingBag",
-    urutan: 5,
+    urutan: 6,
     subs: [
       { nama: "Purchase Order (PO)", link: "/pembelian/po", urutan: 1 },
       { nama: "Faktur Beli", link: "/pembelian/invoice", urutan: 2 },
@@ -66,7 +78,7 @@ const MASTER_MENUS = [
     nama: "Mutasi Stok",
     link: "#",
     icon: "ArrowLeftRight",
-    urutan: 6,
+    urutan: 7,
     subs: [
       { nama: "Permintaan Barang", link: "/mutasi/request", urutan: 1 },
       { nama: "Kirim Barang", link: "/mutasi/kirim", urutan: 2 },
@@ -78,7 +90,7 @@ const MASTER_MENUS = [
     nama: "Akuntansi",
     link: "#",
     icon: "BookOpen",
-    urutan: 7,
+    urutan: 8,
     subs: [
       { nama: "Jurnal Umum", link: "/akuntansi/jurnal", urutan: 1 },
       { nama: "Daftar Akun (CoA)", link: "/akuntansi/coa", urutan: 2 },
@@ -90,14 +102,14 @@ const MASTER_MENUS = [
     nama: "Cabang",
     link: "/cabang",
     icon: "Building2",
-    urutan: 8,
+    urutan: 9,
     subs: [],
   },
   {
     nama: "Pengaturan",
     link: "#",
     icon: "Settings",
-    urutan: 9,
+    urutan: 10,
     subs: [
       { nama: "Role Menu", link: "/pengaturan/role-menu", urutan: 1 },
     ],
@@ -186,30 +198,64 @@ export async function POST(request: Request) {
     const jabId = parseInt(id_jabatan);
 
     // Database transactional update
-    await db.transaction(async (tx) => {
+    db.transaction((tx) => {
       // A. Hapus data role lama untuk jabatan ini
-      await tx.delete(role_menu).where(eq(role_menu.id_jabatan, jabId));
-      await tx.delete(role_menu_sub).where(eq(role_menu_sub.id_jabatan, jabId));
+      tx.delete(role_menu).where(eq(role_menu.id_jabatan, jabId)).run();
+      tx.delete(role_menu_sub).where(eq(role_menu_sub.id_jabatan, jabId)).run();
 
       // B. Simpan data role menu utama baru
       if (Array.isArray(main_menu) && main_menu.length > 0) {
-        for (const menuId of main_menu) {
-          await tx.insert(role_menu).values({
-            id_jabatan: jabId,
-            id_menu_main: parseInt(menuId),
-            aktif: true,
-          });
+        for (const item of main_menu) {
+          if (item && typeof item === "object") {
+            tx.insert(role_menu).values({
+              id_jabatan: jabId,
+              id_menu_main: typeof item.id === "string" ? parseInt(item.id) : item.id,
+              aktif: !!item.can_read,
+              can_create: !!item.can_create,
+              can_read: !!item.can_read,
+              can_update: !!item.can_update,
+              can_delete: !!item.can_delete,
+            }).run();
+          } else {
+            // Backwards compatibility
+            tx.insert(role_menu).values({
+              id_jabatan: jabId,
+              id_menu_main: typeof item === "string" ? parseInt(item) : item,
+              aktif: true,
+              can_create: false,
+              can_read: true,
+              can_update: false,
+              can_delete: false,
+            }).run();
+          }
         }
       }
 
       // C. Simpan data role sub-menu baru
       if (Array.isArray(sub_menu) && sub_menu.length > 0) {
-        for (const subId of sub_menu) {
-          await tx.insert(role_menu_sub).values({
-            id_jabatan: jabId,
-            id_menu_sub: parseInt(subId),
-            aktif: true,
-          });
+        for (const item of sub_menu) {
+          if (item && typeof item === "object") {
+            tx.insert(role_menu_sub).values({
+              id_jabatan: jabId,
+              id_menu_sub: typeof item.id === "string" ? parseInt(item.id) : item.id,
+              aktif: !!item.can_read,
+              can_create: !!item.can_create,
+              can_read: !!item.can_read,
+              can_update: !!item.can_update,
+              can_delete: !!item.can_delete,
+            }).run();
+          } else {
+            // Backwards compatibility
+            tx.insert(role_menu_sub).values({
+              id_jabatan: jabId,
+              id_menu_sub: typeof item === "string" ? parseInt(item) : item,
+              aktif: true,
+              can_create: false,
+              can_read: true,
+              can_update: false,
+              can_delete: false,
+            }).run();
+          }
         }
       }
     });

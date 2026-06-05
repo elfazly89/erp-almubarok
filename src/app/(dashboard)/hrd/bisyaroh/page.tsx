@@ -17,10 +17,12 @@ import {
   Info,
   ChevronRight,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import Logo from "@/components/layout/Logo";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface UserBisyaroh {
   id: number;
@@ -45,6 +47,17 @@ interface UserBisyaroh {
   tanggal_bayar: string | null;
   catatan: string | null;
   bisyaroh_id: number | null;
+  // Live fields (from current absensi + salary config) — only present on Lunas rows
+  live_hari_kerja?: number;
+  live_jam_kerja?: number;
+  live_jam_lembur?: number;
+  live_gaji_pokok?: number;
+  live_gaji_per_jam?: number;
+  live_lembur_per_jam?: number;
+  live_gaji_kehadiran?: number;
+  live_gaji_lembur?: number;
+  live_total_diterima?: number;
+  has_changes?: boolean;
 }
 
 interface JabatanGaji {
@@ -78,6 +91,7 @@ const MONTHS = [
 ];
 
 export default function BisyarohPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [activeTab, setActiveTab] = useState<"bulanan" | "config">("bulanan");
   
   // Date states
@@ -100,6 +114,7 @@ export default function BisyarohPage() {
   const [editConfig, setEditConfig] = useState<JabatanGaji | null>(null);
 
   // Form states for processing payroll
+  const [isRecalcMode, setIsRecalcMode] = useState(false);
   const [formGajiPokok, setFormGajiPokok] = useState(0);
   const [formGajiKehadiran, setFormGajiKehadiran] = useState(0);
   const [formGajiLembur, setFormGajiLembur] = useState(0);
@@ -148,9 +163,14 @@ export default function BisyarohPage() {
     try {
       const res = await fetch(`/api/hrd/bisyaroh?bulan=${selectedMonth}&tahun=${selectedYear}`);
       const data = await res.json();
-      setPayrollData(Array.isArray(data) ? data : []);
+      if (!res.ok) {
+        console.error("Bisyaroh API error:", data);
+        setPayrollData([]);
+      } else {
+        setPayrollData(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Bisyaroh fetch failed:", err);
     } finally {
       setLoadingPayroll(false);
     }
@@ -179,11 +199,20 @@ export default function BisyarohPage() {
   }, [activeTab, fetchPayroll, fetchConfigs]);
 
   // Handle open process modal
-  const openProcessModal = (user: UserBisyaroh) => {
+  // useLive=true → prefill with live absensi data (for recalculation of a Lunas record)
+  // useLive=false (default) → prefill with saved/calculated data
+  const openProcessModal = (user: UserBisyaroh, useLive = false) => {
     setProcessModalUser(user);
-    setFormGajiPokok(user.gaji_pokok);
-    setFormGajiKehadiran(user.gaji_kehadiran);
-    setFormGajiLembur(user.gaji_lembur);
+    setIsRecalcMode(useLive);
+    if (useLive) {
+      setFormGajiPokok(user.live_gaji_pokok ?? user.gaji_pokok);
+      setFormGajiKehadiran(user.live_gaji_kehadiran ?? user.gaji_kehadiran);
+      setFormGajiLembur(user.live_gaji_lembur ?? user.gaji_lembur);
+    } else {
+      setFormGajiPokok(user.gaji_pokok);
+      setFormGajiKehadiran(user.gaji_kehadiran);
+      setFormGajiLembur(user.gaji_lembur);
+    }
     setFormTunjangan(user.tunjangan || 0);
     setFormPotongan(user.potongan || 0);
     setFormPotongHutang(0);
@@ -207,11 +236,22 @@ export default function BisyarohPage() {
         bulan: selectedMonth,
         tahun: selectedYear,
         gaji_pokok: formGajiPokok,
-        gaji_per_jam: processModalUser.gaji_per_jam,
-        lembur_per_jam: processModalUser.lembur_per_jam,
-        hari_kerja: processModalUser.hari_kerja,
-        total_jam_kerja: processModalUser.total_jam_kerja,
-        total_jam_lembur: processModalUser.total_jam_lembur,
+        // In recalc mode, use the live rate/hours from current absensi/config
+        gaji_per_jam: isRecalcMode
+          ? (processModalUser.live_gaji_per_jam ?? processModalUser.gaji_per_jam)
+          : processModalUser.gaji_per_jam,
+        lembur_per_jam: isRecalcMode
+          ? (processModalUser.live_lembur_per_jam ?? processModalUser.lembur_per_jam)
+          : processModalUser.lembur_per_jam,
+        hari_kerja: isRecalcMode
+          ? (processModalUser.live_hari_kerja ?? processModalUser.hari_kerja)
+          : processModalUser.hari_kerja,
+        total_jam_kerja: isRecalcMode
+          ? (processModalUser.live_jam_kerja ?? processModalUser.total_jam_kerja)
+          : processModalUser.total_jam_kerja,
+        total_jam_lembur: isRecalcMode
+          ? (processModalUser.live_jam_lembur ?? processModalUser.total_jam_lembur)
+          : processModalUser.total_jam_lembur,
         gaji_kehadiran: formGajiKehadiran,
         gaji_lembur: formGajiLembur,
         tunjangan: formTunjangan,
@@ -298,6 +338,16 @@ export default function BisyarohPage() {
   const totalPayout = payrollData
     .filter(p => p.payroll_status === "Lunas")
     .reduce((acc, curr) => acc + curr.total_diterima, 0);
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60 no-print">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden">
@@ -548,19 +598,34 @@ export default function BisyarohPage() {
                           {/* Action */}
                           <td className="px-5 py-2.5 text-right">
                             {user.payroll_status === "Lunas" ? (
-                              <button
-                                onClick={() => setViewSlipUser(user)}
-                                className="flex items-center gap-1.5 text-primary hover:text-primary/80 hover:bg-primary/5 border border-primary/20 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm float-right"
-                              >
-                                <Printer className="w-3.5 h-3.5" /> Detail Slip
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                {/* Recalculate button — only when absensi/config has changed */}
+                                {user.has_changes && can_update && (
+                                  <button
+                                    onClick={() => openProcessModal(user, true)}
+                                    className="relative flex items-center gap-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                                    title="Data absensi/skema gaji telah berubah. Klik untuk perbarui"
+                                  >
+                                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-surface" />
+                                    <RefreshCw className="w-3.5 h-3.5" /> Perbarui
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => setViewSlipUser(user)}
+                                  className="flex items-center gap-1.5 text-primary hover:text-primary/80 hover:bg-primary/5 border border-primary/20 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                                >
+                                  <Printer className="w-3.5 h-3.5" /> Detail Slip
+                                </button>
+                              </div>
                             ) : (
-                              <button
-                                onClick={() => openProcessModal(user)}
-                                className="flex items-center gap-1.5 bg-primary hover:bg-primary/95 text-on-primary px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-md shadow-primary/10 float-right"
-                              >
-                                <DollarSign className="w-3.5 h-3.5" /> Proses Gaji
-                              </button>
+                              can_create && (
+                                <button
+                                  onClick={() => openProcessModal(user)}
+                                  className="flex items-center gap-1.5 bg-primary hover:bg-primary/95 text-on-primary px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-md shadow-primary/10 float-right"
+                                >
+                                  <DollarSign className="w-3.5 h-3.5" /> Proses Gaji
+                                </button>
+                              )
                             )}
                           </td>
                         </tr>
@@ -606,13 +671,15 @@ export default function BisyarohPage() {
                       {formatCurrency(j.lembur_per_jam || 0)}
                     </td>
                     <td className="px-5 py-2.5 text-right">
-                      <button
-                        onClick={() => openConfigEdit(j)}
-                        className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-xl transition-all cursor-pointer"
-                        title="Atur Skema Gaji"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      {can_update && (
+                        <button
+                          onClick={() => openConfigEdit(j)}
+                          className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-xl transition-all cursor-pointer"
+                          title="Atur Skema Gaji"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -628,7 +695,11 @@ export default function BisyarohPage() {
           <div className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in-95 duration-150 overflow-hidden">
             <div className="px-6 py-5 border-b border-outline-variant/30 flex items-center justify-between bg-surface-container-low">
               <div>
-                <h2 className="font-bold text-on-surface text-lg">Proses Bisyaroh Abdi</h2>
+                <h2 className="font-bold text-on-surface text-lg">
+                  {processModalUser.payroll_status === "Lunas"
+                    ? (isRecalcMode ? "Perbarui Bisyaroh Abdi" : "Edit Slip Bisyaroh Abdi")
+                    : "Proses Bisyaroh Abdi"}
+                </h2>
                 <p className="text-on-surface-variant/60 text-xs mt-0.5">
                   Periode {MONTHS.find(m => m.value === selectedMonth)?.label} {selectedYear}
                 </p>
@@ -649,10 +720,35 @@ export default function BisyarohPage() {
                   <p className="text-on-surface-variant text-xs mt-0.5">{processModalUser.jabatan} — {processModalUser.nama_cabang}</p>
                 </div>
                 <div className="text-right">
-                  <span className="font-semibold text-on-surface block">Kehadiran: {processModalUser.hari_kerja} Hari</span>
-                  <span className="text-on-surface-variant block mt-0.5">Total Jam: {processModalUser.total_jam_kerja} jam</span>
+                  {isRecalcMode ? (
+                    <>
+                      <span className="font-semibold text-on-surface block">Kehadiran: {processModalUser.live_hari_kerja ?? processModalUser.hari_kerja} Hari</span>
+                      <span className="text-on-surface-variant block mt-0.5">Total Jam: {processModalUser.live_jam_kerja ?? processModalUser.total_jam_kerja} jam</span>
+                      {processModalUser.has_changes && (
+                        <span className="text-amber-600 text-[10px] block mt-1">
+                          (Sebelumnya: {processModalUser.hari_kerja} hari / {processModalUser.total_jam_kerja} jam)
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-on-surface block">Kehadiran: {processModalUser.hari_kerja} Hari</span>
+                      <span className="text-on-surface-variant block mt-0.5">Total Jam: {processModalUser.total_jam_kerja} jam</span>
+                    </>
+                  )}
                 </div>
               </div>
+
+              {/* Change warning banner for recalc mode */}
+              {isRecalcMode && processModalUser.has_changes && (
+                <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-3 flex items-start gap-2 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-amber-700">
+                    Data absensi atau skema gaji jabatan telah <strong>berubah</strong> sejak gaji terakhir diproses. 
+                    Form ini sudah diisi ulang berdasarkan data terbaru. Periksa dan simpan untuk memperbarui.
+                  </p>
+                </div>
+              )}
 
               {/* Loan information */}
               {processModalUser.outstanding_loan > 0 && (
@@ -794,7 +890,11 @@ export default function BisyarohPage() {
                 disabled={savingPayroll}
                 className="flex-1 bg-primary hover:bg-primary/95 disabled:opacity-60 text-on-primary py-3 rounded-xl font-bold shadow-lg shadow-primary/15 transition-all cursor-pointer"
               >
-                {savingPayroll ? "Menyimpan & Menjurnal..." : "Bayar & Simpan"}
+                {savingPayroll 
+                  ? "Menyimpan & Menjurnal..." 
+                  : processModalUser.payroll_status === "Lunas"
+                    ? (isRecalcMode ? "Perbarui & Simpan" : "Simpan Perubahan")
+                    : "Bayar & Simpan"}
               </button>
             </div>
           </div>
@@ -947,6 +1047,18 @@ export default function BisyarohPage() {
               >
                 Tutup
               </button>
+              {can_update && (
+                <button 
+                  onClick={() => {
+                    const user = viewSlipUser;
+                    setViewSlipUser(null);
+                    openProcessModal(user, false);
+                  }}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-on-primary py-3 rounded-xl font-bold shadow-lg shadow-amber-600/15 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Edit2 className="w-4 h-4" /> Edit Slip
+                </button>
+              )}
               <button 
                 onClick={handlePrint} 
                 className="flex-1 bg-primary hover:bg-primary/95 text-on-primary py-3 rounded-xl font-bold shadow-lg shadow-primary/15 transition-all cursor-pointer flex items-center justify-center gap-1.5"

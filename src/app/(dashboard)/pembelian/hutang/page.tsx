@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Wallet, Plus, Search, RefreshCw, HandCoins, History, CheckCircle } from "lucide-react";
+import { Wallet, Plus, Search, RefreshCw, HandCoins, History, CheckCircle, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface SupplierDebt {
   id_supplier: number;
@@ -21,6 +22,7 @@ interface PaymentHistory {
 }
 
 export default function HutangPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [debts, setDebts] = useState<SupplierDebt[]>([]);
   const [history, setHistory] = useState<PaymentHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,6 +108,16 @@ export default function HutangPage() {
   );
 
   const totalOutstanding = debts.reduce((sum, d) => sum + d.hutang, 0);
+
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
@@ -213,12 +225,14 @@ export default function HutangPage() {
                       <td className="px-5 py-2.5 text-on-surface-variant text-xs max-w-xs truncate">{d.alamat || "-"}</td>
                       <td className="px-5 py-2.5 text-right text-error font-bold font-mono">{formatRupiah(d.hutang)}</td>
                       <td className="px-5 py-2.5 text-right">
-                        <button
-                          onClick={() => openPayModal(d)}
-                          className="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-sm transition-colors"
-                        >
-                          <HandCoins className="w-3.5 h-3.5" /> Cicil / Bayar
-                        </button>
+                        {can_create && (
+                          <button
+                            onClick={() => openPayModal(d)}
+                            className="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-sm transition-colors"
+                          >
+                            <HandCoins className="w-3.5 h-3.5" /> Cicil / Bayar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

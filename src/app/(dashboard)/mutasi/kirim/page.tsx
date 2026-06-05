@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Send, Eye, FileText, Plus, Search, RefreshCw, Trash2, ArrowRightLeft, CheckCircle, Clock } from "lucide-react";
+import { Send, Eye, FileText, Plus, Search, RefreshCw, Trash2, ArrowRightLeft, CheckCircle, Clock, AlertTriangle } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface RequestHeader {
   id_request: number;
@@ -67,6 +68,7 @@ interface Product {
 }
 
 export default function KirimMutasiPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [activeTab, setActiveTab] = useState<"incoming" | "history">("incoming");
   const [incomingRequests, setIncomingRequests] = useState<RequestHeader[]>([]);
   const [shipmentHistory, setShipmentHistory] = useState<ShipmentHeader[]>([]);
@@ -348,6 +350,16 @@ export default function KirimMutasiPage() {
     h.cabang_tujuan.toLowerCase().includes(search.toLowerCase())
   );
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -370,12 +382,14 @@ export default function KirimMutasiPage() {
               className="w-full bg-surface border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
-          <button
-            onClick={() => setShowDirectModal(true)}
-            className="bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-all flex-shrink-0 shadow-sm"
-          >
-            <Plus className="w-4 h-4" /> Kirim Langsung
-          </button>
+          {can_create && (
+            <button
+              onClick={() => setShowDirectModal(true)}
+              className="bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-all flex-shrink-0 shadow-sm"
+            >
+              <Plus className="w-4 h-4" /> Kirim Langsung
+            </button>
+          )}
         </div>
       </div>
 
@@ -439,12 +453,14 @@ export default function KirimMutasiPage() {
                         </span>
                       </td>
                       <td className="px-5 py-2.5 text-right">
-                        <button
-                          onClick={() => handleOpenFulfillModal(r)}
-                          className="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-sm transition-colors"
-                        >
-                          <Send className="w-3.5 h-3.5" /> Proses Kirim
-                        </button>
+                        {can_create && (
+                          <button
+                            onClick={() => handleOpenFulfillModal(r)}
+                            className="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-sm transition-colors"
+                          >
+                            <Send className="w-3.5 h-3.5" /> Proses Kirim
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

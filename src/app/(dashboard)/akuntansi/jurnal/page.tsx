@@ -15,8 +15,10 @@ import {
   Building2,
   User,
   PlusCircle,
-  Trash
+  Trash,
+  AlertTriangle
 } from "lucide-react";
+import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Cabang {
   id_cabang: number;
@@ -63,6 +65,7 @@ interface ManualEntryLine {
 }
 
 export default function JurnalPage() {
+  const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<JurnalHeader[]>([]);
   const [cabangList, setCabangList] = useState<Cabang[]>([]);
   const [accounts, setAccounts] = useState<DaftarAkun[]>([]);
@@ -334,6 +337,16 @@ export default function JurnalPage() {
   const assetAccounts = accounts.filter((a) => a.nama_tipe_akun === "Aset" && a.status === "Aktif");
   const expenseAccounts = accounts.filter((a) => a.nama_tipe_akun === "Beban" && a.status === "Aktif");
 
+  if (!permissionsLoading && !can_read) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60">
+        <AlertTriangle className="w-16 h-16 text-error mb-4 animate-bounce" />
+        <h3 className="text-lg font-bold text-on-surface">Akses Ditolak</h3>
+        <p className="text-xs mt-1">Anda tidak memiliki hak akses untuk melihat halaman ini.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -346,12 +359,14 @@ export default function JurnalPage() {
 
         {/* Dropdown Action Button */}
         <div className="relative">
-          <button
-            onClick={() => setActionMenuOpen(!actionMenuOpen)}
-            className="w-full md:w-auto flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm shadow-primary-container/20"
-          >
-            <Plus className="w-4 h-4" /> Transaksi Baru <ChevronDown className="w-4 h-4" />
-          </button>
+          {can_create && (
+            <button
+              onClick={() => setActionMenuOpen(!actionMenuOpen)}
+              className="w-full md:w-auto flex items-center justify-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm shadow-primary-container/20"
+            >
+              <Plus className="w-4 h-4" /> Transaksi Baru <ChevronDown className="w-4 h-4" />
+            </button>
+          )}
           
           {actionMenuOpen && (
             <>

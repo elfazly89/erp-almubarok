@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, jabatan, cabang } from "@/lib/db/schema";
-import { eq, like, or, sql, asc, desc } from "drizzle-orm";
+import { eq, like, or, and, sql, asc, desc } from "drizzle-orm";
 import { hashPassword } from "@/lib/auth/password";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -9,6 +9,9 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search") || searchParams.get("q") || "";
   const status = searchParams.get("status") || "";
+  const idJabatan = searchParams.get("id_jabatan") || "";
+  const idCabang = searchParams.get("id_cabang") || "";
+  const tahunMasuk = searchParams.get("tahun_masuk") || "";
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "20");
   const offset = (page - 1) * limit;
@@ -45,8 +48,17 @@ export async function GET(request: Request) {
   if (status) {
     conditions.push(eq(users.status, status as "Abdi Tetap" | "Kontrak" | "Training" | "Non-Aktif"));
   }
+  if (idJabatan) {
+    conditions.push(eq(users.id_jabatan, parseInt(idJabatan)));
+  }
+  if (idCabang) {
+    conditions.push(eq(users.id_cabang, parseInt(idCabang)));
+  }
+  if (tahunMasuk) {
+    conditions.push(like(users.tanggal_masuk, `${tahunMasuk}-%`));
+  }
 
-  const where = conditions.length > 0 ? conditions[0] : undefined;
+  const where = conditions.length > 0 ? (conditions.length === 1 ? conditions[0] : and(...conditions)) : undefined;
 
   const [data, total] = await Promise.all([
     db
@@ -60,6 +72,12 @@ export async function GET(request: Request) {
         tanggal_masuk: users.tanggal_masuk,
         id_jabatan: users.id_jabatan,
         id_cabang: users.id_cabang,
+        tempat_lahir: users.tempat_lahir,
+        tanggal_lahir: users.tanggal_lahir,
+        no_ktp: users.no_ktp,
+        pendidikan_terakhir: users.pendidikan_terakhir,
+        riwayat_lembaga: users.riwayat_lembaga,
+        riwayat_pekerjaan: users.riwayat_pekerjaan,
         jabatan: jabatan.jabatan,
         nama_cabang: cabang.nama_cabang,
       })
