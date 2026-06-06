@@ -101,13 +101,16 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
-    label: "Mutasi Stok",
-    icon: <ArrowLeftRight className="w-5 h-5" />,
+    label: "Distribusi",
+    icon: <Layers className="w-5 h-5" />,
     children: [
-      { label: "Permintaan Barang", href: "/mutasi/request", icon: <FileText className="w-4 h-4" /> },
-      { label: "Kirim Barang", href: "/mutasi/kirim", icon: <Send className="w-4 h-4" /> },
-      { label: "Terima Barang", href: "/mutasi/terima", icon: <Inbox className="w-4 h-4" /> },
-      { label: "Selisih Kiriman", href: "/mutasi/selisih", icon: <AlertTriangle className="w-4 h-4" /> },
+      { label: "Dasbor Distribusi", href: "/distribusi/dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
+      { label: "Proyeksi Ketersediaan", href: "/distribusi/forecast", icon: <Clock className="w-4 h-4" /> },
+      { label: "Rekomendasi Pengiriman", href: "/distribusi/rekomendasi", icon: <FileText className="w-4 h-4" /> },
+      { label: "Penyeimbangan Stok", href: "/distribusi/transfer", icon: <ArrowLeftRight className="w-4 h-4" /> },
+      { label: "Surat Jalan DC", href: "/distribusi/pengiriman", icon: <Send className="w-4 h-4" /> },
+      { label: "Lacak Pengiriman", href: "/distribusi/monitoring", icon: <Inbox className="w-4 h-4" /> },
+      { label: "Selisih Pengiriman", href: "/distribusi/selisih", icon: <AlertTriangle className="w-4 h-4" /> },
     ],
   },
   {

@@ -283,62 +283,6 @@ const guides: Record<string, PageGuide> = {
     ],
     tips: "Lakukan pelunasan tepat waktu sesuai kesepakatan tempo agar hubungan bisnis dengan supplier tetap terjaga."
   },
-  "/mutasi/request": {
-    title: "Permintaan Barang Antar Cabang",
-    description: "Modul pengajuan mutasi barang ke cabang lain karena stok di cabang sendiri habis.",
-    workflow: [
-      "Pilih cabang sumber penyedia barang.",
-      "Daftarkan produk dan jumlah barang yang dibutuhkan.",
-      "Kirim permohonan dan tunggu persetujuan pengiriman dari cabang tujuan."
-    ],
-    features: [
-      "Formulir Permintaan Mutasi Internal",
-      "Status pelacakan pengiriman (Pending, Approved)"
-    ],
-    tips: "Gunakan fitur ini untuk meratakan perputaran stok barang di semua cabang tanpa harus selalu membeli baru."
-  },
-  "/mutasi/kirim": {
-    title: "Pengiriman Barang (Mutasi)",
-    description: "Proses mengirimkan produk mutasi ke cabang peminta.",
-    workflow: [
-      "Pilih permintaan mutasi yang masuk.",
-      "Siapkan barang fisik lalu klik 'Kirim Barang' dengan mengisi no resi internal.",
-      "Stok di cabang pengirim akan berkurang sementara saat berstatus Dikirim."
-    ],
-    features: [
-      "Penerbitan Surat Jalan Mutasi",
-      "Pemotongan stok pengirim aman"
-    ],
-    tips: "Kemasi barang dengan baik dan catat jumlahnya secara tepat untuk menghindari selisih di cabang penerima."
-  },
-  "/mutasi/terima": {
-    title: "Penerimaan Mutasi Barang",
-    description: "Mengonfirmasi kedatangan barang mutasi dari cabang pengirim.",
-    workflow: [
-      "Pilih kiriman barang yang baru sampai di cabang Anda.",
-      "Hitung kuantitas barang secara fisik, lalu isi kolom 'Jumlah Diterima'.",
-      "Klik simpan untuk memasukkan barang secara resmi ke stok cabang Anda."
-    ],
-    features: [
-      "Konfirmasi Kuantitas Diterima",
-      "Auto-adjust stok masuk cabang penerima"
-    ],
-    tips: "Jika ada barang yang rusak atau hilang selama perjalanan, catat jumlah selisihnya agar dapat ditindaklanjuti."
-  },
-  "/mutasi/selisih": {
-    title: "Selisih Kiriman Mutasi",
-    description: "Pusat investigasi dan penyelesaian selisih kuantitas barang mutasi.",
-    workflow: [
-      "Lihat daftar pengiriman yang dilaporkan memiliki selisih.",
-      "Tinjau catatan penerima tentang alasan selisih.",
-      "Pilih selesaikan dengan menyetujui penyesuaian stok atau melakukan pengiriman ulang."
-    ],
-    features: [
-      "Log Selisih Barang Mutasi",
-      "Penyelesaian Penyesuaian Stok (Stock Adjustment)"
-    ],
-    tips: "Segera lakukan penyelesaian selisih agar pembukuan stok akhir kedua cabang kembali seimbang."
-  },
   "/akuntansi/jurnal": {
     title: "Jurnal Umum",
     description: "Buku jurnal utama mencatat semua transaksi keuangan secara double-entry (Debit & Kredit).",
@@ -436,6 +380,128 @@ const guides: Record<string, PageGuide> = {
       "Pelacakan Stok Multi-Cabang"
     ],
     tips: "Jika Anda mengalami kendala teknis, silakan hubungi tim administrator IT."
+  },
+  "/distribusi/dashboard": {
+    title: "Dasbor Distribusi",
+    description: "Pusat kendali Smart Distribution Management System (DMS). Memantau ketersediaan stok cabang, barang kritis, produk terlaris, dan prioritas pengiriman secara real-time.",
+    workflow: [
+      "Tinjau KPI utama di bagian atas: total cabang dipantau, barang berstatus kritis, tingkat pemenuhan stok, dan rekomendasi yang menunggu.",
+      "Periksa tabel 'Barang Kritis' untuk mengetahui item yang paling mendesak untuk segera dikirim.",
+      "Lihat skor 'Prioritas Pengiriman Cabang' untuk menentukan urutan pengiriman berikutnya.",
+      "Klik tombol 'Hitung Ulang Forecast' (di halaman Proyeksi) agar data dashboard selalu up-to-date."
+    ],
+    features: [
+      "Widget KPI Distribusi Real-time",
+      "Daftar Barang & Cabang Kritis",
+      "Top Produk Terlaris (Fast Moving)",
+      "Skor Prioritas Pengiriman Otomatis"
+    ],
+    tips: "Jalankan 'Hitung Ulang Forecast' dari halaman Proyeksi Ketersediaan setiap pagi hari untuk memastikan data dashboard akurat berdasarkan penjualan terkini."
+  },
+  "/distribusi/forecast": {
+    title: "Proyeksi Ketersediaan Stok",
+    description: "Analisis ketahanan stok per SKU per cabang. Menampilkan rata-rata penjualan harian (ADS), estimasi hari habis, dan status AMAN/PERHATIAN/KRITIS.",
+    workflow: [
+      "Klik tombol 'Hitung Ulang Forecast' untuk memperbarui seluruh data ADS dan proyeksi berdasarkan data penjualan 30 hari terakhir.",
+      "Gunakan filter Cabang dan Kategori untuk mempersempit tampilan data.",
+      "Klik ikon 'Grafik' di kolom Aksi untuk melihat simulasi proyeksi penurunan stok harian.",
+      "Prioritaskan item berstatus KRITIS untuk segera dimasukkan ke halaman Rekomendasi Pengiriman."
+    ],
+    features: [
+      "Kalkulasi ADS (Average Daily Sales) dari data penjualan aktual",
+      "Status AMAN / PERHATIAN / KRITIS otomatis",
+      "Estimasi tanggal habis stok",
+      "Filter multi-dimensi (Cabang, Kategori, Nama Barang)"
+    ],
+    tips: "Status KRITIS berarti stok kurang dari Lead Time pengiriman (default 2 hari). Segera buat rekomendasi pengiriman untuk item-item ini."
+  },
+  "/distribusi/rekomendasi": {
+    title: "Rekomendasi Pengiriman Pintar",
+    description: "Engine Smart Replenishment yang menghitung otomatis kebutuhan kirim ke setiap cabang berdasarkan ADS × Target Hari. Fitur utama manajemen distribusi DC.",
+    workflow: [
+      "Klik 'Generate Rekomendasi Baru' untuk membiarkan sistem menghitung secara otomatis seluruh item yang perlu dikirim (dari data forecast KRITIS & PERHATIAN).",
+      "Tinjau daftar rekomendasi DRAF. Anda dapat mengubah jumlah kiriman dengan klik ikon pensil.",
+      "Klik 'Setujui' pada masing-masing baris, atau 'Setujui Semua Draf' untuk persetujuan massal.",
+      "Setelah ada item berstatus DISETUJUI, klik 'Buat Surat Jalan' untuk mengkonversinya menjadi pengiriman nyata."
+    ],
+    features: [
+      "Auto-generate rekomendasi dari data forecast real",
+      "Edit jumlah kiriman secara manual per item",
+      "Persetujuan individual atau massal",
+      "Konversi langsung ke Surat Jalan DC",
+      "Skor prioritas per item (0-100)"
+    ],
+    tips: "Pastikan halaman Proyeksi Ketersediaan sudah diperbarui sebelum men-generate rekomendasi baru, agar skor prioritas akurat."
+  },
+  "/distribusi/transfer": {
+    title: "Penyeimbangan Stok Antarcabang",
+    description: "Fitur Smart Transfer yang mendeteksi otomatis cabang dengan kelebihan stok (overstock) untuk menyuplai cabang yang kekurangan stok (understock), sebelum perlu PO baru ke supplier.",
+    workflow: [
+      "Sistem akan menampilkan saran transfer otomatis berdasarkan analisis data forecast seluruh cabang.",
+      "Tinjau kartu transfer: bandingkan Cabang Pengirim (overstock > 60 hari) dan Cabang Penerima (status KRITIS).",
+      "Klik 'Proses Mutasi Transfer' untuk membuat surat jalan transfer antarcabang.",
+      "Klik 'Abaikan' jika saran transfer tidak sesuai dengan kondisi lapangan."
+    ],
+    features: [
+      "Deteksi otomatis overstock & understock",
+      "Kalkulasi qty transfer optimal (40% dari kelebihan stok)",
+      "Estimasi potensi penyelamatan hari cover",
+      "Generate surat jalan TRANSFER otomatis"
+    ],
+    tips: "Transfer antarcabang memindahkan modal yang mengendap (kelebihan stok) ke lokasi yang menghasilkan penjualan, meminimalkan lost sales tanpa harus menambah PO ke supplier."
+  },
+  "/distribusi/pengiriman": {
+    title: "Surat Jalan DC & Status Pengiriman",
+    description: "Kelola semua surat jalan yang dibuat oleh Distribution Center (DC). Pantau alur status dari Draf → Pengambilan Barang → Pengepakan → Dalam Perjalanan → Diterima.",
+    workflow: [
+      "Surat jalan otomatis muncul di sini setelah rekomendasi di-generate dari menu Rekomendasi Pengiriman.",
+      "Klik salah satu surat jalan di sebelah kiri untuk melihat rincian item dan panel kontrol status di sebelah kanan.",
+      "Gunakan tombol status (AMBIL → KEMAS → KIRIM) untuk memperbarui progres pengiriman secara real-time.",
+      "Klik 'Cetak Surat Jalan (PDF)' untuk mencetak dokumen resmi pengiriman."
+    ],
+    features: [
+      "Daftar surat jalan DC dengan status real-time",
+      "Panel detail item per surat jalan",
+      "Kontrol alur status pengiriman (stepper)",
+      "Preview & cetak surat jalan PDF"
+    ],
+    tips: "Setelah driver berangkat, ubah status ke 'Dalam Perjalanan' agar pemantauan GPS di halaman Monitoring dapat melacak pengiriman ini."
+  },
+  "/distribusi/monitoring": {
+    title: "Pemantauan Distribusi & GPS",
+    description: "Pantau secara langsung posisi pengiriman aktif (simulasi GPS) dan evaluasi tingkat pemenuhan stok (service level) per cabang dalam 30 hari terakhir.",
+    workflow: [
+      "Tabel kiri menampilkan semua pengiriman yang sedang aktif (status Dalam Perjalanan / Bongkar Muat).",
+      "Klik salah satu pengiriman untuk melihat timeline GPS detail di panel kanan.",
+      "Monitor progress bar tiap kiriman — bar bergerak otomatis setiap beberapa detik.",
+      "Tabel Service Level di bawah menunjukkan persentase pemenuhan kebutuhan stok per cabang."
+    ],
+    features: [
+      "Simulasi GPS real-time tracking (update otomatis)",
+      "Timeline status pengiriman (5 tahap)",
+      "Tabel tingkat pemenuhan stok 30 hari",
+      "Status badge dinamis per kiriman"
+    ],
+    tips: "Tingkat pemenuhan stok (service level) di atas 95% adalah target ideal. Jika ada cabang di bawah 90%, segera review jadwal distribusi."
+  },
+  "/distribusi/selisih": {
+    title: "Pengelolaan Selisih Pengiriman",
+    description: "Sistem investigasi dan rekonsiliasi selisih barang saat pengiriman tiba di cabang. Ada dua peran: Pemeriksa Cabang (input) dan Supervisor DC (approval).",
+    workflow: [
+      "Tab 'Pemeriksaan Cabang': Pilih surat jalan yang baru diterima, masukkan nama pemeriksa, lalu isi jumlah fisik yang diterima per item.",
+      "Gunakan tombol 'Scan' untuk simulasi verifikasi barcode per item.",
+      "Jika ada selisih, pilih jenis selisih (Kurang/Lebih/Rusak/Salah Barang) dan lampirkan foto bukti.",
+      "Klik 'Simpan Hasil Pengecekan' untuk mengirim laporan ke Supervisor DC.",
+      "Tab 'Persetujuan DC': Supervisor tinjau laporan dan klik 'Setuju' atau 'Tolak' untuk setiap kasus selisih."
+    ],
+    features: [
+      "Formulir pengecekan fisik per item",
+      "Simulasi scan barcode verifikasi",
+      "Upload foto bukti selisih",
+      "Sistem approval dua level (Cabang → DC)",
+      "Auto-update status pengiriman setelah pengecekan"
+    ],
+    tips: "Dokumentasikan setiap selisih dengan foto bukti yang jelas. Selisih yang disetujui DC akan otomatis memicu pembuatan pengiriman susulan untuk item yang kurang."
   }
 };
 

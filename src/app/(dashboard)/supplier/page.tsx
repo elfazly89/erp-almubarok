@@ -45,6 +45,9 @@ export default function SupplierPage() {
   const [showModal, setShowModal] = useState(false);
   const [edit, setEdit] = useState<Supplier | null>(null);
   const [search, setSearch] = useState("");
+  const [filterPajak, setFilterPajak] = useState("");
+  const [filterHari, setFilterHari] = useState("");
+  const [filterPeriode, setFilterPeriode] = useState("");
   
   // Form fields
   const [nama, setNama] = useState("");
@@ -565,12 +568,17 @@ export default function SupplierPage() {
 
   const filteredList = list.filter((item) => {
     const s = search.toLowerCase();
-    return (
+    const matchSearch =
       item.nama_supplier.toLowerCase().includes(s) ||
       (item.alamat && item.alamat.toLowerCase().includes(s)) ||
       (item.telepon && item.telepon.includes(s)) ||
-      (item.email && item.email.toLowerCase().includes(s))
-    );
+      (item.email && item.email.toLowerCase().includes(s));
+
+    const matchPajak = filterPajak === "" || item.status_pajak === filterPajak;
+    const matchHari = filterHari === "" || item.hari_kunjungan === filterHari;
+    const matchPeriode = filterPeriode === "" || item.periode_kunjungan === filterPeriode;
+
+    return matchSearch && matchPajak && matchHari && matchPeriode;
   });
 
   const sortedList = [...filteredList].sort((a, b) => {
@@ -631,19 +639,77 @@ export default function SupplierPage() {
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="flex justify-between items-center bg-surface-container/40 px-4 py-2 border border-outline-variant/30 rounded-xl shrink-0">
-        <span className="text-on-surface-variant text-xs font-semibold">Daftar Supplier Aktif</span>
-        <div className="relative w-full max-w-xs">
-          <Search className="w-3.5 h-3.5 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Cari nama, alamat, telepon..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between bg-surface-container/40 px-4 py-3 border border-outline-variant/30 rounded-xl shrink-0">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full md:w-auto items-stretch sm:items-center">
+          <div className="relative w-full sm:w-64">
+            <Search className="w-3.5 h-3.5 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Cari nama, alamat, telepon..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Filter Status Pajak */}
+            <select
+              value={filterPajak}
+              onChange={(e) => setFilterPajak(e.target.value)}
+              className="bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            >
+              <option value="">Semua Pajak</option>
+              <option value="PKP">PKP</option>
+              <option value="NON-PKP">NON-PKP</option>
+            </select>
+
+            {/* Filter Hari Kunjungan */}
+            <select
+              value={filterHari}
+              onChange={(e) => setFilterHari(e.target.value)}
+              className="bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            >
+              <option value="">Semua Hari Kunjungan</option>
+              <option value="Senin">Senin</option>
+              <option value="Selasa">Selasa</option>
+              <option value="Rabu">Rabu</option>
+              <option value="Kamis">Kamis</option>
+              <option value="Jumat">Jumat</option>
+              <option value="Sabtu">Sabtu</option>
+              <option value="Minggu">Minggu</option>
+            </select>
+
+            {/* Filter Periode Kunjungan */}
+            <select
+              value={filterPeriode}
+              onChange={(e) => setFilterPeriode(e.target.value)}
+              className="bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            >
+              <option value="">Semua Periode</option>
+              <option value="Mingguan">Mingguan</option>
+              <option value="Setengah Bulanan">Setengah Bulanan</option>
+              <option value="Bulanan">Bulanan</option>
+            </select>
+
+            {/* Reset Filters button if any filters active */}
+            {(filterPajak || filterHari || filterPeriode) && (
+              <button
+                onClick={() => {
+                  setFilterPajak("");
+                  setFilterHari("");
+                  setFilterPeriode("");
+                }}
+                className="text-primary hover:text-primary-container text-xs font-semibold flex items-center gap-1 transition-colors px-2 py-1 rounded-md hover:bg-primary/5 cursor-pointer"
+              >
+                Reset Filter
+              </button>
+            )}
+          </div>
         </div>
+        <span className="text-on-surface-variant text-xs font-semibold shrink-0">
+          Menampilkan {sortedList.length} dari {list.length} Supplier
+        </span>
       </div>
 
       <div className="flex-1 min-h-0 bg-surface border border-outline-variant/30 rounded-2xl overflow-hidden shadow-xl flex flex-col">

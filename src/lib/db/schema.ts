@@ -457,9 +457,15 @@ export const pengiriman = sqliteTable("pengiriman", {
   id_cabang_tujuan: integer("id_cabang_tujuan").references(() => cabang.id_cabang).notNull(),
   id_user_pengirim: integer("id_user_pengirim").references(() => users.id).notNull(),
   id_user_penerima: integer("id_user_penerima").references(() => users.id),
-  status: text("status").default("Dikirim"), // Dikirim, Diterima Penuh, Ada Selisih
+  // DC fields
+  jenis_pengiriman: text("jenis_pengiriman").default("CABANG"), // CABANG, DC, TRANSFER
+  id_rekomendasi: integer("id_rekomendasi"), // FK ke rekomendasi_pengiriman jika dari DC
+  armada: text("armada"), // Nomor kendaraan
+  driver: text("driver"), // Nama sopir
+  status: text("status").default("Draft"), // Draft, Pengambilan Barang, Pengepakan, Sudah Dicek Gudang, Dalam Perjalanan, Diterima Sementara, Sedang Dicek, Diterima Lengkap, Ada Selisih, Selesai
   tanggal_kirim: text("tanggal_kirim").notNull(),
   tanggal_terima: text("tanggal_terima"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
 
 // ─── DETAIL PENGIRIMAN BARANG ─────────────────────────────────────────────────
@@ -472,6 +478,89 @@ export const pengiriman_detail = sqliteTable("pengiriman_detail", {
   id_request_detail: integer("id_request_detail").references(() => pesan_cabang_detail.id),
   status_selisih: text("status_selisih"), // Null, Pending, Approved
   catatan_penerima: text("catatan_penerima"),
+});
+
+// ─── DMS: STOK SETTING PER CABANG ────────────────────────────────────────────
+export const stok_setting_cabang = sqliteTable("stok_setting_cabang", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  minimum_stock: integer("minimum_stock").default(0).notNull(),
+  safety_stock: integer("safety_stock").default(0).notNull(),
+  target_days_stock: integer("target_days_stock").default(14).notNull(), // target cakupan stok (hari)
+  lead_time_days: integer("lead_time_days").default(2).notNull(), // waktu rata-rata pengiriman
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── DMS: SALES VELOCITY (KECEPATAN PENJUALAN) ───────────────────────────────
+export const sales_velocity = sqliteTable("sales_velocity", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  ads_7: integer("ads_7").default(0),   // Average Daily Sales 7 hari (in pcs * 100 for precision)
+  ads_30: integer("ads_30").default(0), // ADS 30 hari
+  ads_90: integer("ads_90").default(0), // ADS 90 hari
+  last_calculated: text("last_calculated"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── DMS: FORECAST STOK ──────────────────────────────────────────────────────
+export const forecast_stok = sqliteTable("forecast_stok", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  stok_sekarang: integer("stok_sekarang").default(0).notNull(),
+  ads: integer("ads").default(0), // ADS dalam pcs * 100 (precision 2 desimal)
+  estimasi_habis_hari: integer("estimasi_habis_hari").default(0), // stock cover dalam hari
+  tanggal_habis: text("tanggal_habis"), // YYYY-MM-DD estimasi stok habis
+  status: text("status").default("AMAN"), // AMAN, PERHATIAN, KRITIS
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── DMS: REKOMENDASI PENGIRIMAN (HEADER) ────────────────────────────────────
+export const rekomendasi_pengiriman = sqliteTable("rekomendasi_pengiriman", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kode_rekomendasi: text("kode_rekomendasi").notNull(), // RKM/YYYY/MM/URUTAN
+  tanggal_rekomendasi: text("tanggal_rekomendasi").notNull(),
+  status: text("status").default("DRAFT"), // DRAFT, APPROVED, REJECTED, GENERATED_TO_SHIPMENT
+  dibuat_oleh: integer("dibuat_oleh").references(() => users.id),
+  catatan: text("catatan"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── DMS: REKOMENDASI PENGIRIMAN DETAIL ──────────────────────────────────────
+export const rekomendasi_pengiriman_detail = sqliteTable("rekomendasi_pengiriman_detail", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_rekomendasi: integer("id_rekomendasi").references(() => rekomendasi_pengiriman.id).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_cabang_tujuan: integer("id_cabang_tujuan").references(() => cabang.id_cabang).notNull(),
+  stok_sekarang: integer("stok_sekarang").default(0).notNull(),
+  ads: integer("ads").default(0),           // ADS * 100
+  qty_rekomendasi: integer("qty_rekomendasi").default(0).notNull(),
+  target_stock: integer("target_stock").default(0).notNull(),
+  prioritas_score: integer("prioritas_score").default(0), // 0-100
+  qty_approved: integer("qty_approved"),    // qty yang disetujui DC (bisa diubah)
+});
+
+// ─── DMS: PENGIRIMAN SELISIH ──────────────────────────────────────────────────
+export const pengiriman_selisih = sqliteTable("pengiriman_selisih", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_pengiriman: integer("id_pengiriman").references(() => pengiriman.id_pengiriman).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  jumlah_dikirim: integer("jumlah_dikirim").notNull(),
+  jumlah_diterima: integer("jumlah_diterima").notNull(),
+  selisih: integer("selisih").notNull(), // bisa negatif (lebih) atau positif (kurang)
+  jenis_selisih: text("jenis_selisih").notNull(), // KURANG, LEBIH, RUSAK, SALAH_BARANG
+  alasan: text("alasan"),
+  foto_bukti: text("foto_bukti"),
+  status: text("status").default("MENUNGGU_PEMERIKSAAN"), // MENUNGGU_PEMERIKSAAN, DISETUJUI, DITOLAK, SELESAI
+  dibuat_oleh: text("dibuat_oleh"), // nama petugas pemeriksa
+  disetujui_oleh: integer("disetujui_oleh").references(() => users.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
 
 // ─── TIPE AKUN ───────────────────────────────────────────────────────────────
@@ -677,3 +766,10 @@ export type TipeAkun = typeof tipe_akun.$inferSelect;
 export type DaftarAkun = typeof daftar_akun.$inferSelect;
 export type JurnalUmum = typeof jurnal_umum.$inferSelect;
 
+// ─── DMS TYPES ───────────────────────────────────────────────────────────────
+export type StokSettingCabang = typeof stok_setting_cabang.$inferSelect;
+export type SalesVelocity = typeof sales_velocity.$inferSelect;
+export type ForecastStok = typeof forecast_stok.$inferSelect;
+export type RekomendasiPengiriman = typeof rekomendasi_pengiriman.$inferSelect;
+export type RekomendasiPengirimanDetail = typeof rekomendasi_pengiriman_detail.$inferSelect;
+export type PengirimanSelisih = typeof pengiriman_selisih.$inferSelect;
