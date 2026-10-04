@@ -773,3 +773,85 @@ export type ForecastStok = typeof forecast_stok.$inferSelect;
 export type RekomendasiPengiriman = typeof rekomendasi_pengiriman.$inferSelect;
 export type RekomendasiPengirimanDetail = typeof rekomendasi_pengiriman_detail.$inferSelect;
 export type PengirimanSelisih = typeof pengiriman_selisih.$inferSelect;
+
+// ─── REKENING KAS ────────────────────────────────────────────────────────────
+export const rekening_kas = sqliteTable("rekening_kas", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kode: text("kode").notNull(),
+  nama: text("nama").notNull(),
+  jenis: text("jenis").notNull(), // 'KAS_TOKO' | 'KAS_DC' | 'BANK' | 'PETTY_CASH'
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  saldo_awal: integer("saldo_awal").default(0).notNull(),
+  saldo: integer("saldo").default(0).notNull(),
+  id_akun_coa: integer("id_akun_coa").references(() => daftar_akun.id),
+  is_active: integer("is_active", { mode: "boolean" }).default(true).notNull(),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── KAS TRANSAKSI ───────────────────────────────────────────────────────────
+export const kas_transaksi = sqliteTable("kas_transaksi", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  nomor_transaksi: text("nomor_transaksi").notNull(),
+  id_rekening: integer("id_rekening").references(() => rekening_kas.id).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  tipe: text("tipe").notNull(), // 'MASUK' | 'KELUAR' | 'TRANSFER'
+  kategori: text("kategori"),   // 'PENJUALAN' | 'OPERASIONAL' | 'GAJI' | 'PEMBELIAN' | 'LAIN'
+  nominal: integer("nominal").notNull(),
+  tanggal: text("tanggal").notNull(),
+  keterangan: text("keterangan"),
+  referensi_type: text("referensi_type"), // 'PENJUALAN' | 'FAKTUR_BELI' | 'SHIFT' | 'MANUAL'
+  referensi_id: integer("referensi_id"),
+  id_rekening_tujuan: integer("id_rekening_tujuan").references(() => rekening_kas.id),
+  bukti: text("bukti"),
+  status: text("status").default("APPROVED"), // 'PENDING' | 'APPROVED' | 'REVERSED'
+  id_jurnal: integer("id_jurnal"),
+  created_by: integer("created_by").references(() => users.id),
+  approved_by: integer("approved_by").references(() => users.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── KASIR SHIFT ─────────────────────────────────────────────────────────────
+export const kasir_shift = sqliteTable("kasir_shift", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  id_kasir: integer("id_kasir").references(() => users.id).notNull(),
+  id_rekening: integer("id_rekening").references(() => rekening_kas.id).notNull(),
+  waktu_buka: text("waktu_buka").notNull(),
+  waktu_tutup: text("waktu_tutup"),
+  saldo_awal: integer("saldo_awal").default(0).notNull(),
+  total_sistem: integer("total_sistem").default(0),
+  total_tunai: integer("total_tunai").default(0),
+  total_transfer: integer("total_transfer").default(0),
+  uang_fisik: integer("uang_fisik"),
+  selisih: integer("selisih"),
+  setoran: integer("setoran").default(0),
+  catatan: text("catatan"),
+  status: text("status").default("OPEN"), // 'OPEN' | 'CLOSING' | 'VERIFIED'
+  verified_by: integer("verified_by").references(() => users.id),
+  verified_at: text("verified_at"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── REKONSILIASI KAS ────────────────────────────────────────────────────────
+export const rekonsiliasi_kas = sqliteTable("rekonsiliasi_kas", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  id_rekening: integer("id_rekening").references(() => rekening_kas.id).notNull(),
+  tanggal: text("tanggal").notNull(),
+  saldo_sistem: integer("saldo_sistem").notNull(),
+  saldo_fisik: integer("saldo_fisik").notNull(),
+  selisih: integer("selisih").notNull(),
+  alasan: text("alasan"),
+  bukti: text("bukti"),
+  status: text("status").default("PENDING"), // 'PENDING' | 'APPROVED' | 'REJECTED'
+  approved_by: integer("approved_by").references(() => users.id),
+  approved_at: text("approved_at"),
+  created_by: integer("created_by").references(() => users.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export type RekeningKas = typeof rekening_kas.$inferSelect;
+export type KasTransaksi = typeof kas_transaksi.$inferSelect;
+export type KasirShift = typeof kasir_shift.$inferSelect;
+export type RekonsiliasiKas = typeof rekonsiliasi_kas.$inferSelect;
+

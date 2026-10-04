@@ -3,14 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, LogIn, Building2 } from "lucide-react";
+import { useAppSettings } from "@/components/providers/AppSettingsProvider";
 import Logo from "@/components/layout/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { settings } = useAppSettings();
   const [form, setForm] = useState({ kode_user: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [shouldShake, setShouldShake] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +31,9 @@ export default function LoginPage() {
 
       if (!res.ok) {
         setError(data.error || "Login gagal");
+        setShouldShake(true);
+        setTimeout(() => setShouldShake(false), 500);
+        setLoading(false);
         return;
       }
 
@@ -35,7 +41,8 @@ export default function LoginPage() {
       router.refresh();
     } catch {
       setError("Terjadi kesalahan koneksi");
-    } finally {
+      setShouldShake(true);
+      setTimeout(() => setShouldShake(false), 500);
       setLoading(false);
     }
   };
@@ -51,13 +58,13 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-md">
         {/* Card */}
-        <div className="bg-surface backdrop-blur-xl border border-outline-variant/60 rounded-2xl shadow-2xl p-8">
+        <div className={`bg-surface backdrop-blur-xl border border-outline-variant/60 rounded-2xl shadow-2xl p-8 transition-all duration-300 ${shouldShake ? "animate-shake" : ""}`}>
           {/* Logo & Title */}
           <div className="text-center mb-8">
             <Logo size="lg" className="mx-auto mb-4 hover:scale-105 transition-transform duration-300 shadow-lg" />
-            <h1 className="text-2xl font-bold text-on-surface">ERP Al-Mubarok</h1>
+            <h1 className="text-2xl font-bold text-on-surface">{settings.app_name}</h1>
             <p className="text-on-surface-variant text-sm mt-1">
-              Sistem Manajemen Terintegrasi
+              {settings.company_name}
             </p>
           </div>
 
@@ -88,6 +95,8 @@ export default function LoginPage() {
                 }
                 placeholder="Masukkan kode user"
                 required
+                minLength={3}
+                maxLength={50}
                 className="w-full bg-surface-container-low border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
               />
             </div>
@@ -110,6 +119,8 @@ export default function LoginPage() {
                   }
                   placeholder="Masukkan password"
                   required
+                  minLength={8}
+                  maxLength={128}
                   className="w-full bg-surface-container-low border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
                 />
                 <button
@@ -149,7 +160,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-on-surface-variant/60 text-xs mt-8">
-            © 2025 Pondok Pesantren Al-Mubarok
+            © {new Date().getFullYear()} Pondok Pesantren Al-Mubarok
           </p>
         </div>
       </div>

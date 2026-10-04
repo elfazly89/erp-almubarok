@@ -157,14 +157,13 @@ export default function MonitoringDistribusiPage() {
         
         {/* Active Deliveries List (Col Span 2) */}
         <div className="lg:col-span-2 space-y-4 flex flex-col">
-          
           <div className="bg-surface border border-outline-variant/30 rounded-2xl p-5 shadow-sm flex flex-col">
             <div className="flex items-center justify-between mb-4 border-b border-outline-variant/20 pb-3">
               <h3 className="font-bold text-on-surface text-sm uppercase tracking-wider flex items-center gap-2">
-                <Truck className="w-4.5 h-4.5 text-primary" /> Pengiriman DC Aktif (GPS Waktu Nyata)
+                <Truck className="w-4.5 h-4.5 text-primary" /> Pengiriman DC Aktif (Simulasi GPS)
               </h3>
-              <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 font-bold px-2 py-0.5 rounded-full animate-pulse">
-                LANGSUNG
+              <span className="text-[10px] bg-warning/15 text-warning border border-warning/30 font-bold px-2 py-0.5 rounded-full animate-pulse">
+                SIMULASI GPS
               </span>
             </div>
 

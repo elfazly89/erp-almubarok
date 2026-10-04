@@ -67,6 +67,17 @@ export default function SelisihPengirimanPage() {
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    fetch("/api/user/me")
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success && json.user) {
+          setPemeriksaName(json.user.nama_user || "");
+        }
+      })
+      .catch(console.error);
+  }, []);
+
   const fetchQueuedShipments = useCallback(async () => {
     setLoading(true);
     try {

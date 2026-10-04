@@ -17,6 +17,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { useAppSettings } from "@/components/providers/AppSettingsProvider";
+import { formatCurrency } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -84,6 +86,7 @@ interface BalanceSheetData {
 
 export default function LaporanAkuntansiPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
+  const { settings } = useAppSettings();
   const [activeTab, setActiveTab] = useState<"ledger" | "trial-balance" | "profit-loss" | "balance-sheet">("ledger");
 
   // Date Filters (default to current month)
@@ -115,9 +118,12 @@ export default function LaporanAkuntansiPage() {
   const [bsData, setBsData] = useState<BalanceSheetData | null>(null);
   const [bsLoading, setBsLoading] = useState(false);
 
+  const [errorMsg, setErrorMsg] = useState("");
+
   // Fetch CoA accounts list for Ledger dropdown
   useEffect(() => {
     const fetchAccounts = async () => {
+      setErrorMsg("");
       try {
         const res = await fetch("/api/akuntansi/daftar-akun");
         if (res.ok) {
@@ -126,9 +132,12 @@ export default function LaporanAkuntansiPage() {
           if (data.length > 0) {
             setSelectedAkunId(data[0].id.toString());
           }
+        } else {
+          throw new Error("Gagal memuat daftar akun");
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Gagal memuat akun CoA", e);
+        setErrorMsg(e.message || "Gagal memuat Bagan Akun");
       }
     };
     fetchAccounts();
@@ -138,14 +147,19 @@ export default function LaporanAkuntansiPage() {
   const fetchLedger = useCallback(async () => {
     if (!selectedAkunId) return;
     setLedgerLoading(true);
+    setErrorMsg("");
     try {
       const url = `/api/akuntansi/laporan?type=ledger&akunId=${selectedAkunId}&startDate=${startDate}&endDate=${endDate}`;
       const res = await fetch(url);
       if (res.ok) {
         setLedgerData(await res.json());
+      } else {
+        const err = await res.json();
+        throw new Error(err.message || "Gagal memuat buku besar");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setErrorMsg(e.message || "Gagal memuat data Buku Besar");
     } finally {
       setLedgerLoading(false);
     }
@@ -154,14 +168,19 @@ export default function LaporanAkuntansiPage() {
   // Fetch Neraca Saldo
   const fetchTrialBalance = useCallback(async () => {
     setTrialLoading(true);
+    setErrorMsg("");
     try {
       const url = `/api/akuntansi/laporan?type=trial-balance&startDate=${startDate}&endDate=${endDate}`;
       const res = await fetch(url);
       if (res.ok) {
         setTrialData(await res.json());
+      } else {
+        const err = await res.json();
+        throw new Error(err.message || "Gagal memuat neraca saldo");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setErrorMsg(e.message || "Gagal memuat Neraca Saldo");
     } finally {
       setTrialLoading(false);
     }
@@ -170,14 +189,19 @@ export default function LaporanAkuntansiPage() {
   // Fetch Laba Rugi
   const fetchProfitLoss = useCallback(async () => {
     setPlLoading(true);
+    setErrorMsg("");
     try {
       const url = `/api/akuntansi/laporan?type=profit-loss&startDate=${startDate}&endDate=${endDate}`;
       const res = await fetch(url);
       if (res.ok) {
         setPlData(await res.json());
+      } else {
+        const err = await res.json();
+        throw new Error(err.message || "Gagal memuat laba rugi");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setErrorMsg(e.message || "Gagal memuat data Laba Rugi");
     } finally {
       setPlLoading(false);
     }
@@ -186,14 +210,19 @@ export default function LaporanAkuntansiPage() {
   // Fetch Neraca
   const fetchBalanceSheet = useCallback(async () => {
     setBsLoading(true);
+    setErrorMsg("");
     try {
       const url = `/api/akuntansi/laporan?type=balance-sheet&endDate=${endDate}`;
       const res = await fetch(url);
       if (res.ok) {
         setBsData(await res.json());
+      } else {
+        const err = await res.json();
+        throw new Error(err.message || "Gagal memuat neraca");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setErrorMsg(e.message || "Gagal memuat Neraca Keuangan");
     } finally {
       setBsLoading(false);
     }
@@ -208,11 +237,7 @@ export default function LaporanAkuntansiPage() {
   }, [activeTab, fetchLedger, fetchTrialBalance, fetchProfitLoss, fetchBalanceSheet]);
 
   const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      maximumFractionDigits: 0,
-    }).format(val);
+    return formatCurrency(val);
   };
 
   const handlePrint = () => {
@@ -279,8 +304,8 @@ export default function LaporanAkuntansiPage() {
 
       {/* PRINT-ONLY HEADER */}
       <div className="hidden print:block text-center border-b-2 border-double border-gray-400 pb-3 mb-6">
-        <h1 className="text-2xl font-extrabold tracking-wider text-black">ERP AL-MUBAROK</h1>
-        <p className="text-sm font-bold text-gray-700">Pondok Pesantren Al-Mubarok</p>
+        <h1 className="text-2xl font-extrabold tracking-wider text-black uppercase">{settings.app_name}</h1>
+        <p className="text-sm font-bold text-gray-700">{settings.company_name}</p>
         <p className="text-xs text-gray-500">Laporan Keuangan Resmi & Akuntansi Terpadu</p>
         <div className="text-[10px] text-gray-500 mt-2">
           Rentang Laporan: {new Date(startDate).toLocaleDateString("id-ID")} s/d {new Date(endDate).toLocaleDateString("id-ID")}
@@ -355,6 +380,12 @@ export default function LaporanAkuntansiPage() {
 
       {/* TAB CONTENT SPACE */}
       <div className="bg-surface border border-outline-variant/40 rounded-2xl overflow-hidden shadow-xl p-6 print:border-0 print:shadow-none print:p-0">
+        {errorMsg && (
+          <div className="mb-6 bg-error/15 border border-error/25 text-error text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-2 print:hidden">
+            <AlertTriangle className="w-4 h-4 shrink-0 animate-bounce text-error" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
         
         {/* 1. TAB BUKU BESAR */}
         {activeTab === "ledger" && (

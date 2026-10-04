@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Wallet, Plus, Search, RefreshCw, HandCoins, History, CheckCircle, AlertTriangle } from "lucide-react";
+import { Wallet, Plus, Search, RefreshCw, HandCoins, History, CheckCircle, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { formatCurrency } from "@/lib/utils";
 
 interface SupplierDebt {
   id_supplier: number;
@@ -19,6 +20,14 @@ interface PaymentHistory {
   jumlah_bayar: number;
   metode_pembayaran: string;
   keterangan: string | null;
+}
+
+interface RekeningKas {
+  id: number;
+  kode: string;
+  nama: string;
+  jenis: string;
+  saldo: number;
 }
 
 export default function HutangPage() {
@@ -39,17 +48,40 @@ export default function HutangPage() {
   const [metode, setMetode] = useState("Transfer");
   const [keterangan, setKeterangan] = useState("");
   const [saving, setSaving] = useState(false);
+  const [rekeningList, setRekeningList] = useState<RekeningKas[]>([]);
+  const [idRekening, setIdRekening] = useState("");
+
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [resDebts, resHistory] = await Promise.all([
-      fetch("/api/pembelian/hutang"),
-      fetch("/api/pembelian/hutang?mode=history"),
-    ]);
-    setDebts(await resDebts.json());
-    setHistory(await resHistory.json());
-    setLoading(false);
-  }, []);
+    try {
+      const [resDebts, resHistory, resKas] = await Promise.all([
+        fetch("/api/pembelian/hutang"),
+        fetch("/api/pembelian/hutang?mode=history"),
+        fetch("/api/kas/rekening").catch(() => null),
+      ]);
+      if (!resDebts.ok || !resHistory.ok) {
+        throw new Error("Gagal memuat saldo hutang atau riwayat dari server.");
+      }
+      setDebts(await resDebts.json());
+      setHistory(await resHistory.json());
+      if (resKas && resKas.ok) {
+        const kasData = await resKas.json();
+        setRekeningList(kasData.data || []);
+      }
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat data hutang.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     loadData();
@@ -61,11 +93,22 @@ export default function HutangPage() {
     setTanggal(new Date().toISOString().slice(0, 10));
     setMetode("Transfer");
     setKeterangan("");
+    setIdRekening("");
     setShowModal(true);
   };
 
   const handleSavePayment = async () => {
-    if (!selectedSupplier || !jumlahBayar || parseInt(jumlahBayar) <= 0) return;
+    if (!selectedSupplier) return;
+    const bayar = parseInt(jumlahBayar);
+    if (isNaN(bayar) || bayar <= 0) {
+      showToast("Jumlah bayar harus lebih besar dari 0", "error");
+      return;
+    }
+    if (bayar > selectedSupplier.hutang) {
+      showToast(`Jumlah bayar tidak boleh melebihi total hutang (${formatCurrency(selectedSupplier.hutang)})`, "error");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -75,28 +118,30 @@ export default function HutangPage() {
         body: JSON.stringify({
           id_supplier: selectedSupplier.id_supplier,
           tanggal_bayar: tanggal,
-          jumlah_bayar: parseInt(jumlahBayar),
+          jumlah_bayar: bayar,
           metode_pembayaran: metode,
           keterangan,
+          id_rekening: idRekening || null,
         }),
       });
 
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
+        showToast("Pembayaran hutang berhasil dicatat!", "success");
         setShowModal(false);
         loadData();
       } else {
-        alert("Gagal mencatat pembayaran: " + data.error);
+        showToast("Gagal mencatat pembayaran: " + (data.error || "Error"), "error");
       }
     } catch {
-      alert("Error memproses pembayaran hutang.");
+      showToast("Error memproses pembayaran hutang.", "error");
     } finally {
       setSaving(false);
     }
   };
 
   const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   const filteredDebts = debts.filter(
@@ -152,7 +197,7 @@ export default function HutangPage() {
             <HandCoins className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-on-surface-variant text-xs block">Sisa Hutang Dagang Dagang</span>
+            <span className="text-on-surface-variant text-xs block">Sisa Hutang Dagang</span>
             <span className="text-on-surface text-lg font-bold font-mono">{formatRupiah(totalOutstanding)}</span>
           </div>
         </div>
@@ -329,6 +374,24 @@ export default function HutangPage() {
                 </select>
               </div>
 
+              {rekeningList.length > 0 && (
+                <div>
+                  <label className="block text-on-surface-variant mb-1.5 font-semibold">Sumber Rekening Kas / Bank (Potong Saldo Otomatis)</label>
+                  <select
+                    value={idRekening}
+                    onChange={(e) => setIdRekening(e.target.value)}
+                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">-- Tanpa Potong Kas Otomatis --</option>
+                    {rekeningList.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.nama} ({r.jenis}) - Saldo: {formatRupiah(r.saldo)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-on-surface-variant mb-1.5 font-semibold">Memo / Keterangan</label>
                 <input
@@ -357,6 +420,20 @@ export default function HutangPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            toast.type === "success" 
+              ? "bg-emerald-600 border-emerald-500/30" 
+              : "bg-rose-600 border-rose-500/30"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
         </div>
       )}
 

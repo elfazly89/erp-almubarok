@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { DollarSign, Printer, Search, RefreshCw, FileText, CheckCircle, AlertTriangle } from "lucide-react";
+import { DollarSign, Printer, Search, RefreshCw, FileText, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { useAppSettings } from "@/components/providers/AppSettingsProvider";
+import { formatCurrency } from "@/lib/utils";
 
 interface Invoice {
   id_penjualan: number;
@@ -23,18 +25,53 @@ interface Invoice {
 
 export default function HistoryPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
+  const { settings } = useAppSettings();
   const [list, setList] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const [cashierName, setCashierName] = useState("Kasir Toko");
+  const [branchName, setBranchName] = useState("Cabang");
+
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/penjualan");
-    setList(await res.json());
-    setLoading(false);
-  }, []);
+    try {
+      const [resList, resProfile] = await Promise.all([
+        fetch("/api/penjualan"),
+        fetch("/api/pengaturan/profile")
+      ]);
+
+      if (!resList.ok || !resProfile.ok) {
+        throw new Error("Gagal memuat data transaksi.");
+      }
+
+      setList(await resList.json());
+
+      const profileData = await resProfile.json();
+      if (profileData && profileData.id) {
+        const resUser = await fetch(`/api/hrd/users/${profileData.id}`);
+        if (resUser.ok) {
+          const userData = await resUser.json();
+          setCashierName(userData.nama_user || "Kasir Toko");
+          setBranchName(userData.nama_cabang || "Cabang");
+        }
+      }
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat data riwayat transaksi.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     fetchData();
@@ -52,7 +89,7 @@ export default function HistoryPage() {
   };
 
   const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   const filteredList = list.filter(
@@ -195,7 +232,7 @@ export default function HistoryPage() {
       {/* DETAIL MODAL & PRINT PREVIEW */}
       {showDetailModal && selectedInvoice && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto">
-          <div className="bg-surface border border-outline-variant/30 rounded-2xl w-full max-w-sm my-8 overflow-hidden shadow-xl animate-in fade-in zoom-in-95 duration-150 print:border-0 print:bg-white print:max-w-full print:my-0 print:shadow-none">
+          <div id="print-invoice-modal" className="bg-surface border border-outline-variant/30 rounded-2xl w-full max-w-sm my-8 overflow-hidden shadow-xl animate-in fade-in zoom-in-95 duration-150 print:border-0 print:bg-white print:max-w-full print:my-0 print:shadow-none">
             
             <div className="px-6 py-4 border-b border-outline-variant/35 flex items-center justify-between print:hidden">
               <h2 className="font-semibold text-on-surface text-sm">Detail Struk Penjualan</h2>
@@ -207,9 +244,9 @@ export default function HistoryPage() {
             <div className="p-6 space-y-4">
               <div className="bg-white text-black p-4 rounded-xl border border-slate-200 font-mono text-[11px] space-y-3 shadow-inner print:p-0 print:border-0 print:shadow-none">
                 <div className="text-center space-y-1 pb-3 border-b border-dashed border-gray-300">
-                  <h3 className="font-bold text-sm tracking-wider">ERP AL-MUBAROK</h3>
-                  <p className="text-[10px]">Pondok Pesantren Al-Mubarok</p>
-                  <p className="text-[9px]">Cabang Sukosari</p>
+                  <h3 className="font-bold text-sm tracking-wider uppercase">{settings.app_name}</h3>
+                  <p className="text-[10px]">{settings.company_name}</p>
+                  <p className="text-[9px]">{branchName}</p>
                 </div>
 
                 <div className="space-y-0.5 border-b border-dashed border-gray-300 pb-2 text-[10px]">
@@ -223,7 +260,7 @@ export default function HistoryPage() {
                   </div>
                   <div className="flex justify-between">
                     <span>Kasir:</span>
-                    <span>Kasir Toko</span>
+                    <span>{cashierName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Pelanggan:</span>
@@ -322,6 +359,20 @@ export default function HistoryPage() {
           }
         }
       `}</style>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            toast.type === "success" 
+              ? "bg-emerald-600 border-emerald-500/30" 
+              : "bg-rose-600 border-rose-500/30"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
 
     </div>
   );

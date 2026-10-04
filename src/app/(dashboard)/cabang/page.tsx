@@ -21,7 +21,9 @@ import {
   AlertTriangle,
   Eye,
   Printer,
-  QrCode
+  QrCode,
+  CheckCircle2,
+  XCircle
 } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
@@ -37,6 +39,7 @@ interface Cabang {
   latitude: string | null;
   longitude: string | null;
   data_kode: string | null;
+  is_dc: boolean;
 }
 
 interface DBUser {
@@ -66,7 +69,23 @@ export default function CabangManagementPage() {
   const [formAdmin, setFormAdmin] = useState("");
   const [formLatitude, setFormLatitude] = useState("");
   const [formLongitude, setFormLongitude] = useState("");
+  const [formIsDc, setFormIsDc] = useState(false);
 
+  // Toast Notification State
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Custom Delete Confirm State
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; id: number | null; nama: string }>({
+    show: false,
+    id: null,
+    nama: "",
+  });
+
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -125,6 +144,7 @@ export default function CabangManagementPage() {
       setFormAdmin(item.admin ? item.admin.toString() : "");
       setFormLatitude(item.latitude || "");
       setFormLongitude(item.longitude || "");
+      setFormIsDc(item.is_dc ?? false);
     } else {
       setEditItem(null);
       setFormKode("");
@@ -135,6 +155,7 @@ export default function CabangManagementPage() {
       setFormAdmin("");
       setFormLatitude("");
       setFormLongitude("");
+      setFormIsDc(false);
     }
     setErrorMsg("");
     setShowModal(true);
@@ -150,14 +171,15 @@ export default function CabangManagementPage() {
     setErrorMsg("");
     try {
       const payload = {
-        kode_cabang: formKode,
-        nama_cabang: formNama,
-        alamat: formAlamat,
+        kode_cabang: formKode.trim(),
+        nama_cabang: formNama.trim(),
+        alamat: formAlamat.trim(),
         telepon: formTelepon || null,
         email: formEmail || null,
         admin: formAdmin ? parseInt(formAdmin) : null,
         latitude: formLatitude || null,
         longitude: formLongitude || null,
+        is_dc: formIsDc,
       };
 
       let res;
@@ -176,8 +198,9 @@ export default function CabangManagementPage() {
       }
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Gagal menyimpan cabang");
+      if (!res.ok) throw new Error(data.error || data.message || "Gagal menyimpan cabang");
 
+      showToast(`Cabang berhasil ${editItem ? "diperbarui" : "ditambahkan"}.`, "success");
       setShowModal(false);
       fetchData();
     } catch (e: any) {
@@ -187,15 +210,27 @@ export default function CabangManagementPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Apakah Anda yakin ingin menghapus cabang ini?")) return;
+  const handleDelete = (id: number) => {
+    const cabangItem = list.find((c) => c.id_cabang === id);
+    if (cabangItem) {
+      setDeleteConfirm({
+        show: true,
+        id,
+        nama: cabangItem.nama_cabang,
+      });
+    }
+  };
+
+  const confirmDelete = async (id: number) => {
+    setDeleteConfirm({ show: false, id: null, nama: "" });
     try {
       const res = await fetch(`/api/cabang/${id}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Gagal menghapus cabang");
+      if (!res.ok) throw new Error(data.error || data.message || "Gagal menghapus cabang");
+      showToast("Cabang berhasil dihapus.", "success");
       fetchData();
     } catch (e: any) {
-      alert(e.message);
+      showToast(e.message || "Gagal menghapus cabang", "error");
     }
   };
 
@@ -434,7 +469,14 @@ export default function CabangManagementPage() {
                         </span>
                       </td>
                       <td className="px-5 py-2.5 text-on-surface font-semibold text-xs">
-                        {item.nama_cabang}
+                        <span className="flex items-center gap-1.5">
+                          {item.nama_cabang}
+                          {item.is_dc && (
+                            <span className="text-[9px] bg-secondary/15 text-secondary border border-secondary/20 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                              DC
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className="px-5 py-2.5 text-on-surface-variant max-w-xs truncate text-xs" title={item.alamat}>
                         <span className="flex items-center gap-1.5">
@@ -653,6 +695,19 @@ export default function CabangManagementPage() {
                 </select>
               </div>
 
+              <div className="flex items-center gap-2.5 py-1 select-none">
+                <input
+                  type="checkbox"
+                  id="is_dc_checkbox"
+                  checked={formIsDc}
+                  onChange={(e) => setFormIsDc(e.target.checked)}
+                  className="w-4 h-4 text-primary bg-surface-container-low border-outline-variant rounded focus:ring-primary/45 focus:ring-2 cursor-pointer"
+                />
+                <label htmlFor="is_dc_checkbox" className="text-xs font-semibold text-on-surface cursor-pointer">
+                  Bertindak sebagai Distribution Center (DC)
+                </label>
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setShowModal(false)}
@@ -768,6 +823,56 @@ export default function CabangManagementPage() {
                 className="flex-1 bg-primary hover:bg-primary/95 text-on-primary py-3 rounded-xl font-bold shadow-lg shadow-primary/15 transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <Printer className="w-4 h-4" /> Cetak QR Code
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification (UX Polish) */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl animate-in slide-in-from-top-5 duration-200 ${
+          toast.type === "success" 
+            ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-500 backdrop-blur-md" 
+            : "bg-error/10 border-error/25 text-error backdrop-blur-md"
+        }`}>
+          {toast.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal (UX Polish & safe DELETE checks) */}
+      {deleteConfirm.show && deleteConfirm.id !== null && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
+            <div className="flex items-center gap-3 text-error">
+              <AlertTriangle className="w-8 h-8 shrink-0" />
+              <div>
+                <h3 className="font-bold text-on-surface text-sm">Hapus Cabang?</h3>
+                <p className="text-[11px] text-on-surface-variant">Tindakan ini tidak dapat dibatalkan.</p>
+              </div>
+            </div>
+            
+            <p className="text-xs text-on-surface-variant">
+              Apakah Anda yakin ingin menghapus cabang <strong className="text-on-surface">{deleteConfirm.nama}</strong>?
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-outline-variant/20">
+              <button
+                onClick={() => setDeleteConfirm({ show: false, id: null, nama: "" })}
+                className="bg-surface hover:bg-surface-container-high text-on-surface-variant px-4 py-2 rounded-xl text-xs font-semibold border border-outline-variant/60 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => {
+                  if (deleteConfirm.id !== null) {
+                    confirmDelete(deleteConfirm.id);
+                  }
+                }}
+                className="bg-error hover:bg-red-600 text-on-error px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              >
+                Ya, Hapus
               </button>
             </div>
           </div>

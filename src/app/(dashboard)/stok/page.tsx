@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Layers, Edit2, RefreshCw, Search, CheckCircle, AlertTriangle, ChevronUp, ChevronDown } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { formatCurrency } from "@/lib/utils";
 
 interface Stok {
   id: number;
@@ -109,7 +110,7 @@ export default function StokPage() {
 
   const formatRupiah = (val: number | null | undefined) => {
     if (val === null || val === undefined) return "-";
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   const filteredList = list.filter(

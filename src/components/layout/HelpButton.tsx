@@ -254,6 +254,40 @@ const guides: Record<string, PageGuide> = {
     ],
     tips: "Selalu buat PO sebelum memesan agar tidak terjadi selisih harga saat supplier mengirimkan faktur tagihan."
   },
+  "/pembelian/saran-order": {
+    title: "Saran Order Cerdas (Smart Reorder)",
+    description: "Analisis otomatis kebutuhan restock berdasarkan Average Daily Sales (ADS 30 hari), stok konsolidasi, stok minimum, dan PO on-order.",
+    workflow: [
+      "Pilih Target Buffer Hari (7, 14, 21, atau 30 hari) sesuai siklus pengiriman supplier.",
+      "Filter berdasarkan supplier atau status urgensi (Kritis, Perhatian, Semua).",
+      "Pilih item yang ingin dipesan (dibulatkan ke atas sesuai kemasan karton/dus vendor).",
+      "Klik 'Generate PO Resmi' untuk langsung membuat dokumen PO siap kirim."
+    ],
+    features: [
+      "Perhitungan Ketahanan Stok (Runout Days)",
+      "Deteksi Status Urgensi Kritis / Perhatian",
+      "Pembulatan Cerdas ke Kemasan Vendor (Karton / Dus)",
+      "1-Click Generate Purchase Order Otomatis"
+    ],
+    tips: "Prioritaskan SKU dengan status Kritis (stok habis atau tahan <= 3 hari) agar toko tidak kehilangan potensi penjualan."
+  },
+  "/pembelian/backorder": {
+    title: "Pantau Sisa Pesanan (Backorder PO)",
+    description: "Monitoring dan penanganan surat pesanan (PO) yang baru dikirim sebagian oleh pihak supplier.",
+    workflow: [
+      "Periksa daftar PO berstatus 'Sebagian' atau 'Diproses' yang memiliki sisa barang belum tiba.",
+      "Pantau persentase kelengkapan penerimaan fisik barang vs kuantitas pesanan awal.",
+      "Klik 'Terima Barang Masuk' untuk langsung mencatat faktur kedatangan sisa barang.",
+      "Jika vendor tidak akan mengirimkan sisa barang, gunakan tombol 'Tutup Sisa Pesanan' dengan alasan pembatalan."
+    ],
+    features: [
+      "Pelacakan Sisa Kuantitas Belum Terkirim (Backorder Qty)",
+      "Progress Bar Persentase Pemenuhan Pesanan (%)",
+      "Pintasan 1-Klik Penerimaan Faktur Lanjutan",
+      "Tutup Sisa PO (Force Close) Resmi"
+    ],
+    tips: "Segera lakukan 'Tutup Sisa Pesanan' jika vendor mengonfirmasi stok pabrik kosong, agar tidak menggantung di hitungan on-order."
+  },
   "/pembelian/invoice": {
     title: "Faktur Beli (Receiving)",
     description: "Penerimaan barang fisik dari supplier sekaligus pencatatan hutang dagang baru.",
@@ -502,6 +536,115 @@ const guides: Record<string, PageGuide> = {
       "Auto-update status pengiriman setelah pengecekan"
     ],
     tips: "Dokumentasikan setiap selisih dengan foto bukti yang jelas. Selisih yang disetujui DC akan otomatis memicu pembuatan pengiriman susulan untuk item yang kurang."
+  },
+  "/kas/dashboard": {
+    title: "Dashboard Manajemen Kas",
+    description: "Pusat pemantauan arus kas (cash flow) per cabang. Menampilkan total saldo realtime, mutasi harian, shift kasir yang aktif, serta status rekonsiliasi yang menunggu persetujuan.",
+    workflow: [
+      "Tinjau total saldo berjalan di seluruh rekening kas aktif cabang Anda di panel atas.",
+      "Periksa grafik tren kas masuk dan keluar hari ini untuk mengevaluasi aktivitas harian.",
+      "Pantau daftar kasir yang saat ini memiliki shift berjalan (OPEN) untuk memastikan operasional tertib."
+    ],
+    features: [
+      "Metrik Saldo Real-time per Cabang",
+      "Grafik Komparatif Kas Masuk vs Kas Keluar Harian",
+      "Daftar Aktivitas Mutasi Terkini"
+    ],
+    tips: "Gunakan widget notifikasi untuk langsung mengetahui jika ada pengajuan kas keluar atau rekonsiliasi kas yang membutuhkan approval supervisor."
+  },
+  "/kas/rekening": {
+    title: "Master Rekening Kas & Bank",
+    description: "Mengelola rekening kas fisik (laci kasir, kas induk toko/DC) dan rekening bank operasional per cabang.",
+    workflow: [
+      "Klik 'Tambah Rekening' untuk mendaftarkan akun penyimpanan kas baru.",
+      "Pilih jenis rekening (KAS_TOKO, BANK, PETTY_CASH) dan hubungkan dengan Kode Akun COA Akuntansi yang sesuai.",
+      "Atur saldo awal rekening kas saat pertama kali diaktifkan."
+    ],
+    features: [
+      "Pendaftaran Rekening Kas Multi-Cabang",
+      "Integrasi Otomatis dengan COA Akuntansi (Double-Entry)",
+      "Pengendalian Status Keaktifan Rekening"
+    ],
+    tips: "Setiap cabang minimal wajib memiliki 1 Rekening bertipe KAS_TOKO agar kasir POS dapat membuka shift dan melayani pembayaran."
+  },
+  "/kas/transaksi": {
+    title: "Mutasi Kas Manual (Masuk & Keluar)",
+    description: "Halaman pencatatan penerimaan kas masuk manual atau pengeluaran biaya operasional harian secara non-POS.",
+    workflow: [
+      "Klik 'Kas Masuk' untuk mencatat penerimaan uang, atau 'Kas Keluar' untuk mencatat pengeluaran operasional.",
+      "Pilih Rekening Kas asal/tujuan, isi nominal, pilih Kategori Biaya, masukkan deskripsi, dan lampirkan bukti foto nota.",
+      "Jika kas keluar melebihi batas (threshold) persetujuan, transaksi akan berstatus PENDING hingga di-approve supervisor."
+    ],
+    features: [
+      "Pencatatan Kas Masuk & Kas Keluar Multi-Kategori",
+      "Unggah Bukti Nota / Foto Transaksi",
+      "Sistem Validasi Threshold Approval Kas Keluar",
+      "Auto-Journaling Akuntansi Penyeimbang secara Real-time"
+    ],
+    tips: "Pengeluaran di atas batas threshold (dikonfigurasi di Pengaturan Aplikasi) membutuhkan persetujuan supervisor melalui tombol 'Setujui' di baris tabel."
+  },
+  "/kas/shift": {
+    title: "Shift & Sesi Laci Kasir",
+    description: "Mengelola sesi kerja kasir harian per shift untuk mengontrol uang laci kasir dan menghitung selisih uang fisik.",
+    workflow: [
+      "Kasir mengklik 'Buka Shift' dengan memilih rekening kas toko dan mengisi saldo awal laci.",
+      "Setelah selesai bertugas, klik 'Closing Shift' dan masukkan nominal uang fisik di laci beserta jumlah setoran.",
+      "Sistem menghitung otomatis selisih uang fisik vs hitungan transaksi sistem POS.",
+      "Supervisor memverifikasi hasil closing kasir untuk menutup shift secara permanen."
+    ],
+    features: [
+      "Mekanisme Buka/Tutup Shift Kasir Terkomputerisasi",
+      "Kalkulator Selisih Uang Fisik Otomatis",
+      "Pencatatan Setoran Kas dari Laci ke Kas Induk",
+      "Verifikasi Supervisor (Closing Status Approval)"
+    ],
+    tips: "Kasir wajib membuka shift sebelum melayani transaksi POS. Setoran closing tidak boleh melebihi total uang yang ada di laci kasir."
+  },
+  "/kas/transfer": {
+    title: "Transfer Saldo Antar-Rekening",
+    description: "Fasilitas transfer internal saldo kas antar-rekening di cabang yang sama atau antar-cabang yang berbeda (e.g. setoran bank, transfer DC).",
+    workflow: [
+      "Klik 'Buat Transfer Baru', pilih rekening asal, rekening tujuan, dan isi nominal transfer.",
+      "Saldo rekening asal akan terpotong secara otomatis dengan status transfer PENDING.",
+      "Staf penerima di cabang/rekening tujuan memverifikasi kedatangan dana dengan mengklik tombol 'Konfirmasi'.",
+      "Setelah dikonfirmasi, status menjadi APPROVED, saldo tujuan bertambah, dan jurnal transfer dicatat."
+    ],
+    features: [
+      "Transfer Lintas Rekening & Lintas Cabang",
+      "Sistem Verifikasi Konfirmasi Penerimaan Dua Arah",
+      "Auto-posting Jurnal Jurnal Transfer"
+    ],
+    tips: "Tombol konfirmasi penerimaan hanya muncul untuk user yang terdaftar pada cabang pemilik rekening tujuan."
+  },
+  "/kas/rekonsiliasi": {
+    title: "Audit Rekonsiliasi Kas",
+    description: "Melakukan audit penyesuaian saldo sistem dengan saldo fisik berkala demi mencegah selisih pembukuan kas.",
+    workflow: [
+      "Klik 'Buat Rekonsiliasi', pilih rekening kas, masukkan hitungan saldo uang fisik riil saat ini, dan tulis alasan.",
+      "Kirim pengajuan rekonsiliasi ke supervisor.",
+      "Supervisor memeriksa kesesuaian dan mengklik 'Approve'. Sistem akan menghitung selisih real-time, menyesuaikan saldo berjalan, dan memposting jurnal umum penyesuaian."
+    ],
+    features: [
+      "Pengajuan Audit Selisih Kas Sistem vs Fisik",
+      "Unggah Bukti Foto Penghitungan Uang Fisik",
+      "Auto-adjustment Saldo Akun & Jurnal Koreksi"
+    ],
+    tips: "Rekonsiliasi yang di-approve akan secara otomatis mencatat selisihnya ke akun pendapatan (jika kelebihan) atau akun beban selisih kas (jika kekurangan)."
+  },
+  "/kas/laporan": {
+    title: "Laporan Buku Kas Harian",
+    description: "Menyusun rekapitulasi mutasi kas harian per rekening untuk melihat saldo awal, total kas masuk, total kas keluar, dan saldo akhir berjalan.",
+    workflow: [
+      "Tentukan filter tanggal awal, tanggal akhir, dan pilih rekening kas yang ingin dipantau.",
+      "Tinjau ringkasan saldo awal, debit (masuk), kredit (keluar), dan saldo akhir.",
+      "Klik tombol 'Ekspor Excel' untuk mengunduh laporan ke file spreadsheet (.xlsx) siap cetak."
+    ],
+    features: [
+      "Laporan Buku Pembantu Kas Dinamis",
+      "Kalkulasi Otomatis Saldo Awal & Saldo Akhir Periode",
+      "Ekspor File Excel (.xlsx) dengan SheetJS"
+    ],
+    tips: "Hanya transaksi berstatus APPROVED yang dihitung ke dalam laporan buku kas."
   }
 };
 

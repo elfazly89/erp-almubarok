@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { BookOpen, Plus, Edit2, Trash2, RefreshCw, Tags, AlertTriangle } from "lucide-react";
+import { BookOpen, Plus, Edit2, Trash2, RefreshCw, Tags, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface TipeAkun {
@@ -20,6 +20,15 @@ export default function TipeAkunPage() {
   const [formSaldo, setFormSaldo] = useState<"DEBIT" | "KREDIT" | "">("");
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -30,10 +39,11 @@ export default function TipeAkunPage() {
       setList(await res.json());
     } catch (e: any) {
       setErrorMsg(e.message || "Terjadi kesalahan koneksi");
+      showToast(e.message || "Gagal mengambil data dari server", "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     fetchData();
@@ -74,6 +84,7 @@ export default function TipeAkunPage() {
       if (!res.ok) throw new Error(data.message || "Gagal menyimpan");
 
       setShowModal(false);
+      showToast(edit ? "Tipe akun berhasil diperbarui!" : "Tipe akun berhasil ditambahkan!", "success");
       fetchData();
     } catch (e: any) {
       setErrorMsg(e.message || "Gagal menyimpan data");
@@ -83,14 +94,14 @@ export default function TipeAkunPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Apakah Anda yakin ingin menghapus tipe akun ini?")) return;
     try {
       const res = await fetch(`/api/akuntansi/tipe-akun/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Gagal menghapus");
+      showToast("Tipe akun berhasil dihapus!", "success");
       fetchData();
     } catch (e: any) {
-      alert(e.message);
+      showToast(e.message || "Gagal menghapus tipe akun", "error");
     }
   };
 
@@ -173,9 +184,9 @@ export default function TipeAkunPage() {
                             <Edit2 className="w-4 h-4" />
                           </button>
                         )}
-                        {can_delete && (
+                         {can_delete && (
                           <button
-                            onClick={() => handleDelete(item.id)}
+                            onClick={() => setDeleteId(item.id)}
                             className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors"
                             title="Hapus"
                           >
@@ -195,7 +206,7 @@ export default function TipeAkunPage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-surface-container border border-outline-variant/60 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
             <div className="px-6 py-5 border-b border-outline-variant/40 flex items-center justify-between bg-surface-container-high/40">
               <h2 className="font-semibold text-on-surface">{edit ? "Edit Tipe Akun" : "Tambah Tipe Akun"}</h2>
               <button
@@ -251,6 +262,55 @@ export default function TipeAkunPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteId !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+            <div className="px-6 py-5 border-b border-outline-variant/40 bg-surface-container-high/40">
+              <h2 className="font-semibold text-on-surface flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-error" /> Konfirmasi Hapus
+              </h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-on-surface-variant">
+                Apakah Anda yakin ingin menghapus tipe akun ini? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteId(null)}
+                  className="flex-1 bg-surface-container-high hover:bg-surface-container-highest text-on-surface py-2 rounded-xl text-sm transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={() => {
+                    handleDelete(deleteId);
+                    setDeleteId(null);
+                  }}
+                  className="flex-1 bg-error hover:bg-error-container text-on-error py-2 rounded-xl text-sm font-semibold transition-colors"
+                >
+                  Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in slide-in-from-bottom-4 duration-200 ${
+            toast.type === "success"
+              ? "bg-primary border-primary/20"
+              : "bg-error border-error/20"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
         </div>
       )}
     </div>

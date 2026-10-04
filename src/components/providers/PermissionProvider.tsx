@@ -79,14 +79,6 @@ export function PermissionProvider({
   const getCrud = useCallback(
     (path: string): MenuPermission => {
       const normPath = normalizePath(path);
-      if (normPath.startsWith("/distribusi")) {
-        return {
-          can_read: true,
-          can_create: true,
-          can_update: true,
-          can_delete: true,
-        };
-      }
 
       // Default permissions while loading or if not authenticated
       const isDashboard = path === "/dashboard" || path === "/";

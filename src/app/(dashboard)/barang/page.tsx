@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Package, Plus, Edit2, Trash2, RefreshCw, Search, Eye, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
+import { Package, Plus, Edit2, Trash2, RefreshCw, Search, Eye, ChevronUp, ChevronDown, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { formatCurrency } from "@/lib/utils";
 
 interface Kategori {
   id_kategori: number;
@@ -54,6 +55,7 @@ export default function BarangPage() {
   
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Barang | null>(null);
@@ -67,7 +69,6 @@ export default function BarangPage() {
   const [satuan1, setSatuan1] = useState("pcs");
   const [satuan2, setSatuan2] = useState("");
   const [satuan3, setSatuan3] = useState("");
-  const [isi1, setIsi1] = useState("1");
   const [isi2, setIsi2] = useState("");
   const [isi3, setIsi3] = useState("");
   const [hargaBeli, setHargaBeli] = useState("");
@@ -94,6 +95,21 @@ export default function BarangPage() {
   const [sortField, setSortField] = useState<string>("nama_barang");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Custom Delete Confirm State
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; item: Barang | null }>({
+    show: false,
+    item: null,
+  });
+
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleSort = (field: string) => {
     if (sortField === field) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -114,21 +130,38 @@ export default function BarangPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [resBarang, resKat, resSup] = await Promise.all([
-      fetch("/api/barang"),
-      fetch("/api/kategori"),
-      fetch("/api/supplier"),
-    ]);
-    
-    setList(await resBarang.json());
-    setCategories(await resKat.json());
-    setSuppliers(await resSup.json());
-    setLoading(false);
-  }, []);
+    try {
+      const [resBarang, resKat, resSup] = await Promise.all([
+        fetch("/api/barang"),
+        fetch("/api/kategori"),
+        fetch("/api/supplier"),
+      ]);
+      
+      if (resBarang.ok && resKat.ok && resSup.ok) {
+        setList(await resBarang.json());
+        setCategories(await resKat.json());
+        setSuppliers(await resSup.json());
+      } else {
+        showToast("Gagal memuat data katalog barang.", "error");
+      }
+    } catch {
+      showToast("Gagal memuat data katalog barang.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const openModal = (barang?: Barang) => {
     setEdit(barang || null);
@@ -139,7 +172,6 @@ export default function BarangPage() {
     setSatuan1(barang?.satuan_1 || "pcs");
     setSatuan2(barang?.satuan_2 || "");
     setSatuan3(barang?.satuan_3 || "");
-    setIsi1(barang?.isi_1?.toString() || "1");
     setIsi2(barang?.isi_2?.toString() || "");
     setIsi3(barang?.isi_3?.toString() || "");
     setHargaBeli(barang?.harga_beli?.toString() || "");
@@ -170,18 +202,58 @@ export default function BarangPage() {
   };
 
   const handleSave = async () => {
-    if (!barcode.trim() || !nama.trim()) return;
+    const cleanBarcode = barcode.trim();
+    const cleanNama = nama.trim();
+
+    if (!cleanBarcode || !cleanNama) {
+      showToast("Barcode dan Nama Barang wajib diisi.", "error");
+      return;
+    }
+
+    // Validasi harga tidak boleh negatif
+    const hb = parseFloat(hargaBeli) || 0;
+    if (hb < 0) {
+      showToast("Harga beli tidak boleh bernilai negatif.", "error");
+      return;
+    }
+
+    const prices = [
+      { name: "Retail Satuan 1", val: hj_1_1, min: hb },
+      { name: "Retail Satuan 2", val: hj_1_2, min: hb * (parseFloat(isi2) || 1) },
+      { name: "Retail Satuan 3", val: hj_1_3, min: hb * (parseFloat(isi3) || 1) },
+      { name: "Grosir Satuan 1", val: hj_2_1, min: hb },
+      { name: "Grosir Satuan 2", val: hj_2_2, min: hb * (parseFloat(isi2) || 1) },
+      { name: "Grosir Satuan 3", val: hj_2_3, min: hb * (parseFloat(isi3) || 1) },
+      { name: "Khusus Satuan 1", val: hj_3_1, min: hb },
+      { name: "Khusus Satuan 2", val: hj_3_2, min: hb * (parseFloat(isi2) || 1) },
+      { name: "Khusus Satuan 3", val: hj_3_3, min: hb * (parseFloat(isi3) || 1) },
+    ];
+
+    for (const p of prices) {
+      const valNum = parseFloat(p.val);
+      if (p.val && valNum < 0) {
+        showToast(`Harga ${p.name} tidak boleh bernilai negatif.`, "error");
+        return;
+      }
+      
+      // Jika jual rugi tidak boleh (jualRugi === "0"), cek apakah harga jual < HPP beli
+      if (jualRugi === "0" && p.val && valNum < p.min) {
+        showToast(`Harga ${p.name} tidak boleh lebih rendah dari HPP Beli (${formatCurrency(p.min)}) jika jual rugi dilarang.`, "error");
+        return;
+      }
+    }
+
     setSaving(true);
     
     const payload = {
-      barcode,
-      nama_barang: nama,
+      barcode: cleanBarcode,
+      nama_barang: cleanNama,
       id_kategori: kategoriId || null,
       id_supplier: supplierId || null,
       satuan_1: satuan1,
       satuan_2: satuan2 || null,
       satuan_3: satuan3 || null,
-      isi_1: isi1 || 1,
+      isi_1: 1, // Konstan 1
       isi_2: isi2 || null,
       isi_3: isi3 || null,
       harga_beli: hargaBeli || null,
@@ -202,40 +274,65 @@ export default function BarangPage() {
       keterangan_2: ket2 || null,
     };
 
-    if (edit) {
-      await fetch(`/api/barang/${edit.id_barang}`, {
-        method: "PUT",
+    try {
+      const url = edit ? `/api/barang/${edit.id_barang}` : "/api/barang";
+      const method = edit ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-    } else {
-      await fetch("/api/barang", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      
+      const data = await res.json();
+
+      if (res.ok) {
+        showToast(edit ? "Barang berhasil diperbarui." : "Barang berhasil ditambahkan.", "success");
+        setShowModal(false);
+        fetchData();
+      } else {
+        showToast(data.error || "Gagal menyimpan barang.", "error");
+      }
+    } catch {
+      showToast("Terjadi kesalahan jaringan.", "error");
+    } finally {
+      setSaving(false);
     }
-    
-    setSaving(false);
-    setShowModal(false);
-    fetchData();
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Hapus barang ini?")) return;
-    await fetch(`/api/barang/${id}`, { method: "DELETE" });
-    fetchData();
+  const confirmDelete = (item: Barang) => {
+    setDeleteConfirm({ show: true, item });
+  };
+
+  const handleDelete = async () => {
+    const id = deleteConfirm.item?.id_barang;
+    if (!id) return;
+
+    try {
+      const res = await fetch(`/api/barang/${id}`, { method: "DELETE" });
+      const data = await res.json();
+
+      if (res.ok) {
+        showToast("Barang berhasil dihapus.", "success");
+        fetchData();
+      } else {
+        showToast(data.error || "Gagal menghapus barang.", "error");
+      }
+    } catch {
+      showToast("Terjadi kesalahan jaringan.", "error");
+    } finally {
+      setDeleteConfirm({ show: false, item: null });
+    }
   };
 
   const formatRupiah = (val: number | null | undefined) => {
     if (val === null || val === undefined) return "-";
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   const filteredList = list.filter(
     (b) =>
-      b.nama_barang.toLowerCase().includes(search.toLowerCase()) ||
-      b.barcode.includes(search)
+      b.nama_barang.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      b.barcode.includes(debouncedSearch)
   );
 
   const sortedList = [...filteredList].sort((a, b) => {
@@ -274,7 +371,19 @@ export default function BarangPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-96px)] space-y-4 overflow-hidden text-on-background">
+    <div className="flex flex-col h-[calc(100vh-96px)] space-y-4 overflow-hidden text-on-background relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl animate-in slide-in-from-top-5 duration-200 ${
+          toast.type === "success" 
+            ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-500 backdrop-blur-md" 
+            : "bg-error/10 border-error/25 text-error backdrop-blur-md"
+        }`}>
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-on-surface flex items-center gap-2">
@@ -405,7 +514,7 @@ export default function BarangPage() {
                             </button>
                           )}
                           {can_delete && (
-                            <button onClick={() => handleDelete(b.id_barang)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors" title="Hapus">
+                            <button onClick={() => confirmDelete(b)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors" title="Hapus">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
@@ -456,57 +565,44 @@ export default function BarangPage() {
                 </div>
               </div>
 
+              {/* Grid 4 Kolom: Satuan, Retail, Grosir, Khusus */}
               <div className="border-t border-outline-variant/40 pt-4">
-                <h3 className="font-semibold text-on-surface mb-2 text-sm">Struktur Satuan & Harga Jual</h3>
-                <div className="space-y-2 text-xs">
-                  <div className="bg-surface-container-low p-3 rounded-xl border border-outline-variant/30 grid grid-cols-3 gap-2">
-                    <div>
-                      <span className="text-on-surface-variant block">Satuan 1</span>
-                      <span className="text-on-surface font-semibold">{selectedItem.satuan_1} (isi: {selectedItem.isi_1})</span>
-                    </div>
-                    <div>
-                      <span className="text-on-surface-variant block">Harga Retail</span>
-                      <span className="text-primary font-bold font-mono">{formatRupiah(selectedItem.harga_jual_1_1)}</span>
-                    </div>
-                    <div>
-                      <span className="text-on-surface-variant block">Harga Grosir</span>
-                      <span className="text-on-surface font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_2_1)}</span>
-                    </div>
-                  </div>
-
-                  {selectedItem.satuan_2 && (
-                    <div className="bg-surface-container-low p-3 rounded-xl border border-outline-variant/30 grid grid-cols-3 gap-2">
-                      <div>
-                        <span className="text-on-surface-variant block">Satuan 2</span>
-                        <span className="text-on-surface font-semibold">{selectedItem.satuan_2} (isi: {selectedItem.isi_2} pcs)</span>
-                      </div>
-                      <div>
-                        <span className="text-on-surface-variant block">Harga Retail</span>
-                        <span className="text-primary font-bold font-mono">{formatRupiah(selectedItem.harga_jual_1_2)}</span>
-                      </div>
-                      <div>
-                        <span className="text-on-surface-variant block">Harga Grosir</span>
-                        <span className="text-on-surface font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_2_2)}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedItem.satuan_3 && (
-                    <div className="bg-surface-container-low p-3 rounded-xl border border-outline-variant/30 grid grid-cols-3 gap-2">
-                      <div>
-                        <span className="text-on-surface-variant block">Satuan 3</span>
-                        <span className="text-on-surface font-semibold">{selectedItem.satuan_3} (isi: {selectedItem.isi_3} pcs)</span>
-                      </div>
-                      <div>
-                        <span className="text-on-surface-variant block">Harga Retail</span>
-                        <span className="text-primary font-bold font-mono">{formatRupiah(selectedItem.harga_jual_1_3)}</span>
-                      </div>
-                      <div>
-                        <span className="text-on-surface-variant block">Harga Grosir</span>
-                        <span className="text-on-surface font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_2_3)}</span>
-                      </div>
-                    </div>
-                  )}
+                <h3 className="font-semibold text-on-surface mb-3 text-sm">Struktur Satuan & Harga Jual</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border border-outline-variant/30 rounded-xl overflow-hidden">
+                    <thead>
+                      <tr className="bg-surface-container-low text-on-surface-variant border-b border-outline-variant/30">
+                        <th className="p-2.5 font-semibold">Satuan (Isi)</th>
+                        <th className="p-2.5 font-semibold">Retail (L1)</th>
+                        <th className="p-2.5 font-semibold">Grosir (L2)</th>
+                        <th className="p-2.5 font-semibold">Khusus (L3)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/20">
+                      <tr className="hover:bg-surface-container-low/30">
+                        <td className="p-2.5 font-medium">{selectedItem.satuan_1} (1)</td>
+                        <td className="p-2.5 font-mono text-primary font-bold">{formatRupiah(selectedItem.harga_jual_1_1)}</td>
+                        <td className="p-2.5 font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_2_1)}</td>
+                        <td className="p-2.5 font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_3_1)}</td>
+                      </tr>
+                      {selectedItem.satuan_2 && (
+                        <tr className="hover:bg-surface-container-low/30">
+                          <td className="p-2.5 font-medium">{selectedItem.satuan_2} ({selectedItem.isi_2})</td>
+                          <td className="p-2.5 font-mono text-primary font-bold">{formatRupiah(selectedItem.harga_jual_1_2)}</td>
+                          <td className="p-2.5 font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_2_2)}</td>
+                          <td className="p-2.5 font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_3_2)}</td>
+                        </tr>
+                      )}
+                      {selectedItem.satuan_3 && (
+                        <tr className="hover:bg-surface-container-low/30">
+                          <td className="p-2.5 font-medium">{selectedItem.satuan_3} ({selectedItem.isi_3})</td>
+                          <td className="p-2.5 font-mono text-primary font-bold">{formatRupiah(selectedItem.harga_jual_1_3)}</td>
+                          <td className="p-2.5 font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_2_3)}</td>
+                          <td className="p-2.5 font-mono font-semibold">{formatRupiah(selectedItem.harga_jual_3_3)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -621,9 +717,8 @@ export default function BarangPage() {
                     <label className="block text-xs font-medium text-on-surface-variant mb-1">Isi 1</label>
                     <input
                       type="number"
-                      value={isi1}
-                      onChange={(e) => setIsi1(e.target.value)}
-                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs focus:outline-none opacity-60"
+                      value="1"
+                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs focus:outline-none opacity-60 cursor-not-allowed"
                       disabled
                     />
                   </div>
@@ -687,13 +782,15 @@ export default function BarangPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-on-surface-variant mb-1">HPP Rata-Rata</label>
+                    <label className="block text-xs font-medium text-on-surface-variant mb-1 flex items-center gap-1">
+                      HPP Rata-Rata <span className="text-[10px] text-primary">(Auto)</span>
+                    </label>
                     <input
                       type="number"
                       value={hargaRata}
-                      onChange={(e) => setHargaRata(e.target.value)}
-                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
-                      placeholder="Nominal Rp"
+                      className="w-full bg-surface-container-low/50 border border-outline-variant/50 text-on-surface/60 rounded-lg px-3 py-2 text-xs font-mono cursor-not-allowed"
+                      placeholder="Dihitung dari pembelian"
+                      disabled
                     />
                   </div>
                 </div>
@@ -861,6 +958,37 @@ export default function BarangPage() {
                 </button>
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      {deleteConfirm.show && deleteConfirm.item && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-5 border-b border-outline-variant/40 flex items-center gap-2 bg-surface-container-high/40 text-error">
+              <AlertTriangle className="w-5 h-5 animate-pulse" />
+              <h2 className="font-semibold text-on-surface">Konfirmasi Hapus</h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-on-surface-variant">
+                Apakah Anda yakin ingin menghapus barang <span className="font-semibold text-on-surface">"{deleteConfirm.item.nama_barang}"</span> ({deleteConfirm.item.barcode})? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setDeleteConfirm({ show: false, item: null })}
+                  className="flex-1 bg-surface-container-high hover:bg-surface-container-highest text-on-surface py-2.5 rounded-xl text-sm transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 bg-error hover:bg-red-600 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
             </div>
           </div>
         </div>

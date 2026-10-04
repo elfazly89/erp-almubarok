@@ -51,6 +51,9 @@ export default function PengirimanDCPage() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showReceiveModal, setShowReceiveModal] = useState(false);
+  const [receiveQuantities, setReceiveQuantities] = useState<Record<number, number>>({});
 
   const fetchShipments = useCallback(async () => {
     setLoading(true);
@@ -80,7 +83,23 @@ export default function PengirimanDCPage() {
 
   useEffect(() => {
     fetchShipments();
+    
+    // Fetch logged-in user profile (DU-2 / Role Protection Fix)
+    fetch("/api/user/me")
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success && json.user) {
+          setCurrentUser(json.user);
+        }
+      })
+      .catch(console.error);
   }, []);
+
+  const canUpdateStatus = () => {
+    if (!currentUser) return false;
+    // Superadmin (1), Admin/DC Manager (2), Supervisor (4) can update status
+    return currentUser.id_jabatan === 1 || currentUser.id_jabatan === 2 || currentUser.id_jabatan === 4;
+  };
 
   const triggerNotification = (type: "success" | "error", message: string) => {
     setNotification({ type, message });
@@ -93,7 +112,7 @@ export default function PengirimanDCPage() {
       const res = await fetch("/api/distribusi/pengiriman", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
+        body: JSON.stringify({ action: "update_status", id, status: newStatus }),
       });
       const json = await res.json();
       if (json.success) {
@@ -108,6 +127,63 @@ export default function PengirimanDCPage() {
         }
       } else {
         triggerNotification("error", json.message || "Gagal memperbarui status.");
+      }
+    } catch {
+      triggerNotification("error", "Gagal menghubungi server.");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const openReceiveModal = () => {
+    if (!selectedShipment || !selectedShipment.items) return;
+    const initialQty: Record<number, number> = {};
+    for (const item of selectedShipment.items) {
+      initialQty[item.id] = item.jumlah_dikirim;
+    }
+    setReceiveQuantities(initialQty);
+    setShowReceiveModal(true);
+  };
+
+  const handleConfirmReceive = async () => {
+    if (!selectedShipment) return;
+    
+    let hasDiscrepancy = false;
+    const itemsPayload = [];
+    
+    for (const item of selectedShipment.items) {
+      const rec = receiveQuantities[item.id] ?? item.jumlah_dikirim;
+      if (rec !== item.jumlah_dikirim) {
+        hasDiscrepancy = true;
+      }
+      itemsPayload.push({
+        id_detail_kirim: item.id,
+        id_barang: item.id_barang,
+        jumlah_dikirim: item.jumlah_dikirim,
+        jumlah_diterima: rec,
+      });
+    }
+
+    const finalStatus = hasDiscrepancy ? "Ada Selisih" : "Diterima Lengkap";
+    setUpdatingId(selectedShipment.id_pengiriman);
+    try {
+      const res = await fetch("/api/distribusi/pengiriman", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_status",
+          id: selectedShipment.id_pengiriman,
+          status: finalStatus,
+          items: itemsPayload,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        triggerNotification("success", `Pengiriman berhasil diterima dengan status: ${finalStatus}`);
+        setShowReceiveModal(false);
+        fetchShipments();
+      } else {
+        triggerNotification("error", json.message || "Gagal memproses penerimaan.");
       }
     } catch {
       triggerNotification("error", "Gagal menghubungi server.");
@@ -250,34 +326,44 @@ export default function PengirimanDCPage() {
                 {/* Stepper buttons */}
                 <div className="flex flex-wrap gap-1.5 justify-stretch">
                   <button
-                    disabled={selectedShipment.status === "Draft" || updatingId !== null}
+                    disabled={selectedShipment.status === "Draft" || updatingId !== null || !canUpdateStatus()}
                     onClick={() => updateStatus(selectedShipment.id_pengiriman, "Draft")}
                     className="flex-1 text-[10px] font-bold bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-40 text-on-surface py-1 rounded transition-colors cursor-pointer"
                   >
                     DRAF
                   </button>
                   <button
-                    disabled={selectedShipment.status === "Pengambilan Barang" || updatingId !== null}
+                    disabled={selectedShipment.status === "Pengambilan Barang" || updatingId !== null || !canUpdateStatus()}
                     onClick={() => updateStatus(selectedShipment.id_pengiriman, "Pengambilan Barang")}
                     className="flex-1 text-[10px] font-bold bg-warning/15 hover:bg-warning/20 disabled:opacity-40 text-warning py-1 rounded transition-colors cursor-pointer"
                   >
                     AMBIL
                   </button>
                   <button
-                    disabled={selectedShipment.status === "Pengepakan" || updatingId !== null}
+                    disabled={selectedShipment.status === "Pengepakan" || updatingId !== null || !canUpdateStatus()}
                     onClick={() => updateStatus(selectedShipment.id_pengiriman, "Pengepakan")}
                     className="flex-1 text-[10px] font-bold bg-warning/15 hover:bg-warning/20 disabled:opacity-40 text-warning py-1 rounded transition-colors cursor-pointer"
                   >
                     KEMAS
                   </button>
                   <button
-                    disabled={selectedShipment.status === "Dalam Perjalanan" || updatingId !== null}
+                    disabled={selectedShipment.status === "Dalam Perjalanan" || updatingId !== null || !canUpdateStatus()}
                     onClick={() => updateStatus(selectedShipment.id_pengiriman, "Dalam Perjalanan")}
                     className="flex-1 text-[10px] font-bold bg-primary/15 hover:bg-primary/20 disabled:opacity-40 text-primary py-1 rounded transition-colors cursor-pointer"
                   >
                     KIRIM
                   </button>
                 </div>
+
+                {/* Confirm Receive Button (DB-7 & DU-2 Fix) */}
+                {selectedShipment.status === "Dalam Perjalanan" && (
+                  <button
+                    onClick={openReceiveModal}
+                    className="w-full mt-2 flex items-center justify-center gap-1.5 bg-success hover:bg-success/90 text-on-success py-2 rounded-xl font-bold text-xs transition-colors shadow-sm cursor-pointer"
+                  >
+                    Terima & Check Fisik Barang
+                  </button>
+                )}
               </div>
 
               {/* General info */}
@@ -420,6 +506,62 @@ export default function PengirimanDCPage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Receipt and Checking (DB-7 & DU-2 Fix) */}
+      {showReceiveModal && selectedShipment && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
+            <div>
+              <h2 className="text-md font-bold text-on-surface">Penerimaan & Check Fisik</h2>
+              <p className="text-[11px] text-on-surface-variant">
+                Surat Jalan: {selectedShipment.kode_pengiriman}
+              </p>
+            </div>
+            
+            <div className="border border-outline-variant/30 rounded-xl overflow-hidden text-xs max-h-60 overflow-y-auto divide-y divide-outline-variant/25">
+              {selectedShipment.items?.map((item) => (
+                <div key={item.id} className="p-3 flex items-center justify-between gap-4 bg-surface hover:bg-surface-container-high/15">
+                  <div className="flex-1">
+                    <span className="font-semibold text-on-surface block">{item.nama_barang}</span>
+                    <span className="text-[10px] text-on-surface-variant">Dikirim: {item.jumlah_dikirim} {item.satuan}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] text-on-surface-variant">Diterima:</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={receiveQuantities[item.id] ?? item.jumlah_dikirim}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        setReceiveQuantities(prev => ({
+                          ...prev,
+                          [item.id]: val
+                        }));
+                      }}
+                      className="w-16 px-2 py-1 text-center font-mono font-bold bg-surface-container-high border border-outline-variant/60 rounded-lg text-on-surface"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-outline-variant/20">
+              <button
+                onClick={() => setShowReceiveModal(false)}
+                className="bg-surface hover:bg-surface-container-high text-on-surface-variant px-4 py-2 rounded-xl text-xs font-semibold border border-outline-variant/60 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmReceive}
+                className="bg-success hover:bg-success-container text-on-success px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              >
+                Konfirmasi Penerimaan
+              </button>
+            </div>
           </div>
         </div>
       )}

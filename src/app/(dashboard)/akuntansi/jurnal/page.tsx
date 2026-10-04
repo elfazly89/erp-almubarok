@@ -16,7 +16,9 @@ import {
   User,
   PlusCircle,
   Trash,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle,
+  XCircle
 } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
@@ -72,6 +74,23 @@ export default function JurnalPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
+  // Date Range Filters
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
+  });
+  const [endDate, setEndDate] = useState(() => {
+    return new Date().toISOString().split("T")[0];
+  });
+
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Transaction modals & dropdowns
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [modalType, setModalType] = useState<"detail" | "bayar_beban" | "transfer_kas" | "jurnal_manual" | null>(null);
@@ -101,20 +120,28 @@ export default function JurnalPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setErrorMsg("");
     try {
-      const jurnalRes = await fetch("/api/akuntansi/jurnal");
+      const query = new URLSearchParams({ startDate, endDate }).toString();
+      const jurnalRes = await fetch(`/api/akuntansi/jurnal?${query}`);
       const branchRes = await fetch("/api/cabang");
       const accRes = await fetch("/api/akuntansi/daftar-akun");
 
-      if (jurnalRes.ok) setList(await jurnalRes.json());
-      if (branchRes.ok) setCabangList(await branchRes.json());
-      if (accRes.ok) setAccounts(await accRes.json());
-    } catch (e) {
+      if (!jurnalRes.ok || !branchRes.ok || !accRes.ok) {
+        throw new Error("Gagal mengambil data dari server");
+      }
+
+      setList(await jurnalRes.json());
+      setCabangList(await branchRes.json());
+      setAccounts(await accRes.json());
+    } catch (e: any) {
       console.error(e);
+      setErrorMsg(e.message || "Gagal mengambil data dari server");
+      showToast(e.message || "Koneksi ke server gagal", "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [startDate, endDate, showToast]);
 
   useEffect(() => {
     fetchData();
@@ -138,13 +165,15 @@ export default function JurnalPage() {
     // Generate unique reference
     const now = new Date();
     const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const uniqueRef = `${ts}-${rand}`;
     
     if (type === "bayar_beban") {
-      setFormRef(`EXP-${ts}`);
+      setFormRef(`EXP-${uniqueRef}`);
     } else if (type === "transfer_kas") {
-      setFormRef(`TRF-${ts}`);
+      setFormRef(`TRF-${uniqueRef}`);
     } else if (type === "jurnal_manual") {
-      setFormRef(`JV-${ts}`);
+      setFormRef(`JV-${uniqueRef}`);
       setManualLines([
         { akun_id: "", cabang_id: "", debit: 0, kredit: 0 },
         { akun_id: "", cabang_id: "", debit: 0, kredit: 0 }
@@ -226,6 +255,7 @@ export default function JurnalPage() {
       if (!res.ok) throw new Error(data.message || "Gagal menyimpan transaksi");
 
       setModalType(null);
+      showToast("Transaksi berhasil disimpan!", "success");
       fetchData();
     } catch (e: any) {
       setErrorMsg(e.message || "Gagal menyimpan transaksi");
@@ -292,6 +322,7 @@ export default function JurnalPage() {
       if (!res.ok) throw new Error(data.message || "Gagal menyimpan");
 
       setModalType(null);
+      showToast("Jurnal Manual berhasil disimpan!", "success");
       fetchData();
     } catch (e: any) {
       setErrorMsg(e.message || "Gagal menyimpan");
@@ -335,6 +366,15 @@ export default function JurnalPage() {
 
   // Filter accounts
   const assetAccounts = accounts.filter((a) => a.nama_tipe_akun === "Aset" && a.status === "Aktif");
+  const cashAndBankAccounts = accounts.filter(
+    (a) =>
+      a.nama_tipe_akun === "Aset" &&
+      a.status === "Aktif" &&
+      (a.nama_akun.toLowerCase().includes("kas") ||
+        a.nama_akun.toLowerCase().includes("bank") ||
+        a.kode_akun.startsWith("1.101") ||
+        a.kode_akun.startsWith("1.102"))
+  );
   const expenseAccounts = accounts.filter((a) => a.nama_tipe_akun === "Beban" && a.status === "Aktif");
 
   if (!permissionsLoading && !can_read) {
@@ -409,10 +449,25 @@ export default function JurnalPage() {
       </div>
 
       {/* Search and Filters */}
-      <div className="flex justify-between items-center bg-surface-container/40 px-4 py-2 border border-outline-variant/30 rounded-xl shrink-0">
-        <span className="text-on-surface-variant text-sm font-semibold">Daftar Jurnal Terkini</span>
+      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center bg-surface-container/40 px-4 py-3 gap-3 border border-outline-variant/30 rounded-xl shrink-0 font-sans">
+        <div className="flex items-center gap-3">
+          <span className="text-on-surface-variant text-xs font-semibold whitespace-nowrap">Filter Periode:</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+          />
+          <span className="text-on-surface-variant/60 text-xs font-semibold">s/d</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+          />
+        </div>
         <div className="relative w-full max-w-xs">
-          <Search className="w-4 h-4 text-on-surface-variant absolute left-3.5 top-3.5" />
+          <Search className="w-4 h-4 text-on-surface-variant absolute left-3.5 top-3" />
           <input
             type="text"
             placeholder="Cari referensi atau deskripsi..."
@@ -535,7 +590,7 @@ export default function JurnalPage() {
                       className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     >
                       <option value="" className="bg-surface-container text-on-surface-variant">-- Pilih Rekening Kas/Bank --</option>
-                      {assetAccounts.map((a) => (
+                      {cashAndBankAccounts.map((a) => (
                         <option key={a.id} value={a.id} className="bg-surface-container text-on-surface">{a.kode_akun} - {a.nama_akun}</option>
                       ))}
                     </select>
@@ -564,7 +619,7 @@ export default function JurnalPage() {
                       className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     >
                       <option value="" className="bg-surface-container text-on-surface-variant">-- Pilih Kas/Bank Pengirim --</option>
-                      {assetAccounts.map((a) => (
+                      {cashAndBankAccounts.map((a) => (
                         <option key={a.id} value={a.id} className="bg-surface-container text-on-surface">{a.kode_akun} - {a.nama_akun}</option>
                       ))}
                     </select>
@@ -577,7 +632,7 @@ export default function JurnalPage() {
                       className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     >
                       <option value="" className="bg-surface-container text-on-surface-variant">-- Pilih Kas/Bank Penerima --</option>
-                      {assetAccounts.map((a) => (
+                      {cashAndBankAccounts.map((a) => (
                         <option key={a.id} value={a.id} className="bg-surface-container text-on-surface">{a.kode_akun} - {a.nama_akun}</option>
                       ))}
                     </select>
@@ -921,6 +976,20 @@ export default function JurnalPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in slide-in-from-bottom-4 duration-200 ${
+            toast.type === "success"
+              ? "bg-primary border-primary/20"
+              : "bg-error border-error/20"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
         </div>
       )}
     </div>

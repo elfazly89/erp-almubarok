@@ -297,24 +297,42 @@ export default function ForecastStokPage() {
                 </div>
               </div>
 
-              {/* Bar Chart simulasi */}
+              {/* Bar Chart Proyeksi Dinamis (DB-5 Fix) */}
               <div className="border border-outline-variant/40 rounded-xl p-4 bg-surface-container-low flex flex-col justify-end h-40">
                 <div className="flex-1 flex items-end justify-between px-2 gap-2 relative">
                   <div className="absolute inset-x-0 bottom-0 h-0.5 bg-outline-variant/40" />
                   <div className="absolute inset-x-0 bottom-[30%] border-b border-dashed border-outline-variant/30 text-[8px] text-on-surface-variant/70 pl-1">Safety Stock</div>
                   <div className="absolute inset-x-0 bottom-[70%] border-b border-dashed border-outline-variant/30 text-[8px] text-on-surface-variant/70 pl-1">Batas Pengiriman Ulang</div>
-                  {[
-                    { label: "Hari 0", color: "bg-success", height: "h-28" },
-                    { label: "Hari 1", color: "bg-success", height: "h-20" },
-                    { label: "Hari 2", color: "bg-warning", height: "h-12" },
-                    { label: "Hari 3", color: "bg-error", height: "h-4" },
-                    { label: "Habis!", color: "bg-error/45 border border-dashed border-error/50", height: "h-1" },
-                  ].map((bar, i) => (
-                    <div key={i} className="w-full flex flex-col items-center gap-1">
-                      <div className={`w-8 ${bar.color} rounded-t-sm ${bar.height}`} />
-                      <span className="text-[8px] font-mono">{bar.label}</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    const s = selectedItemForChart.stok;
+                    const a = selectedItemForChart.ads;
+                    const days = selectedItemForChart.estimasiHabisHari;
+                    const interval = days <= 5 ? 1 : Math.ceil(days / 4);
+
+                    return Array.from({ length: 5 }).map((_, i) => {
+                      const dayOffset = i * interval;
+                      const projectedStock = Math.max(0, s - a * dayOffset);
+                      const pct = s > 0 ? (projectedStock / s) * 100 : 0;
+                      
+                      let color = "bg-success";
+                      if (projectedStock <= 2) {
+                        color = "bg-error";
+                      } else if (projectedStock <= 5) {
+                        color = "bg-warning";
+                      }
+                      
+                      return (
+                        <div key={i} className="w-full flex flex-col items-center gap-1 z-10">
+                          <div 
+                            className={`w-8 ${color} rounded-t-sm transition-all duration-300`} 
+                            style={{ height: `${Math.round(pct * 0.75 + 5)}px` }} 
+                          />
+                          <span className="text-[8px] font-mono">H-{dayOffset}</span>
+                          <span className="text-[7px] font-mono text-on-surface-variant/80">{Math.round(projectedStock)} pcs</span>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AppSettingsProvider } from "@/components/providers/AppSettingsProvider";
 
 export const metadata: Metadata = {
   title: {
@@ -25,7 +26,9 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          {children}
+          <AppSettingsProvider>
+            {children}
+          </AppSettingsProvider>
         </ThemeProvider>
       </body>
     </html>

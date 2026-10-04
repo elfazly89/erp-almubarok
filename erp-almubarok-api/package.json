@@ -1,0 +1,30 @@
+{
+  "name": "erp-almubarok-api",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:migrate-sqlite-to-pg": "npx tsx scripts/migrate-sqlite-to-pg.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.0",
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.1",
+    "jose": "^6.2.8",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.1.1",
+    "@types/pg": "^8.21.0",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FolderHeart, Plus, Edit2, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
+import { FolderHeart, Plus, Edit2, Trash2, RefreshCw, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
 interface Kategori {
@@ -20,12 +20,36 @@ export default function KategoriPage() {
   const [formNama, setFormNama] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Toast Notification State
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Custom Delete Confirm State
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; kategori: Kategori | null }>({
+    show: false,
+    kategori: null,
+  });
+
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/kategori");
-    setList(await res.json());
-    setLoading(false);
-  }, []);
+    try {
+      const res = await fetch("/api/kategori");
+      if (res.ok) {
+        setList(await res.json());
+      } else {
+        showToast("Gagal memuat data kategori.", "error");
+      }
+    } catch {
+      showToast("Gagal memuat data kategori.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     fetchData();
@@ -39,30 +63,63 @@ export default function KategoriPage() {
   };
 
   const handleSave = async () => {
-    if (!formKode.trim() || !formNama.trim()) return;
-    setSaving(true);
-    if (edit) {
-      await fetch(`/api/kategori/${edit.id_kategori}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kode_kategori: formKode, nama_kategori: formNama }),
-      });
-    } else {
-      await fetch("/api/kategori", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kode_kategori: formKode, nama_kategori: formNama }),
-      });
+    const kode = formKode.trim();
+    const nama = formNama.trim();
+
+    if (!kode || !nama) {
+      showToast("Semua field wajib diisi.", "error");
+      return;
     }
-    setSaving(false);
-    setShowModal(false);
-    fetchData();
+
+    setSaving(true);
+    try {
+      const url = edit ? `/api/kategori/${edit.id_kategori}` : "/api/kategori";
+      const method = edit ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kode_kategori: kode, nama_kategori: nama }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        showToast(edit ? "Kategori berhasil diperbarui." : "Kategori berhasil ditambahkan.", "success");
+        setShowModal(false);
+        fetchData();
+      } else {
+        showToast(data.error || "Gagal menyimpan kategori.", "error");
+      }
+    } catch {
+      showToast("Terjadi kesalahan jaringan.", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Hapus kategori ini?")) return;
-    await fetch(`/api/kategori/${id}`, { method: "DELETE" });
-    fetchData();
+  const confirmDelete = (kategori: Kategori) => {
+    setDeleteConfirm({ show: true, kategori });
+  };
+
+  const handleDelete = async () => {
+    const id = deleteConfirm.kategori?.id_kategori;
+    if (!id) return;
+
+    try {
+      const res = await fetch(`/api/kategori/${id}`, { method: "DELETE" });
+      const data = await res.json();
+
+      if (res.ok) {
+        showToast("Kategori berhasil dihapus.", "success");
+        fetchData();
+      } else {
+        showToast(data.error || "Gagal menghapus kategori.", "error");
+      }
+    } catch {
+      showToast("Terjadi kesalahan jaringan.", "error");
+    } finally {
+      setDeleteConfirm({ show: false, kategori: null });
+    }
   };
 
   if (!permissionsLoading && !can_read) {
@@ -76,7 +133,19 @@ export default function KategoriPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background">
+    <div className="flex flex-col h-[calc(100vh-96px)] space-y-3 overflow-hidden text-on-background relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl animate-in slide-in-from-top-5 duration-200 ${
+          toast.type === "success" 
+            ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-500 backdrop-blur-md" 
+            : "bg-error/10 border-error/25 text-error backdrop-blur-md"
+        }`}>
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-on-surface flex items-center gap-2">
@@ -102,48 +171,48 @@ export default function KategoriPage() {
         ) : (
           <div className="flex-1 overflow-auto min-h-0">
             <table className="w-full">
-            <thead>
-              <tr className="border-b border-outline-variant/40 bg-surface-container-low">
-                <th className="text-left px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-12">#</th>
-                <th className="text-left px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Kode Kategori</th>
-                <th className="text-left px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Nama Kategori</th>
-                <th className="text-right px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant/20">
-              {list.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-on-surface-variant text-sm">
-                    Belum ada kategori barang yang terdaftar.
-                  </td>
+              <thead>
+                <tr className="border-b border-outline-variant/40 bg-surface-container-low">
+                  <th className="text-left px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-12">#</th>
+                  <th className="text-left px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Kode Kategori</th>
+                  <th className="text-left px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Nama Kategori</th>
+                  <th className="text-right px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Aksi</th>
                 </tr>
-              ) : (
-                list.map((c, idx) => (
-                  <tr key={c.id_kategori} className="hover:bg-surface-container-high/20 transition-colors">
-                    <td className="px-5 py-2.5 text-on-surface-variant text-sm font-mono">{idx + 1}</td>
-                    <td className="px-5 py-2.5">
-                      <span className="text-primary font-mono text-sm bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20">{c.kode_kategori}</span>
-                    </td>
-                    <td className="px-5 py-2.5 text-on-surface font-semibold">{c.nama_kategori}</td>
-                    <td className="px-5 py-2.5">
-                      <div className="flex items-center justify-end gap-2">
-                        {can_update && (
-                          <button onClick={() => openModal(c)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        )}
-                        {can_delete && (
-                          <button onClick={() => handleDelete(c.id_kategori)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/20">
+                {list.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-5 py-8 text-center text-on-surface-variant text-sm">
+                      Belum ada kategori barang yang terdaftar.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  list.map((c, idx) => (
+                    <tr key={c.id_kategori} className="hover:bg-surface-container-high/20 transition-colors">
+                      <td className="px-5 py-2.5 text-on-surface-variant text-sm font-mono">{idx + 1}</td>
+                      <td className="px-5 py-2.5">
+                        <span className="text-primary font-mono text-sm bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20">{c.kode_kategori}</span>
+                      </td>
+                      <td className="px-5 py-2.5 text-on-surface font-semibold">{c.nama_kategori}</td>
+                      <td className="px-5 py-2.5">
+                        <div className="flex items-center justify-end gap-2">
+                          {can_update && (
+                            <button onClick={() => openModal(c)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can_delete && (
+                            <button onClick={() => confirmDelete(c)} className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -191,6 +260,37 @@ export default function KategoriPage() {
                   className="flex-1 bg-primary hover:bg-primary-container disabled:opacity-60 text-on-primary py-2.5 rounded-xl text-sm font-semibold transition-colors"
                 >
                   {saving ? "Menyimpan..." : "Simpan Kategori"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      {deleteConfirm.show && deleteConfirm.kategori && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-5 border-b border-outline-variant/40 flex items-center gap-2 bg-surface-container-high/40 text-error">
+              <AlertTriangle className="w-5 h-5 animate-pulse" />
+              <h2 className="font-semibold text-on-surface">Konfirmasi Hapus</h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-on-surface-variant">
+                Apakah Anda yakin ingin menghapus kategori <span className="font-semibold text-on-surface">"{deleteConfirm.kategori.nama_kategori}"</span>? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setDeleteConfirm({ show: false, kategori: null })}
+                  className="flex-1 bg-surface-container-high hover:bg-surface-container-highest text-on-surface py-2.5 rounded-xl text-sm transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 bg-error hover:bg-red-600 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                >
+                  Ya, Hapus
                 </button>
               </div>
             </div>

@@ -19,6 +19,52 @@ export default function ChangePasswordPage() {
   
   const router = useRouter();
 
+  const getPasswordStrength = (pwd: string) => {
+    const defaultChecks = {
+      length: false,
+      hasUpper: false,
+      hasLower: false,
+      hasNumber: false,
+      hasSymbol: false,
+    };
+    if (!pwd) return { score: 0, text: "", color: "bg-outline-variant/30", checks: defaultChecks };
+    
+    let score = 0;
+    const checks = {
+      length: pwd.length >= 8,
+      hasUpper: /[A-Z]/.test(pwd),
+      hasLower: /[a-z]/.test(pwd),
+      hasNumber: /\d/.test(pwd),
+      hasSymbol: /[@$!%*?&]/.test(pwd),
+    };
+
+    if (checks.length) score += 1;
+    if (checks.hasUpper) score += 1;
+    if (checks.hasLower) score += 1;
+    if (checks.hasNumber) score += 1;
+    if (checks.hasSymbol) score += 1;
+
+    let text = "Sangat Lemah";
+    let color = "bg-error";
+    if (score >= 5) {
+      text = "Sangat Kuat";
+      color = "bg-primary";
+    } else if (score >= 4) {
+      text = "Kuat";
+      color = "bg-secondary";
+    } else if (score >= 3) {
+      text = "Sedang";
+      color = "bg-amber-500";
+    } else if (score >= 2) {
+      text = "Lemah";
+      color = "bg-orange-500";
+    }
+
+    return { score, text, color, checks };
+  };
+
+  const strength = getPasswordStrength(newPassword);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -31,8 +77,9 @@ export default function ChangePasswordPage() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setErrorMsg("Password baru minimal harus 6 karakter");
+    const complexityRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!complexityRegex.test(newPassword)) {
+      setErrorMsg("Password baru harus minimal 8 karakter dengan kombinasi huruf besar, huruf kecil, angka, dan simbol (@$!%*?&).");
       return;
     }
 
@@ -140,7 +187,48 @@ export default function ChangePasswordPage() {
               {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Minimal 6 karakter.</span>
+          
+          {/* Strength Indicator Bar */}
+          {newPassword && (
+            <div className="mt-2 space-y-1.5">
+              <div className="flex justify-between items-center text-[10px] font-semibold">
+                <span className="text-on-surface-variant/70">Kekuatan Password:</span>
+                <span className={`px-2 py-0.5 rounded-full text-on-primary text-[9px] ${strength.color}`}>
+                  {strength.text}
+                </span>
+              </div>
+              <div className="h-1.5 w-full bg-surface-container-low border border-outline-variant/20 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full ${strength.color} transition-all duration-300`} 
+                  style={{ width: `${(strength.score / 5) * 100}%` }}
+                />
+              </div>
+              
+              {/* Checklist Kriteria */}
+              <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-outline-variant/10 text-[9px] text-on-surface-variant/70">
+                <div className="flex items-center gap-1">
+                  <span className={strength.checks.length ? "text-primary font-bold" : "text-on-surface-variant/40"}>
+                    {strength.checks.length ? "✓" : "○"} Min. 8 karakter
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={(strength.checks.hasUpper && strength.checks.hasLower) ? "text-primary font-bold" : "text-on-surface-variant/40"}>
+                    {(strength.checks.hasUpper && strength.checks.hasLower) ? "✓" : "○"} Huruf Besar & Kecil
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={strength.checks.hasNumber ? "text-primary font-bold" : "text-on-surface-variant/40"}>
+                    {strength.checks.hasNumber ? "✓" : "○"} Angka (0-9)
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={strength.checks.hasSymbol ? "text-primary font-bold" : "text-on-surface-variant/40"}>
+                    {strength.checks.hasSymbol ? "✓" : "○"} Simbol (@$!%*?&)
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Confirm Password */}

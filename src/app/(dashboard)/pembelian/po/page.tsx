@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, CheckCircle2, Clock, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, CheckCircle2, Clock, AlertTriangle, CheckCircle, XCircle, Sparkles, Inbox } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { formatCurrency } from "@/lib/utils";
 
 interface PO {
   id_pesan_beli: number;
@@ -44,11 +47,15 @@ interface POItem {
 }
 
 export default function PoPage() {
+  const router = useRouter();
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<PO[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Barang[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Status Filter Tab
+  const [statusFilterTab, setStatusFilterTab] = useState<"ALL" | "Diproses" | "Sebagian" | "Selesai">("ALL");
 
   // Navigation state
   const [view, setView] = useState<"list" | "create">("list");
@@ -64,19 +71,89 @@ export default function PoPage() {
 
   // Search product autocomplete inside create form
   const [searchProd, setSearchProd] = useState("");
+
+  // Smart Reorder suggestions for selected supplier
+  const [smartSuggestions, setSmartSuggestions] = useState<any[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (!supplierId) {
+      setSmartSuggestions([]);
+      return;
+    }
+    let isMounted = true;
+    async function fetchSmartSuggestions() {
+      setLoadingSuggestions(true);
+      try {
+        const res = await fetch(`/api/pembelian/saran-order?id_supplier=${supplierId}&urgency=perhatian`);
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.success && Array.isArray(data.items)) {
+            const needed = data.items.filter((it: any) => it.saran_qty_kemasan > 0);
+            setSmartSuggestions(needed);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal mengambil saran order:", err);
+      } finally {
+        if (isMounted) setLoadingSuggestions(false);
+      }
+    }
+    fetchSmartSuggestions();
+    return () => {
+      isMounted = false;
+    };
+  }, [supplierId]);
+
+  const handleApplySmartSuggestions = () => {
+    if (smartSuggestions.length === 0) return;
+
+    const newItems: POItem[] = smartSuggestions.map((it) => ({
+      id_barang: it.id_barang,
+      nama_barang: it.nama_barang,
+      barcode: it.barcode,
+      qty: it.saran_qty_kemasan,
+      satuan: it.nama_kemasan,
+      isi_satuan: it.isi_kemasan,
+      harga_satuan: it.harga_beli_kemasan,
+      subtotal: it.estimasi_subtotal,
+    }));
+
+    setCart(newItems);
+    if (!keterangan) {
+      setKeterangan("Dibuat otomatis dari Saran Order Cerdas (Sales Velocity & Min Stock)");
+    }
+    showToast(`${newItems.length} item saran order berhasil dimuat ke keranjang!`, "success");
+  };
+
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
   
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [resPO, resSuppliers, resProducts] = await Promise.all([
-      fetch("/api/pembelian/po"),
-      fetch("/api/supplier"),
-      fetch("/api/barang"),
-    ]);
-    setList(await resPO.json());
-    setSuppliers(await resSuppliers.json());
-    setProducts(await resProducts.json());
-    setLoading(false);
-  }, []);
+    try {
+      const [resPO, resSuppliers, resProducts] = await Promise.all([
+        fetch("/api/pembelian/po"),
+        fetch("/api/supplier"),
+        fetch("/api/barang"),
+      ]);
+      if (!resPO.ok || !resSuppliers.ok || !resProducts.ok) {
+        throw new Error("Gagal memuat beberapa data dari server.");
+      }
+      setList(await resPO.json());
+      setSuppliers(await resSuppliers.json());
+      setProducts(await resProducts.json());
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat data PO & supplier.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     loadData();
@@ -85,11 +162,12 @@ export default function PoPage() {
   const viewDetail = async (id: number) => {
     try {
       const res = await fetch(`/api/pembelian/po?id=${id}`);
+      if (!res.ok) throw new Error("Gagal memuat detail PO");
       const data = await res.json();
       setSelectedPoDetail(data);
       setShowDetail(true);
-    } catch {
-      alert("Gagal memuat detail PO");
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat detail PO", "error");
     }
   };
 
@@ -139,8 +217,13 @@ export default function PoPage() {
     if (unitName === p.satuan_2) isi = p.isi_2 || 1;
     else if (unitName === p.satuan_3) isi = p.isi_3 || 1;
 
+    // Reset unit price using base price * isi factor
+    const basePrice = p.harga_beli || 0;
+    const newUnitPrice = basePrice * isi;
+
     updated[idx].satuan = unitName;
     updated[idx].isi_satuan = isi;
+    updated[idx].harga_satuan = newUnitPrice;
     updated[idx].subtotal = updated[idx].qty * updated[idx].harga_satuan;
     setCart(updated);
   };
@@ -154,7 +237,7 @@ export default function PoPage() {
       id_barang: item.id_barang,
       nama_barang: item.nama_barang,
       jumlah_barang: item.qty * item.isi_satuan, // in pcs
-      harga_satuan: item.harga_satuan / item.isi_satuan, // price per pcs
+      harga_satuan: Math.round(item.harga_satuan / item.isi_satuan), // price per pcs
       subtotal: item.subtotal,
     }));
 
@@ -172,24 +255,46 @@ export default function PoPage() {
       });
 
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
+        showToast("Purchase Order berhasil disimpan!", "success");
         setCart([]);
         setSupplierId("");
         setKeterangan("");
         setView("list");
         loadData();
       } else {
-        alert("Gagal menyimpan PO: " + data.error);
+        showToast("Gagal menyimpan PO: " + (data.error || "Error tidak diketahui"), "error");
       }
     } catch {
-      alert("Error menyimpan PO.");
+      showToast("Error menyimpan PO.", "error");
     } finally {
       setSaving(false);
     }
   };
 
+  const handleForceClosePo = async (poId: number) => {
+    if (!confirm("Tutup sisa pesanan PO ini? Sisa barang tidak akan lagi ditagihkan ke supplier.")) return;
+    try {
+      const res = await fetch(`/api/pembelian/po/${poId}/force-close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alasan: "Ditutup manual oleh pengguna dari Detail PO" }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast("Sisa pesanan PO berhasil ditutup.", "success");
+        setShowDetail(false);
+        loadData();
+      } else {
+        showToast(data.error || "Gagal menutup sisa PO", "error");
+      }
+    } catch (e: any) {
+      showToast("Gagal menutup sisa PO", "error");
+    }
+  };
+
   const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   const filteredCatalog = products.filter(
@@ -219,13 +324,78 @@ export default function PoPage() {
               </h1>
               <p className="text-on-surface-variant text-sm mt-1">{list.length} PO terdaftar</p>
             </div>
-            {can_create && (
-              <button
-                onClick={() => setView("create")}
-                className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+            <div className="flex items-center gap-3">
+              <Link
+                href="/pembelian/saran-order"
+                className="flex items-center gap-2 bg-surface hover:bg-surface-container-high border border-outline-variant/40 text-on-surface px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
               >
-                <Plus className="w-4 h-4" /> Buat PO Baru
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <span>Saran Order Cerdas</span>
+              </Link>
+              {can_create && (
+                <button
+                  onClick={() => setView("create")}
+                  className="flex items-center gap-2 bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+                >
+                  <Plus className="w-4 h-4" /> Buat PO Baru
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filter Tabs & Quick Action */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 bg-surface-container-low p-1 rounded-xl border border-outline-variant/30 text-xs">
+              <button
+                onClick={() => setStatusFilterTab("ALL")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  statusFilterTab === "ALL"
+                    ? "bg-surface text-primary shadow-sm font-semibold"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Semua ({list.length})
               </button>
+              <button
+                onClick={() => setStatusFilterTab("Diproses")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  statusFilterTab === "Diproses"
+                    ? "bg-surface text-primary shadow-sm font-semibold"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Diproses ({list.filter((p) => p.status === "Diproses" || p.status === "PENDING").length})
+              </button>
+              <button
+                onClick={() => setStatusFilterTab("Sebagian")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  statusFilterTab === "Sebagian"
+                    ? "bg-surface text-amber-600 dark:text-amber-400 shadow-sm font-semibold"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Sebagian / Kurang Kirim ({list.filter((p) => p.status === "Sebagian").length})
+              </button>
+              <button
+                onClick={() => setStatusFilterTab("Selesai")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  statusFilterTab === "Selesai"
+                    ? "bg-surface text-emerald-600 dark:text-emerald-400 shadow-sm font-semibold"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Selesai ({list.filter((p) => p.status === "Selesai").length})
+              </button>
+            </div>
+
+            {list.some((p) => p.status === "Sebagian") && (
+              <Link
+                href="/pembelian/backorder"
+                className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 bg-rose-500/10 px-3 py-1.5 rounded-xl border border-rose-500/20 transition-colors"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Lihat {list.filter((p) => p.status === "Sebagian").length} PO Kurang Kirim di Pantau Sisa Pesanan &rarr;</span>
+              </Link>
             )}
           </div>
 
@@ -254,39 +424,53 @@ export default function PoPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-outline-variant/20 text-sm">
-                    {list.map((po, idx) => (
-                      <tr key={po.id_pesan_beli} className="hover:bg-surface-container-high/20 transition-colors">
-                        <td className="px-5 py-4 text-on-surface-variant font-mono">{idx + 1}</td>
-                        <td className="px-5 py-4">
-                          <span className="text-primary font-mono text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
-                            {po.nomor_pesan_beli}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-on-surface-variant font-mono text-xs">{po.tanggal_pesan_beli}</td>
-                        <td className="px-5 py-4 text-on-surface font-semibold">{po.nama_supplier}</td>
-                        <td className="px-5 py-4 text-right text-on-surface font-bold font-mono">{formatRupiah(po.total_harga_pesan_beli)}</td>
-                        <td className="px-5 py-4">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                              po.status === "PENDING"
-                                ? "bg-secondary/10 text-secondary border-secondary/20"
-                                : "bg-primary/10 text-primary border-primary/20"
-                            }`}
-                          >
-                            {po.status === "PENDING" ? <Clock className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
-                            {po.status}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <button
-                            onClick={() => viewDetail(po.id_pesan_beli)}
-                            className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 border border-outline-variant/20 shadow-sm transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-primary" /> Detail
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {list
+                      .filter((po) => {
+                        if (statusFilterTab === "ALL") return true;
+                        if (statusFilterTab === "Diproses") return po.status === "Diproses" || po.status === "PENDING";
+                        if (statusFilterTab === "Sebagian") return po.status === "Sebagian";
+                        if (statusFilterTab === "Selesai") return po.status === "Selesai";
+                        return true;
+                      })
+                      .map((po, idx) => (
+                        <tr key={po.id_pesan_beli} className="hover:bg-surface-container-high/20 transition-colors">
+                          <td className="px-5 py-4 text-on-surface-variant font-mono">{idx + 1}</td>
+                          <td className="px-5 py-4">
+                            <span className="text-primary font-mono text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
+                              {po.nomor_pesan_beli}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-on-surface-variant font-mono text-xs">{po.tanggal_pesan_beli}</td>
+                          <td className="px-5 py-4 text-on-surface font-semibold">{po.nama_supplier}</td>
+                          <td className="px-5 py-4 text-right text-on-surface font-bold font-mono">{formatRupiah(po.total_harga_pesan_beli)}</td>
+                          <td className="px-5 py-4">
+                            {po.status === "Sebagian" ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                Sebagian (Kurang Kirim)
+                              </span>
+                            ) : po.status === "Selesai" ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Selesai
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30">
+                                <Clock className="w-3 h-3" />
+                                {po.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-right">
+                            <button
+                              onClick={() => viewDetail(po.id_pesan_beli)}
+                              className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 border border-outline-variant/20 shadow-sm transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-primary" /> Detail
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
@@ -353,6 +537,50 @@ export default function PoPage() {
             {/* Cart & Product Selector (Col: 8) */}
             <div className="md:col-span-8 space-y-4">
               
+              {/* Smart Reorder Banner */}
+              {supplierId && (
+                <div>
+                  {loadingSuggestions ? (
+                    <div className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/30 flex items-center gap-2 text-xs text-on-surface-variant">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
+                      <span>Menganalisis daya jual & kebutuhan restock supplier...</span>
+                    </div>
+                  ) : smartSuggestions.length > 0 ? (
+                    <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-500/10 via-primary/10 to-transparent border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                            <span>Saran Order Cerdas: Ditemukan {smartSuggestions.length} Item Perlu Restock</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-error/20 text-error font-semibold">
+                              {smartSuggestions.filter((s) => s.status_urgensi === "KRITIS").length} Kritis
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-on-surface-variant mt-0.5">
+                            Dihitung otomatis dari ADS 30 hari & stok minimum dengan pembulatan kemasan vendor.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleApplySmartSuggestions}
+                        className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all active:scale-95 flex-shrink-0"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Terapkan Saran Cerdas ({smartSuggestions.length} Item)</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      <span>Seluruh stok barang dari supplier ini saat ini dalam kondisi aman (&gt; 7 hari).</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Product Autocomplete Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-3 w-4 h-4 text-on-surface-variant" />
@@ -509,12 +737,16 @@ export default function PoPage() {
                   <span className="text-on-surface-variant block uppercase font-medium">Status PO</span>
                   <span
                     className={`inline-flex px-2.5 py-0.5 rounded text-[10px] font-bold border ${
-                      selectedPoDetail.po.status === "PENDING"
-                        ? "bg-secondary/10 text-secondary border-secondary/20"
+                      selectedPoDetail.po.status === "Sebagian"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                        : selectedPoDetail.po.status === "Selesai"
+                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                         : "bg-primary/10 text-primary border-primary/20"
                     }`}
                   >
-                    {selectedPoDetail.po.status}
+                    {selectedPoDetail.po.status === "Sebagian"
+                      ? "Sebagian (Kurang Kirim)"
+                      : selectedPoDetail.po.status}
                   </span>
                 </div>
                 {selectedPoDetail.po.keterangan && (
@@ -527,14 +759,28 @@ export default function PoPage() {
 
               <div className="border-t border-outline-variant/40 pt-3">
                 <h3 className="text-xs text-on-surface font-semibold mb-2">Daftar Barang Pesanan</h3>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-0.5">
                   {selectedPoDetail.details.map((item: any) => (
-                    <div key={item.id} className="bg-surface-container-low p-3.5 rounded-xl border border-outline-variant/30 flex justify-between text-xs">
-                      <div>
-                        <span className="text-on-surface font-semibold">{item.nama_barang}</span>
-                        <span className="text-on-surface-variant block text-[9px] font-mono mt-1">{item.jumlah_barang} pcs @ {formatRupiah(item.harga_satuan)}</span>
+                    <div key={item.id} className="bg-surface-container-low p-3.5 rounded-xl border border-outline-variant/30 text-xs space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="text-on-surface font-semibold text-[13px]">{item.nama_barang}</span>
+                          <div className="text-[11px] text-on-surface-variant mt-0.5 flex flex-wrap items-center gap-2">
+                            <span>Pesan: <strong className="text-on-surface">{item.jumlah_barang} pcs</strong></span>
+                            <span>•</span>
+                            <span>Tiba: <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">{item.jumlah_diterima || 0} pcs</strong></span>
+                            <span>•</span>
+                            <span>Sisa: <strong className={(item.sisa_qty || 0) > 0 ? "text-rose-500 font-bold" : "text-emerald-600 font-semibold"}>{item.sisa_qty || 0} pcs</strong></span>
+                          </div>
+                        </div>
+                        <strong className="text-primary font-bold font-mono self-center">{formatRupiah(item.subtotal)}</strong>
                       </div>
-                      <strong className="text-primary font-bold font-mono self-center">{formatRupiah(item.subtotal)}</strong>
+                      <div className="w-full bg-surface-container rounded-full h-1.5 overflow-hidden border border-outline-variant/20">
+                        <div 
+                          className={`h-full rounded-full transition-all ${(item.progress_percent || 0) >= 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} 
+                          style={{ width: `${Math.max(3, item.progress_percent || 0)}%` }}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -546,7 +792,29 @@ export default function PoPage() {
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-outline-variant/40 flex justify-end bg-surface-container-high/40">
+            <div className="px-6 py-4 border-t border-outline-variant/40 flex flex-wrap items-center justify-between gap-3 bg-surface-container-high/40">
+              {selectedPoDetail.po.status === "Sebagian" ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => router.push(`/pembelian/invoice?id_po=${selectedPoDetail.po.id_pesan_beli}`)}
+                    className="flex items-center gap-1.5 bg-primary hover:bg-primary-container text-on-primary px-3.5 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all active:scale-95"
+                  >
+                    <Inbox className="w-3.5 h-3.5" />
+                    <span>Terima Sisa Barang</span>
+                  </button>
+                  {can_update && (
+                    <button
+                      onClick={() => handleForceClosePo(selectedPoDetail.po.id_pesan_beli)}
+                      className="px-3 py-2 bg-error/10 hover:bg-error/20 text-error border border-error/20 rounded-xl text-xs font-semibold transition-colors"
+                    >
+                      Tutup Sisa Pesanan
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div />
+              )}
+
               <button
                 onClick={() => setShowDetail(false)}
                 className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface px-6 py-2.5 rounded-xl text-xs font-semibold transition-colors border border-outline-variant/20 shadow-sm"
@@ -555,6 +823,19 @@ export default function PoPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            toast.type === "success" 
+              ? "bg-emerald-600 border-emerald-500/30" 
+              : "bg-rose-600 border-rose-500/30"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
         </div>
       )}
     </div>

@@ -17,10 +17,15 @@ import {
   X,
   CreditCard,
   QrCode,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Clock
 } from "lucide-react";
+import { formatCurrency, formatDateTime } from "@/lib/utils";
 import jsQR from "jsqr";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { useAppSettings } from "@/components/providers/AppSettingsProvider";
 
 interface Barang {
   id_barang: number;
@@ -45,6 +50,7 @@ interface Barang {
   harga_jual_3_3: number | null;
   jual_rugi: number;
   status: string;
+  stok_akhir?: number | null;
 }
 
 interface Pelanggan {
@@ -87,9 +93,24 @@ interface CompletedInvoice {
 
 export default function PosPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
+  const { settings } = useAppSettings();
   const [products, setProducts] = useState<Barang[]>([]);
   const [customers, setCustomers] = useState<Pelanggan[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const [activeShift, setActiveShift] = useState<any>(null);
+  const [shiftLoading, setShiftLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cashierName, setCashierName] = useState("Kasir Toko");
+  const [branchName, setBranchName] = useState("Cabang");
 
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -153,14 +174,56 @@ export default function PosPage() {
 
   // Fetch initial data
   const loadData = useCallback(async () => {
-    const [resProducts, resCustomers] = await Promise.all([
-      fetch("/api/barang"),
-      fetch("/api/pelanggan")
-    ]);
-    setProducts(await resProducts.json());
-    setCustomers(await resCustomers.json());
-    setLoading(false);
-  }, []);
+    try {
+      const [resProducts, resCustomers, resProfile] = await Promise.all([
+        fetch("/api/barang"),
+        fetch("/api/pelanggan"),
+        fetch("/api/pengaturan/profile")
+      ]);
+
+      if (!resProducts.ok || !resCustomers.ok || !resProfile.ok) {
+        throw new Error("Gagal memuat data utama");
+      }
+
+      const productsData = await resProducts.json();
+      const customersData = await resCustomers.json();
+      const profileData = await resProfile.json();
+
+      setProducts(productsData);
+      setCustomers(customersData);
+
+      if (profileData && profileData.id) {
+        const resUser = await fetch(`/api/hrd/users/${profileData.id}`);
+        if (resUser.ok) {
+          const userData = await resUser.json();
+          setCashierName(userData.nama_user || "Kasir Toko");
+          setBranchName(userData.nama_cabang || "Cabang");
+        }
+      }
+
+      // Fetch active shift
+      try {
+        const resShift = await fetch("/api/kas/shift");
+        if (resShift.ok) {
+          const shiftData = await resShift.json();
+          if (shiftData.success) {
+            const active = shiftData.data.find((s: any) => s.status === "OPEN");
+            setActiveShift(active || null);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal memuat status shift", err);
+      } finally {
+        setShiftLoading(false);
+      }
+
+      setLoading(false);
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat data katalog POS.", "error");
+      setLoading(false);
+      setShiftLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     loadData();
@@ -297,10 +360,19 @@ export default function PosPage() {
 
     const existingIndex = cart.findIndex((item) => item.id_barang === prod.id_barang && item.satuan === unit);
     
+    // Warning if stock is insufficient
+    const currentQtyInCart = existingIndex > -1 ? cart[existingIndex].jumlah : 0;
+    const newQty = currentQtyInCart + 1;
+    const totalPcsNeeded = newQty * isi;
+    const availableStock = prod.stok_akhir ?? 0;
+    if (totalPcsNeeded > availableStock) {
+      showToast(`Peringatan: Stok '${prod.nama_barang}' kurang. Tersedia: ${availableStock} pcs, Diminta: ${totalPcsNeeded} pcs.`, "error");
+    }
+
     if (existingIndex > -1) {
       const updated = [...cart];
-      updated[existingIndex].jumlah += 1;
-      updated[existingIndex].subtotal = updated[existingIndex].jumlah * updated[existingIndex].harga_jual;
+      updated[existingIndex].jumlah = newQty;
+      updated[existingIndex].subtotal = newQty * updated[existingIndex].harga_jual;
       setCart(updated);
     } else {
       setCart([
@@ -323,8 +395,20 @@ export default function PosPage() {
 
   const updateCartQty = (idx: number, diff: number) => {
     const updated = [...cart];
-    updated[idx].jumlah = Math.max(1, updated[idx].jumlah + diff);
-    updated[idx].subtotal = updated[idx].jumlah * updated[idx].harga_jual;
+    const item = updated[idx];
+    const prod = products.find((p) => p.id_barang === item.id_barang);
+    const newQty = Math.max(1, item.jumlah + diff);
+    
+    if (prod && diff > 0) {
+      const totalPcsNeeded = newQty * item.isi_satuan;
+      const availableStock = prod.stok_akhir ?? 0;
+      if (totalPcsNeeded > availableStock) {
+        showToast(`Peringatan: Stok '${item.nama_barang}' kurang. Tersedia: ${availableStock} pcs, Diminta: ${totalPcsNeeded} pcs.`, "error");
+      }
+    }
+
+    updated[idx].jumlah = newQty;
+    updated[idx].subtotal = newQty * updated[idx].harga_jual;
     setCart(updated);
   };
 
@@ -339,6 +423,12 @@ export default function PosPage() {
     } else if (unitName === prod.satuan_3) {
       price = prod.harga_jual_1_3 || 0;
       isi = prod.isi_3 || 1;
+    }
+
+    const totalPcsNeeded = updated[idx].jumlah * isi;
+    const availableStock = prod.stok_akhir ?? 0;
+    if (totalPcsNeeded > availableStock) {
+      showToast(`Peringatan: Stok '${prod.nama_barang}' kurang untuk satuan ${unitName}. Tersedia: ${availableStock} pcs, Diminta: ${totalPcsNeeded} pcs.`, "error");
     }
 
     updated[idx].satuan = unitName;
@@ -398,8 +488,9 @@ export default function PosPage() {
       setNewCustNama("");
       setNewCustTelp("");
       setNewCustAlamat("");
+      showToast("Pelanggan baru berhasil ditambahkan.", "success");
     } catch {
-      alert("Gagal menambahkan pelanggan baru");
+      showToast("Gagal menambahkan pelanggan baru.", "error");
     } finally {
       setAddingCustomer(false);
     }
@@ -468,8 +559,24 @@ export default function PosPage() {
 
   // Transaction Checkout POS
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
-    
+    if (!activeShift) {
+      showToast("Anda harus membuka shift kasir terlebih dahulu.", "error");
+      return;
+    }
+    if (cart.length === 0 || isSubmitting) return;
+
+    if (paymentType === "Tunai") {
+      const parsedCash = parseFloat(cashGiven || "0");
+      if (!cashGiven || parsedCash < totalAkhir) {
+        showToast("Uang diterima kurang atau tidak valid.", "error");
+        if (cashGivenInputRef.current) {
+          cashGivenInputRef.current.focus();
+        }
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
     // Auto-earn points: Rp 10.000 = 1 point
     const pointsEarned = Math.floor(totalAkhir / 10000);
 
@@ -507,6 +614,7 @@ export default function PosPage() {
           kembalian: cashChange
         });
         setShowCheckoutSuccess(true);
+        showToast("Transaksi berhasil diselesaikan!", "success");
         
         // Reset POS state
         setCart([]);
@@ -521,10 +629,12 @@ export default function PosPage() {
         setLoading(true);
         loadData();
       } else {
-        alert("Gagal memproses transaksi: " + data.error);
+        showToast("Gagal memproses transaksi: " + data.error, "error");
       }
     } catch {
-      alert("Error memproses transaksi kasir.");
+      showToast("Error memproses transaksi kasir.", "error");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -536,7 +646,7 @@ export default function PosPage() {
   );
 
   const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   if (!permissionsLoading && !can_read) {
@@ -550,10 +660,30 @@ export default function PosPage() {
   }
 
   return (
-    <div className="space-y-6 max-h-[88vh] flex flex-col md:grid md:grid-cols-12 gap-6 overflow-hidden">
-      
-      {/* BAGIAN KIRI: KATALOG BARANG & SCANNER (Col: 7) */}
-      <div className="col-span-7 flex flex-col space-y-4 max-h-[85vh] overflow-hidden">
+    <div className="space-y-4 max-h-[90vh] flex flex-col overflow-hidden">
+      {/* Active Shift Header Info / Warning Banner */}
+      {!shiftLoading && !activeShift ? (
+        <div className="p-4 bg-amber-500/10 border border-amber-500/20 text-amber-800 rounded-xl text-xs flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 animate-bounce" />
+          <div>
+            <strong className="font-semibold block">Shift Kasir Belum Dibuka!</strong>
+            <span>Anda belum membuka shift kasir hari ini. Silakan buka shift terlebih dahulu di menu <a href="/hrd/shift-kasir" className="underline font-bold hover:text-amber-700">Shift Kasir</a> sebelum melakukan transaksi POS.</span>
+          </div>
+        </div>
+      ) : activeShift ? (
+        <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 rounded-xl text-xs flex items-center justify-between">
+          <span className="flex items-center gap-2 font-medium">
+            <Clock className="w-4 h-4 text-emerald-600 animate-pulse" />
+            Laci Shift Aktif: <strong>{activeShift.nama_rekening}</strong>
+          </span>
+          <span className="font-mono text-[10px]">Buka sejak: {formatDateTime(activeShift.waktu_buka)}</span>
+        </div>
+      ) : null}
+
+      <div className="space-y-6 flex-1 flex flex-col md:grid md:grid-cols-12 gap-6 overflow-hidden">
+        
+        {/* BAGIAN KIRI: KATALOG BARANG & SCANNER (Col: 7) */}
+        <div className="col-span-7 flex flex-col space-y-4 max-h-[85vh] overflow-hidden">
         <div>
           <h1 className="text-xl font-bold text-on-background flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-primary" /> POS Kasir
@@ -891,11 +1021,20 @@ export default function PosPage() {
           {/* Checkout Button */}
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || !can_create}
+            disabled={cart.length === 0 || !can_create || isSubmitting || !activeShift}
             className="w-full bg-primary hover:bg-primary/95 text-on-primary disabled:opacity-40 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 mt-2 text-xs shadow-lg shadow-primary/25 hover:shadow-primary/35 cursor-pointer"
-            title={can_create ? "Selesaikan Transaksi (F12)" : "Akses Ditolak"}
+            title={!activeShift ? "Buka shift kasir terlebih dahulu" : can_create ? "Selesaikan Transaksi (F12)" : "Akses Ditolak"}
           >
-            <DollarSign className="w-4 h-4" /> {can_create ? "SELESAIKAN TRANSAKSI [F12]" : "TIDAK MEMILIKI AKSES TAMBAH"}
+            {isSubmitting ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <DollarSign className="w-4 h-4" />
+            )}
+            {isSubmitting
+              ? "MEMPROSES TRANSAKSI..."
+              : can_create
+              ? "SELESAIKAN TRANSAKSI [F12]"
+              : "TIDAK MEMILIKI AKSES TAMBAH"}
           </button>
 
         </div>
@@ -932,7 +1071,7 @@ export default function PosPage() {
       {/* MODAL PRINT NOTA (TRANSAKSI BERHASIL) */}
       {showCheckoutSuccess && completedInvoice && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto animate-in fade-in duration-200">
-          <div className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-sm my-8 overflow-hidden shadow-xl print:border-0 print:bg-white print:max-w-full print:my-0 print:shadow-none animate-in zoom-in-95 duration-150">
+          <div id="print-invoice-modal" className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-sm my-8 overflow-hidden shadow-xl print:border-0 print:bg-white print:max-w-full print:my-0 print:shadow-none animate-in zoom-in-95 duration-150">
             
             <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between print:hidden">
               <h2 className="font-semibold text-on-surface text-sm">Transaksi Berhasil!</h2>
@@ -945,9 +1084,9 @@ export default function PosPage() {
               {/* Receipt Body */}
               <div className="bg-white text-black p-4 rounded-xl border border-slate-200 font-mono text-[11px] space-y-3 shadow-inner print:p-0 print:border-0 print:shadow-none">
                 <div className="text-center space-y-1 pb-3 border-b border-dashed border-gray-300">
-                  <h3 className="font-bold text-sm tracking-wider">ERP AL-MUBAROK</h3>
-                  <p className="text-[10px]">Pondok Pesantren Al-Mubarok</p>
-                  <p className="text-[9px]">Cabang Sukosari</p>
+                  <h3 className="font-bold text-sm tracking-wider uppercase">{settings.app_name}</h3>
+                  <p className="text-[10px]">{settings.company_name}</p>
+                  <p className="text-[9px]">{branchName}</p>
                 </div>
 
                 <div className="space-y-0.5 border-b border-dashed border-gray-300 pb-2 text-[10px]">
@@ -961,7 +1100,7 @@ export default function PosPage() {
                   </div>
                   <div className="flex justify-between">
                     <span>Kasir:</span>
-                    <span>Kasir Toko</span>
+                    <span>{cashierName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Pelanggan:</span>
@@ -1156,6 +1295,22 @@ export default function PosPage() {
           <span>Batal / Tutup</span>
         </div>
       </div>
+
+      </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            toast.type === "success" 
+              ? "bg-emerald-600 border-emerald-500/30" 
+              : "bg-rose-600 border-rose-500/30"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
 
     </div>
   );

@@ -342,3 +342,13 @@ div:has(> table) table thead th {
   background-color: var(--surface-container-low) !important;
   border-bottom: 2px solid var(--outline-variant) !important;
 }
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
+@utility animate-shake {
+  animation: shake 0.2s ease-in-out 0s 2;
+}

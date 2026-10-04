@@ -1,7 +1,7 @@
 import { getServerSession } from "@/lib/auth/session";
-import { db } from "@/lib/db";
-import { users, absensi, jabatan } from "@/lib/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { TOKEN_COOKIE } from "@/lib/auth/jwt";
+import { apiFetch } from "@/lib/api-client";
 import {
   Users,
   UserCheck,
@@ -11,34 +11,34 @@ import {
   CalendarDays,
 } from "lucide-react";
 
-async function getDashboardStats() {
-  const today = new Date().toISOString().split("T")[0];
+async function getDashboardStats(token: string | undefined) {
+  let stats = {
+    totalUsers: { count: 0 },
+    absensiHariIni: { count: 0 },
+    jabatanList: [] as any[]
+  };
 
-  const [totalUsers] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(users)
-    .where(sql`status != 'Non-Aktif'`);
+  try {
+    const res = await apiFetch("/api/hrd/dashboard-stats", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (res.ok) {
+      stats = await res.json();
+    }
+  } catch (error) {
+    console.error("Failed to fetch dashboard stats:", error);
+  }
 
-  const [absensiHariIni] = await db
-    .select({ count: sql<number>`count(distinct user_id)` })
-    .from(absensi)
-    .where(and(eq(absensi.tanggal, today), eq(absensi.jenis, "masuk")));
-
-  const jabatanList = await db
-    .select({
-      jabatan: jabatan.jabatan,
-      count: sql<number>`count(${users.id})`,
-    })
-    .from(jabatan)
-    .leftJoin(users, eq(jabatan.id_jabatan, users.id_jabatan))
-    .groupBy(jabatan.id_jabatan);
-
-  return { totalUsers, absensiHariIni, jabatanList };
+  return stats;
 }
 
 export default async function DashboardPage() {
   const session = await getServerSession();
-  const { totalUsers, absensiHariIni, jabatanList } = await getDashboardStats();
+  const cookieStore = await cookies();
+  const token = cookieStore.get(TOKEN_COOKIE)?.value;
+  const { totalUsers, absensiHariIni, jabatanList } = await getDashboardStats(token);
 
   const today = new Date().toLocaleDateString("id-ID", {
     weekday: "long",

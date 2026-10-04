@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Eye, Search, RefreshCw, ShoppingBag, DollarSign, Calendar, AlertTriangle } from "lucide-react";
+import { FileText, Eye, Search, RefreshCw, ShoppingBag, DollarSign, Calendar, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import { formatCurrency } from "@/lib/utils";
 
 interface Invoice {
   id_faktur: number;
@@ -21,12 +22,26 @@ export default function PurchaseHistoryPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/pembelian/invoice");
-    setList(await res.json());
-    setLoading(false);
-  }, []);
+    try {
+      const res = await fetch("/api/pembelian/invoice");
+      if (!res.ok) throw new Error("Gagal memuat riwayat faktur");
+      setList(await res.json());
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat riwayat faktur", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     fetchData();
@@ -35,16 +50,17 @@ export default function PurchaseHistoryPage() {
   const viewDetail = async (id: number) => {
     try {
       const res = await fetch(`/api/pembelian/invoice?id=${id}`);
+      if (!res.ok) throw new Error("Gagal memuat detail faktur");
       const data = await res.json();
       setSelectedInvoice(data);
       setShowDetailModal(true);
-    } catch {
-      alert("Gagal memuat detail faktur");
+    } catch (err: any) {
+      showToast(err.message || "Gagal memuat detail faktur", "error");
     }
   };
 
   const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
+    return formatCurrency(val);
   };
 
   const filteredList = list.filter(
@@ -232,7 +248,7 @@ export default function PurchaseHistoryPage() {
                 {selectedInvoice.invoice.ppn_rate > 0 && (
                   <div className="flex justify-between text-on-surface-variant">
                     <span>Pajak PPn ({selectedInvoice.invoice.ppn_rate}%):</span>
-                    <span>Hitung Terbawa</span>
+                    <span>+{formatRupiah(Math.round((selectedInvoice.invoice.total_faktur * selectedInvoice.invoice.ppn_rate) / (100 + selectedInvoice.invoice.ppn_rate)))}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center font-bold border-t border-outline-variant/30 pt-2 text-on-surface">
@@ -250,6 +266,20 @@ export default function PurchaseHistoryPage() {
           </div>
         </div>
       )}
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-white animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            toast.type === "success" 
+              ? "bg-emerald-600 border-emerald-500/30" 
+              : "bg-rose-600 border-rose-500/30"
+          }`}
+        >
+          {toast.type === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
     </div>
   );
 }

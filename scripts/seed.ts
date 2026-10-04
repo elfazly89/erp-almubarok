@@ -229,7 +229,13 @@ async function seed() {
     { id: 7, kode_akun: "4.101.01", nama_akun: "Pendapatan Penjualan Toko", deskripsi: "Pendapatan Hasil Penjualan Kasir POS", tipe_akun_id: 4, status: "Aktif" },
     { id: 8, kode_akun: "6.101.01", nama_akun: "Beban Gaji Karyawan", deskripsi: "Beban Bisyaroh / Gaji Karyawan", tipe_akun_id: 5, status: "Aktif" },
     { id: 9, kode_akun: "6.101.02", nama_akun: "Beban Listrik & Air", deskripsi: "Beban Listrik & Air Cabang", tipe_akun_id: 5, status: "Aktif" },
-    { id: 10, kode_akun: "6.101.03", nama_akun: "Beban Operasional Toko", deskripsi: "Biaya Operasional Toko Lainnya", tipe_akun_id: 5, status: "Aktif" },
+  ]).onConflictDoNothing();
+
+  // ─── REKENING KAS ────────────────────────────────────────────────────────────
+  console.log("  Inserting rekening kas...");
+  await db.insert(schema.rekening_kas).values([
+    { id: 1, kode: "REK-SUKOSARI-01", nama: "Kas Toko Sukosari", jenis: "KAS_TOKO", id_cabang: 2, saldo_awal: 1000000, saldo: 1000000, id_akun_coa: 1 },
+    { id: 2, kode: "REK-KANTOR-01", nama: "Kas Toko Kantor", jenis: "KAS_TOKO", id_cabang: 3, saldo_awal: 2000000, saldo: 2000000, id_akun_coa: 1 },
   ]).onConflictDoNothing();
 
   console.log("✅ Seeding selesai!");

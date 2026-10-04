@@ -4,10 +4,10 @@ import Sidebar from "@/components/layout/Sidebar";
 import ThemeToggle from "@/components/layout/ThemeToggle";
 import UserMenu from "@/components/layout/UserMenu";
 import HelpButton from "@/components/layout/HelpButton";
-import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { TOKEN_COOKIE } from "@/lib/auth/jwt";
 import { PermissionProvider } from "@/components/providers/PermissionProvider";
+import { apiFetch } from "@/lib/api-client";
 
 export default async function DashboardLayout({
   children,
@@ -20,13 +20,26 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  // Fetch latest user details (such as profile photo 'foto') from the database
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.id, session.id),
-  });
+  // Fetch latest user details (such as profile photo 'foto') from the Hono API
+  const cookieStore = await cookies();
+  const token = cookieStore.get(TOKEN_COOKIE)?.value;
+  let dbUser: any = null;
+
+  try {
+    const res = await apiFetch(`/api/hrd/users/${session.id}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      dbUser = await res.json();
+    }
+  } catch (error) {
+    console.error("Failed to fetch user in layout:", error);
+  }
 
   const userName = dbUser?.nama_user ?? session.nama_user;
-  const jabatan = dbUser?.id_jabatan ? (session.jabatan ?? "—") : "—";
+  const jabatan = dbUser?.jabatan ?? session.jabatan ?? "—";
   const foto = dbUser?.foto ?? null;
 
   return (
@@ -38,7 +51,7 @@ export default async function DashboardLayout({
         />
 
         {/* Main content area - offset for sidebar */}
-        <div className="lg:pl-[var(--sidebar-width,16rem)] transition-all duration-300 ease-in-out">
+        <div className="lg:pl-[var(--sidebar-width,5rem)] transition-all duration-300 ease-in-out">
           {/* Top bar */}
           <header className="sticky top-0 z-20 bg-surface-container/80 backdrop-blur-md border-b border-outline-variant/40 px-6 py-2">
             <div className="flex items-center justify-between">

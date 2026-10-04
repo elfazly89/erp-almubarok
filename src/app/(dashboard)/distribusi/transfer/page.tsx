@@ -72,7 +72,6 @@ export default function TransferAntarCabangPage() {
           idCabangAsal: item.id_cabang_asal,
           idCabangTujuan: item.id_cabang_tujuan,
           qtyTransfer: item.qtyTransfer,
-          userId: 1,
         }),
       });
       const json = await res.json();
@@ -94,10 +93,24 @@ export default function TransferAntarCabangPage() {
     }
   };
 
-  const handleIgnoreTransfer = (id: number) => {
-    setList((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: "IGNORED" as const } : item))
-    );
+  const handleIgnoreTransfer = async (item: TransferSuggestion) => {
+    try {
+      await fetch("/api/distribusi/transfer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ignore",
+          idBarang: item.id_barang,
+          idCabangAsal: item.id_cabang_asal,
+          idCabangTujuan: item.id_cabang_tujuan,
+        }),
+      });
+      setList((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, status: "IGNORED" as const } : i))
+      );
+    } catch {
+      triggerNotification("error", "Gagal menghubungi server untuk mengabaikan transfer.");
+    }
   };
 
   const triggerNotification = (type: "success" | "error", msg: string) => {
@@ -266,7 +279,7 @@ export default function TransferAntarCabangPage() {
                 <div className="flex items-center justify-end gap-2.5 mt-4 pt-3 border-t border-outline-variant/20">
                   <button
                     disabled={processingId !== null}
-                    onClick={() => handleIgnoreTransfer(item.id)}
+                    onClick={() => handleIgnoreTransfer(item)}
                     className="bg-surface hover:bg-surface-container-high text-on-surface-variant px-4 py-2 rounded-xl text-xs font-semibold border border-outline-variant/60 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     Abaikan
