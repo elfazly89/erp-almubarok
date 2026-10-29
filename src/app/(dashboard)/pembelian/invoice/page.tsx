@@ -44,6 +44,8 @@ interface InvoiceItem {
   isi_satuan: number;
   harga_satuan: number; // cost per selected unit
   subtotal: number;
+  nomor_batch?: string;
+  tanggal_kadaluarsa?: string;
 }
 
 interface Invoice {
@@ -77,6 +79,9 @@ export default function PurchaseInvoicePage() {
   const [statusPembayaran, setStatusPembayaran] = useState("Belum Lunas");
   const [diskonGlobal, setDiskonGlobal] = useState("0");
   const [ppnRate, setPpnRate] = useState("0");
+  const [biayaOngkir, setBiayaOngkir] = useState("0");
+  const [biayaBongkar, setBiayaBongkar] = useState("0");
+  const [metodeAlokasi, setMetodeAlokasi] = useState<"NILAI" | "KUANTITAS">("NILAI");
 
   const [cart, setCart] = useState<InvoiceItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -263,13 +268,17 @@ export default function PurchaseInvoicePage() {
     s.nama_supplier.toLowerCase().includes(searchSupplier.toLowerCase())
   );
 
-  // Pricing calculations
+  // Pricing & Landed Cost calculations
   const subtotalCart = cart.reduce((sum, item) => sum + item.subtotal, 0);
   const diskon = parseInt(diskonGlobal) || 0;
   const ppnRateNum = parseInt(ppnRate) || 0;
+  const ongkirNum = parseInt(biayaOngkir) || 0;
+  const bongkarNum = parseInt(biayaBongkar) || 0;
+  const totalBiayaTambahan = ongkirNum + bongkarNum;
   const totalBefTax = Math.max(0, subtotalCart - diskon);
   const ppnNominal = Math.round((totalBefTax * ppnRateNum) / 100);
   const totalAkhir = totalBefTax + ppnNominal;
+  const grandTotal = totalAkhir + totalBiayaTambahan;
 
   const handleSaveInvoice = async () => {
     if (!supplierId || !nomorFaktur.trim() || cart.length === 0) {
@@ -284,6 +293,8 @@ export default function PurchaseInvoicePage() {
       jumlah_beli: item.qty * item.isi_satuan, // in pcs
       harga_satuan: item.harga_satuan / item.isi_satuan, // price per pcs
       subtotal: item.subtotal,
+      nomor_batch: item.nomor_batch || null,
+      tanggal_kadaluarsa: item.tanggal_kadaluarsa || null,
     }));
 
     try {
@@ -298,6 +309,10 @@ export default function PurchaseInvoicePage() {
           total_faktur: totalAkhir,
           diskon_total: diskon,
           ppn_rate: ppnRateNum,
+          biaya_ongkir: ongkirNum,
+          biaya_bongkar: bongkarNum,
+          biaya_asuransi: 0,
+          metode_alokasi_landed_cost: metodeAlokasi,
           status_pembayaran: statusPembayaran,
           items: formattedItems,
         }),
@@ -314,6 +329,8 @@ export default function PurchaseInvoicePage() {
         setPoId("");
         setDiskonGlobal("0");
         setPpnRate("0");
+        setBiayaOngkir("0");
+        setBiayaBongkar("0");
         setStatusPembayaran("Belum Lunas");
         
         setView("list");
@@ -647,6 +664,52 @@ export default function PurchaseInvoicePage() {
                 </div>
               </div>
 
+              {/* Landed Cost Allocation Section */}
+              <div className="pt-2 border-t border-outline-variant/40 space-y-2">
+                <span className="text-[11px] font-bold text-primary flex items-center gap-1">
+                  Biaya Tambahan / Landed Cost (Masuk HPP)
+                </span>
+                <div className="grid grid-cols-2 gap-3 font-mono">
+                  <div>
+                    <label className="block text-on-surface-variant text-[11px] font-bold mb-1 font-sans">
+                      Ongkir / Freight (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={biayaOngkir}
+                      onChange={(e) => setBiayaOngkir(e.target.value)}
+                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs text-right focus:outline-none font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-on-surface-variant text-[11px] font-bold mb-1 font-sans">
+                      Bongkar Muat (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={biayaBongkar}
+                      onChange={(e) => setBiayaBongkar(e.target.value)}
+                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs text-right focus:outline-none font-bold"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-on-surface-variant text-[10px] font-medium mb-1">
+                    Metode Alokasi Biaya ke HPP:
+                  </label>
+                  <select
+                    value={metodeAlokasi}
+                    onChange={(e) => setMetodeAlokasi(e.target.value as "NILAI" | "KUANTITAS")}
+                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none"
+                  >
+                    <option value="NILAI">Proporsional Nilai Beli (Subtotal)</option>
+                    <option value="KUANTITAS">Proporsional Kuantitas (Qty Item)</option>
+                  </select>
+                </div>
+              </div>
+
             </div>
 
             {/* CART & CATALOG SEARCH PANEL (Col: 8) */}
@@ -780,10 +843,21 @@ export default function PurchaseInvoicePage() {
                           <span>+{formatRupiah(ppnNominal)}</span>
                         </div>
                       )}
+                      {totalBiayaTambahan > 0 && (
+                        <div className="flex justify-between text-amber-700 font-sans font-medium">
+                          <span>Biaya Landed Cost (Ongkir/Bongkar):</span>
+                          <span>+{formatRupiah(totalBiayaTambahan)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-on-surface font-bold text-sm border-t border-outline-variant/40 pt-2 font-sans">
-                        <span>TOTAL AKHIR INVOICE:</span>
-                        <span className="text-primary font-extrabold font-mono text-base">{formatRupiah(totalAkhir)}</span>
+                        <span>GRAND TOTAL PEMBELIAN:</span>
+                        <span className="text-primary font-extrabold font-mono text-base">{formatRupiah(grandTotal)}</span>
                       </div>
+                      {totalBiayaTambahan > 0 && (
+                        <div className="text-[10px] text-on-surface-variant font-sans italic text-right">
+                          * Biaya tambahan dialokasikan otomatis ke HPP unit barang ({metodeAlokasi}).
+                        </div>
+                      )}
                     </div>
 
                     <button

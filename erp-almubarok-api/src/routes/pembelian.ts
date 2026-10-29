@@ -7,6 +7,7 @@ import {
   faktur_beli_detail,
   stok_barang,
   barang,
+  barang_batch,
   supplier,
   bayar_hutang,
   cabang,
@@ -278,6 +279,10 @@ pembelianRoutes.post("/invoice", async (c) => {
       total_faktur,
       diskon_total,
       ppn_rate,
+      biaya_ongkir,
+      biaya_bongkar,
+      biaya_asuransi,
+      metode_alokasi_landed_cost,
       status_pembayaran,
       id_rekening,
       items,
@@ -287,6 +292,15 @@ pembelianRoutes.post("/invoice", async (c) => {
     if (isNaN(supplierId) || !tanggal_faktur || !nomor_faktur.trim() || !items || items.length === 0) {
       return c.json({ error: "Data input faktur tidak lengkap atau tidak valid" }, 400);
     }
+
+    // Landed cost calculation
+    const ongkirVal = parseInt(biaya_ongkir || "0");
+    const bongkarVal = parseInt(biaya_bongkar || "0");
+    const asuransiVal = parseInt(biaya_asuransi || "0");
+    const totalBiayaTambahan = ongkirVal + bongkarVal + asuransiVal;
+    const metodeLandedCost = (metode_alokasi_landed_cost === "KUANTITAS") ? "KUANTITAS" : "NILAI";
+    const invoiceTotal = parseInt(total_faktur);
+    const grandTotal = invoiceTotal + totalBiayaTambahan;
 
     // Harmonize payment status
     const isUnpaid = status_pembayaran === "Belum Dibayar" || status_pembayaran === "Belum Lunas";
@@ -306,7 +320,7 @@ pembelianRoutes.post("/invoice", async (c) => {
     }
 
     const result = await db.transaction(async (tx) => {
-      // 1. Insert faktur_beli
+      // 1. Insert faktur_beli with Landed Cost fields
       const [newInvoice] = await tx
         .insert(faktur_beli)
         .values({
@@ -315,18 +329,25 @@ pembelianRoutes.post("/invoice", async (c) => {
           id_supplier: supplierId,
           tanggal_faktur: tanggal_faktur,
           nomor_faktur: nomor_faktur.trim(),
-          total_faktur: parseInt(total_faktur),
+          total_faktur: invoiceTotal,
           diskon_total: parseInt(diskon_total || "0"),
           ppn_rate: parseInt(ppn_rate || "0"),
+          biaya_ongkir: ongkirVal,
+          biaya_bongkar: bongkarVal,
+          biaya_asuransi: asuransiVal,
+          metode_alokasi_landed_cost: metodeLandedCost,
+          total_biaya_tambahan: totalBiayaTambahan,
+          grand_total: grandTotal,
           status_pembayaran: cleanPaymentStatus,
         })
         .returning();
 
       const idFaktur = newInvoice.id_faktur;
       const totalSubtotalItems = items.reduce((sum: number, item: any) => sum + parseInt(item.subtotal), 0);
+      const totalQtyItems = items.reduce((sum: number, item: any) => sum + parseInt(item.jumlah_beli), 0);
       const discountRatio = totalSubtotalItems > 0 ? (totalSubtotalItems - parseInt(diskon_total || "0")) / totalSubtotalItems : 1;
 
-      // 2. Loop details, update stocks, update HPP
+      // 2. Loop details, allocate landed cost, update stocks & batches, update HPP
       for (const item of items) {
         const idBarang = parseInt(item.id_barang);
         const qtyBeliPcs = parseInt(item.jumlah_beli); // in pcs
@@ -334,7 +355,19 @@ pembelianRoutes.post("/invoice", async (c) => {
         const hargaSatuanPcs = Math.round(subtotal / qtyBeliPcs);
         const adjustedHargaSatuanPcs = Math.round(hargaSatuanPcs * discountRatio);
 
-        // Insert Detail with nama_barang snapshot
+        // Landed Cost Allocation per item
+        let alokasiBiayaItem = 0;
+        if (totalBiayaTambahan > 0) {
+          if (metodeLandedCost === "KUANTITAS" && totalQtyItems > 0) {
+            alokasiBiayaItem = Math.round((qtyBeliPcs / totalQtyItems) * totalBiayaTambahan);
+          } else if (totalSubtotalItems > 0) {
+            alokasiBiayaItem = Math.round((subtotal / totalSubtotalItems) * totalBiayaTambahan);
+          }
+        }
+
+        const hppEfektifSatuan = adjustedHargaSatuanPcs + (qtyBeliPcs > 0 ? Math.round(alokasiBiayaItem / qtyBeliPcs) : 0);
+
+        // Insert Detail with batch and landed cost snapshot
         await tx.insert(faktur_beli_detail).values({
           id_faktur: idFaktur,
           id_barang: idBarang,
@@ -342,7 +375,30 @@ pembelianRoutes.post("/invoice", async (c) => {
           jumlah_beli: qtyBeliPcs,
           harga_satuan: hargaSatuanPcs,
           subtotal: subtotal,
+          nomor_batch: item.nomor_batch ? String(item.nomor_batch).trim() : null,
+          tanggal_kadaluarsa: item.tanggal_kadaluarsa || null,
+          alokasi_biaya_tambahan: alokasiBiayaItem,
+          hpp_efektif_satuan: hppEfektifSatuan,
         });
+
+        // Insert or update barang_batch if batch info provided
+        if (item.nomor_batch && String(item.nomor_batch).trim()) {
+          const batchNum = String(item.nomor_batch).trim();
+          const expDate = item.tanggal_kadaluarsa || "2099-12-31";
+          const todayStr = new Date().toISOString().split("T")[0];
+
+          await tx.insert(barang_batch).values({
+            nomor_batch: batchNum,
+            id_barang: idBarang,
+            id_cabang: idCabang,
+            tanggal_masuk: tanggal_faktur || todayStr,
+            tanggal_kadaluarsa: expDate,
+            stok_batch: qtyBeliPcs,
+            hpp_batch: hppEfektifSatuan,
+            status: expDate < todayStr ? "KADALUARSA" : "AKTIF",
+            catatan: `Penerimaan Faktur ${nomor_faktur.trim()}`,
+          });
+        }
 
         // Get current stock
         const [stockRecord] = await tx
@@ -372,7 +428,7 @@ pembelianRoutes.post("/invoice", async (c) => {
           });
         }
 
-        // HPP Moving Average calculation
+        // HPP Moving Average calculation using hppEfektifSatuan (incorporating freight/landed costs!)
         const [product] = await tx
           .select()
           .from(barang)
@@ -382,16 +438,16 @@ pembelianRoutes.post("/invoice", async (c) => {
           const oldHPP = product.harga_rata || product.harga_beli || 0;
           const oldQty = Math.max(0, stockBefore); // clamp negative stock to 0 for HPP math
 
-          // Moving average formula: ((Old Qty * Old HPP) + (New Qty * New Price)) / (Old Qty + New Qty)
+          // Moving average formula: ((Old Qty * Old HPP) + (New Qty * Effective Landed Price)) / (Old Qty + New Qty)
           const oldTotalValue = oldQty * oldHPP;
-          const newTotalValue = qtyBeliPcs * adjustedHargaSatuanPcs;
+          const newTotalValue = qtyBeliPcs * hppEfektifSatuan;
           const newHPP = Math.round((oldTotalValue + newTotalValue) / (oldQty + qtyBeliPcs));
 
           await tx
             .update(barang)
             .set({
               harga_rata: newHPP,
-              harga_beli: adjustedHargaSatuanPcs,
+              harga_beli: hppEfektifSatuan,
             })
             .where(eq(barang.id_barang, idBarang));
         }

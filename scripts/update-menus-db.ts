@@ -102,6 +102,10 @@ const MASTER_MENUS = [
       { nama: "Daftar Akun (CoA)", link: "/akuntansi/coa", urutan: 2 },
       { nama: "Tipe Akun", link: "/akuntansi/tipe", urutan: 3 },
       { nama: "Buku Besar & Laporan", link: "/akuntansi/laporan", urutan: 4 },
+      { nama: "Profit Per Cabang", link: "/akuntansi/profit-cabang", urutan: 5 },
+      { nama: "Periode Buku", link: "/akuntansi/periode", urutan: 6 },
+      { nama: "Master Pajak", link: "/akuntansi/pajak", urutan: 7 },
+      { nama: "Aset Tetap", link: "/akuntansi/aset-tetap", urutan: 8 },
     ],
   },
   {

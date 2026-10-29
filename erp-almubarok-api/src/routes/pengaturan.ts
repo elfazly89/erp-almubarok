@@ -57,6 +57,8 @@ const MASTER_MENUS = [
       { nama: "Kategori", link: "/kategori", urutan: 2 },
       { nama: "Supplier", link: "/supplier", urutan: 3 },
       { nama: "Stok Barang", link: "/stok", urutan: 4 },
+      { nama: "Batch & Kadaluarsa", link: "/barang/batch", urutan: 5 },
+      { nama: "Stock Opname Fisik", link: "/barang/stok-opname", urutan: 6 },
     ],
   },
   {
@@ -120,6 +122,9 @@ const MASTER_MENUS = [
       { nama: "Tipe Akun", link: "/akuntansi/tipe", urutan: 3 },
       { nama: "Buku Besar & Laporan", link: "/akuntansi/laporan", urutan: 4 },
       { nama: "Profit Per Cabang", link: "/akuntansi/profit-cabang", urutan: 5 },
+      { nama: "Periode Buku", link: "/akuntansi/periode", urutan: 6 },
+      { nama: "Master Pajak", link: "/akuntansi/pajak", urutan: 7 },
+      { nama: "Aset Tetap", link: "/akuntansi/aset-tetap", urutan: 8 },
     ],
   },
   {

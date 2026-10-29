@@ -17,6 +17,7 @@ import { hrdRoutes } from "./routes/hrd";
 import { penjualanRoutes } from "./routes/penjualan";
 import { pembelianRoutes } from "./routes/pembelian";
 import { akuntansiRoutes } from "./routes/akuntansi";
+import { akuntansiLanjutanRoutes } from "./routes/akuntansi-lanjutan";
 import { distribusiRoutes } from "./routes/distribusi";
 import { pengaturanRoutes } from "./routes/pengaturan";
 import { promoRoutes } from "./routes/promo";
@@ -24,6 +25,7 @@ import { voucherRoutes } from "./routes/voucher";
 import { mobileRoutes } from "./routes/mobile";
 import { userRoutes } from "./routes/user";
 import { kasRoutes } from "./routes/kas";
+import { supplyChainRoutes } from "./routes/supply-chain";
 
 const app = new Hono().basePath("/api");
 
@@ -64,8 +66,10 @@ app.route("/hrd", hrdRoutes);
 app.route("/penjualan", penjualanRoutes);
 app.route("/pembelian", pembelianRoutes);
 app.route("/akuntansi", akuntansiRoutes);
+app.route("/akuntansi", akuntansiLanjutanRoutes);
 app.route("/kas", kasRoutes);
 app.route("/distribusi", distribusiRoutes);
+app.route("/supply-chain", supplyChainRoutes);
 app.route("/pengaturan", pengaturanRoutes);
 app.route("/promo", promoRoutes);
 app.route("/voucher", voucherRoutes);

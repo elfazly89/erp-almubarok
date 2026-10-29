@@ -1,4 +1,4 @@
-import { pgTable, text, integer, serial, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, serial, boolean, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // ─── JABATAN ─────────────────────────────────────────────────────────────────
@@ -392,6 +392,12 @@ export const faktur_beli = pgTable("faktur_beli", {
   total_faktur: integer("total_faktur").notNull(),
   diskon_total: integer("diskon_total").default(0),
   ppn_rate: integer("ppn_rate").default(0),
+  biaya_ongkir: integer("biaya_ongkir").default(0),
+  biaya_bongkar: integer("biaya_bongkar").default(0),
+  biaya_asuransi: integer("biaya_asuransi").default(0),
+  metode_alokasi_landed_cost: text("metode_alokasi_landed_cost").default("NILAI"),
+  total_biaya_tambahan: integer("total_biaya_tambahan").default(0),
+  grand_total: integer("grand_total"),
   status_pembayaran: text("status_pembayaran").default("Belum Dibayar"),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
@@ -405,6 +411,10 @@ export const faktur_beli_detail = pgTable("faktur_beli_detail", {
   jumlah_beli: integer("jumlah_beli").notNull(),
   harga_satuan: integer("harga_satuan").notNull(),
   subtotal: integer("subtotal").notNull(),
+  nomor_batch: text("nomor_batch"),
+  tanggal_kadaluarsa: text("tanggal_kadaluarsa"),
+  alokasi_biaya_tambahan: integer("alokasi_biaya_tambahan").default(0),
+  hpp_efektif_satuan: integer("hpp_efektif_satuan"),
 });
 
 // ─── RIWAYAT BAYAR HUTANG SUPPLIER ────────────────────────────────────────────
@@ -866,4 +876,137 @@ export type KasTransaksi = typeof kas_transaksi.$inferSelect;
 export type KasirShift = typeof kasir_shift.$inferSelect;
 export type KasirJadwal = typeof kasir_jadwal.$inferSelect;
 export type RekonsiliasiKas = typeof rekonsiliasi_kas.$inferSelect;
+
+// ─── PERIODE AKUNTANSI & CLOSING LOCK ─────────────────────────────────────────
+export const periode_akuntansi = pgTable("periode_akuntansi", {
+  id: serial("id").primaryKey(),
+  bulan: integer("bulan").notNull(),                         // 1 - 12
+  tahun: integer("tahun").notNull(),                         // Contoh: 2026
+  tanggal_mulai: text("tanggal_mulai").notNull(),            // YYYY-MM-DD
+  tanggal_akhir: text("tanggal_akhir").notNull(),            // YYYY-MM-DD
+  status: text("status").default("OPEN").notNull(),          // 'OPEN' | 'SOFT_LOCKED' | 'HARD_CLOSED'
+  lock_date: text("lock_date"),                              // Tanggal batas transaksi yang dikunci
+  closed_by: integer("closed_by").references(() => users.id),
+  closed_at: text("closed_at"),
+  reopen_reason: text("reopen_reason"),                      // Alasan re-open oleh Super User
+  reopened_by: integer("reopened_by").references(() => users.id),
+  reopened_at: text("reopened_at"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── MASTER MULTI-PAJAK ──────────────────────────────────────────────────────
+export const master_pajak = pgTable("master_pajak", {
+  id: serial("id").primaryKey(),
+  kode_pajak: text("kode_pajak").notNull().unique(),         // Misal: "PPN11", "PPN12", "PB1", "PPH23"
+  nama_pajak: text("nama_pajak").notNull(),                  // Contoh: "PPN Dalam Negeri 12%"
+  tipe_pajak: text("tipe_pajak").notNull(),                  // 'PPN' | 'PPH' | 'PAJAK_DAERAH'
+  tarif_persen: numeric("tarif_persen", { precision: 5, scale: 2 }).notNull(), // Contoh: 11.00, 12.00, 2.00
+  akun_pajak_keluaran: integer("akun_pajak_keluaran").references(() => daftar_akun.id), // Hutang Pajak (CoA)
+  akun_pajak_masukan: integer("akun_pajak_masukan").references(() => daftar_akun.id),   // Piutang Pajak (CoA)
+  is_aktif: boolean("is_aktif").default(true).notNull(),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const barang_pajak = pgTable("barang_pajak", {
+  id: serial("id").primaryKey(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_pajak: integer("id_pajak").references(() => master_pajak.id).notNull(),
+  is_include_harga: boolean("is_include_harga").default(true).notNull(), // True: Harga jual sudah termasuk PPN
+});
+
+// ─── ASET TETAP & DEPRESIASI ──────────────────────────────────────────────────
+export const aset_tetap = pgTable("aset_tetap", {
+  id: serial("id").primaryKey(),
+  kode_aset: text("kode_aset").notNull().unique(),           // "AST-FREEZER-001"
+  nama_aset: text("nama_aset").notNull(),                    // "Freezer Es Krim Toko Sukosari"
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  kategori_aset: text("kategori_aset").notNull(),            // "Peralatan", "Kendaraan", "Elektronik", "Bangunan"
+  tanggal_perolehan: text("tanggal_perolehan").notNull(),    // YYYY-MM-DD
+  harga_perolehan: integer("harga_perolehan").notNull(),     // Modal beli
+  nilai_residu: integer("nilai_residu").default(0).notNull(),// Nilai sisa di akhir masa manfaat
+  masa_manfaat_bulan: integer("masa_manfaat_bulan").notNull(), // Umur ekonomis dalam bulan (misal 48 bulan = 4 thn)
+  metode_penyusutan: text("metode_penyusutan").default("GARIS_LURUS").notNull(),
+  beban_penyusutan_per_bulan: integer("beban_penyusutan_per_bulan").notNull(),
+  akumulasi_penyusutan: integer("akumulasi_penyusutan").default(0).notNull(),
+  nilai_buku: integer("nilai_buku").notNull(),               // harga_perolehan - akumulasi_penyusutan
+  akun_aset_id: integer("akun_aset_id").references(() => daftar_akun.id).notNull(),
+  akun_akumulasi_id: integer("akun_akumulasi_id").references(() => daftar_akun.id).notNull(),
+  akun_beban_id: integer("akun_beban_id").references(() => daftar_akun.id).notNull(),
+  status: text("status").default("AKTIF").notNull(),         // 'AKTIF' | 'DIHAPUSKAN' | 'TERJUAL'
+  tanggal_disposal: text("tanggal_disposal"),
+  nilai_disposal: integer("nilai_disposal"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const riwayat_penyusutan = pgTable("riwayat_penyusutan", {
+  id: serial("id").primaryKey(),
+  id_aset: integer("id_aset").references(() => aset_tetap.id).notNull(),
+  periode_bulan: integer("periode_bulan").notNull(),
+  periode_tahun: integer("periode_tahun").notNull(),
+  nominal_penyusutan: integer("nominal_penyusutan").notNull(),
+  id_jurnal: integer("id_jurnal").references(() => jurnal_umum.id),
+  tanggal_eksekusi: text("tanggal_eksekusi").notNull(),
+  dieksekusi_oleh: integer("dieksekusi_oleh").references(() => users.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export type PeriodeAkuntansi = typeof periode_akuntansi.$inferSelect;
+export type MasterPajak = typeof master_pajak.$inferSelect;
+export type BarangPajak = typeof barang_pajak.$inferSelect;
+export type AsetTetap = typeof aset_tetap.$inferSelect;
+export type RiwayatPenyusutan = typeof riwayat_penyusutan.$inferSelect;
+
+// ==========================================
+// 4. BATCH NUMBER & EXPIRED DATE TRACKING
+// ==========================================
+export const barang_batch = pgTable("barang_batch", {
+  id_batch: serial("id_batch").primaryKey(),
+  nomor_batch: text("nomor_batch").notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  tanggal_masuk: text("tanggal_masuk").notNull(),
+  tanggal_kadaluarsa: text("tanggal_kadaluarsa").notNull(),
+  stok_batch: integer("stok_batch").notNull().default(0),
+  hpp_batch: integer("hpp_batch").notNull().default(0),
+  status: text("status").notNull().default("AKTIF"), // 'AKTIF' | 'KADALUARSA' | 'HABIS'
+  catatan: text("catatan"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ==========================================
+// 5. MODUL STOCK OPNAME FISIK & SELISIH
+// ==========================================
+export const stok_opname = pgTable("stok_opname", {
+  id_opname: serial("id_opname").primaryKey(),
+  nomor_opname: text("nomor_opname").notNull().unique(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  tanggal_opname: text("tanggal_opname").notNull(),
+  id_petugas: integer("id_petugas").references(() => users.id).notNull(),
+  status: text("status").notNull().default("DRAFT"), // 'DRAFT' | 'MENUNGGU_APPROVAL' | 'DISETUJUI' | 'DIBATALKAN'
+  total_selisih_item: integer("total_selisih_item").default(0),
+  total_selisih_rupiah: integer("total_selisih_rupiah").default(0),
+  catatan: text("catatan"),
+  id_approver: integer("id_approver").references(() => users.id),
+  approved_at: text("approved_at"),
+  id_jurnal: integer("id_jurnal").references(() => jurnal_umum.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const stok_opname_detail = pgTable("stok_opname_detail", {
+  id: serial("id").primaryKey(),
+  id_opname: integer("id_opname").references(() => stok_opname.id_opname, { onDelete: "cascade" }).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  stok_sistem: integer("stok_sistem").notNull(),
+  stok_fisik: integer("stok_fisik").notNull(),
+  selisih_qty: integer("selisih_qty").notNull(),
+  hpp_satuan: integer("hpp_satuan").notNull(),
+  selisih_rupiah: integer("selisih_rupiah").notNull(),
+  alasan_selisih: text("alasan_selisih"), // 'Barang Rusak/Bocor' | 'Hilang/Kurang' | 'Salah Input Kasir' | 'Barang Lebih'
+  catatan: text("catatan"),
+});
+
+export type BarangBatch = typeof barang_batch.$inferSelect;
+export type StokOpname = typeof stok_opname.$inferSelect;
+export type StokOpnameDetail = typeof stok_opname_detail.$inferSelect;
+
 

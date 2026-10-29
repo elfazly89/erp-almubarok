@@ -84,10 +84,34 @@ interface BalanceSheetData {
   retained_earnings: number;
 }
 
+interface CashFlowData {
+  periode: { startDate: string; endDate: string };
+  aktivitas_operasi: {
+    penerimaan_dari_pelanggan: number;
+    pembayaran_ke_pemasok: number;
+    pembayaran_gaji_bisyaroh: number;
+    pembayaran_beban_operasional: number;
+    arus_kas_bersih_operasi: number;
+  };
+  aktivitas_investasi: {
+    pembelian_aset_tetap: number;
+    arus_kas_bersih_investasi: number;
+  };
+  aktivitas_pendanaan: {
+    setoran_modal_prive: number;
+    arus_kas_bersih_pendanaan: number;
+  };
+  ringkasan: {
+    kenaikan_bersih_kas: number;
+    saldo_awal_kas: number;
+    saldo_akhir_kas: number;
+  };
+}
+
 export default function LaporanAkuntansiPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const { settings } = useAppSettings();
-  const [activeTab, setActiveTab] = useState<"ledger" | "trial-balance" | "profit-loss" | "balance-sheet">("ledger");
+  const [activeTab, setActiveTab] = useState<"ledger" | "trial-balance" | "profit-loss" | "balance-sheet" | "cash-flow">("ledger");
 
   // Date Filters (default to current month)
   const [startDate, setStartDate] = useState(() => {
@@ -117,6 +141,10 @@ export default function LaporanAkuntansiPage() {
   // Balance Sheet States
   const [bsData, setBsData] = useState<BalanceSheetData | null>(null);
   const [bsLoading, setBsLoading] = useState(false);
+
+  // Cash Flow States
+  const [cashFlowData, setCashFlowData] = useState<CashFlowData | null>(null);
+  const [cashFlowLoading, setCashFlowLoading] = useState(false);
 
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -228,13 +256,36 @@ export default function LaporanAkuntansiPage() {
     }
   }, [endDate]);
 
+  // Fetch Arus Kas (Direct Method)
+  const fetchCashFlow = useCallback(async () => {
+    setCashFlowLoading(true);
+    setErrorMsg("");
+    try {
+      const url = `/api/akuntansi/laporan/arus-kas?startDate=${startDate}&endDate=${endDate}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const resData = await res.json();
+        setCashFlowData(resData.data);
+      } else {
+        const err = await res.json();
+        throw new Error(err.message || "Gagal memuat arus kas");
+      }
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg(e.message || "Gagal memuat Laporan Arus Kas");
+    } finally {
+      setCashFlowLoading(false);
+    }
+  }, [startDate, endDate]);
+
   // Load active tab data
   useEffect(() => {
     if (activeTab === "ledger") fetchLedger();
     else if (activeTab === "trial-balance") fetchTrialBalance();
     else if (activeTab === "profit-loss") fetchProfitLoss();
     else if (activeTab === "balance-sheet") fetchBalanceSheet();
-  }, [activeTab, fetchLedger, fetchTrialBalance, fetchProfitLoss, fetchBalanceSheet]);
+    else if (activeTab === "cash-flow") fetchCashFlow();
+  }, [activeTab, fetchLedger, fetchTrialBalance, fetchProfitLoss, fetchBalanceSheet, fetchCashFlow]);
 
   const formatRupiah = (val: number) => {
     return formatCurrency(val);
@@ -361,6 +412,7 @@ export default function LaporanAkuntansiPage() {
             { id: "trial-balance", label: "Neraca Saldo", icon: <Scale className="w-4 h-4" /> },
             { id: "profit-loss", label: "Laba Rugi", icon: <TrendingUp className="w-4 h-4" /> },
             { id: "balance-sheet", label: "Neraca Keuangan", icon: <Scale className="w-4 h-4" /> },
+            { id: "cash-flow", label: "Arus Kas (Direct)", icon: <DollarSign className="w-4 h-4" /> },
           ] as const
         ).map((tab) => (
           <button
@@ -855,6 +907,155 @@ export default function LaporanAkuntansiPage() {
                       </tr>
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: LAPORAN ARUS KAS (DIRECT METHOD) */}
+        {activeTab === "cash-flow" && (
+          <div>
+            {cashFlowLoading ? (
+              <div className="flex items-center justify-center min-h-[300px]">
+                <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : !cashFlowData ? (
+              <div className="text-center py-12 text-on-surface-variant text-xs">
+                Data arus kas tidak tersedia untuk periode ini.
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-outline-variant/30">
+                  <div>
+                    <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
+                      <DollarSign className="w-5 h-5 text-primary" />
+                      Laporan Arus Kas (Metode Langsung / Direct Method)
+                    </h3>
+                    <p className="text-[11px] text-on-surface-variant mt-0.5">
+                      Pengelompokan kas masuk dan kas keluar riil berdasarkan Aktivitas Operasi, Investasi, dan Pendanaan.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-semibold rounded-lg border border-outline-variant/40 print:hidden"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    Cetak Arus Kas
+                  </button>
+                </div>
+
+                <div className="space-y-4 text-xs">
+                  {/* I. AKTIVITAS OPERASI */}
+                  <div className="border border-outline-variant/30 rounded-xl overflow-hidden bg-surface">
+                    <div className="bg-surface-container-low px-4 py-2.5 font-bold text-primary flex justify-between items-center">
+                      <span>I. ARUS KAS DARI AKTIVITAS OPERASI</span>
+                    </div>
+                    <table className="w-full text-left">
+                      <tbody className="divide-y divide-outline-variant/15 text-on-surface">
+                        <tr className="hover:bg-surface-container/30">
+                          <td className="px-4 py-2.5 pl-6">Penerimaan Kas dari Pelanggan (Penjualan POS)</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-emerald-600">
+                            {formatRupiah(cashFlowData.aktivitas_operasi.penerimaan_dari_pelanggan)}
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-surface-container/30">
+                          <td className="px-4 py-2.5 pl-6">Pembayaran Kas kepada Pemasok / Supplier</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-red-600">
+                            ({formatRupiah(cashFlowData.aktivitas_operasi.pembayaran_ke_pemasok)})
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-surface-container/30">
+                          <td className="px-4 py-2.5 pl-6">Pembayaran Kas untuk Gaji & Bisyaroh Karyawan</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-red-600">
+                            ({formatRupiah(cashFlowData.aktivitas_operasi.pembayaran_gaji_bisyaroh)})
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-surface-container/30">
+                          <td className="px-4 py-2.5 pl-6">Pembayaran Kas untuk Beban Operasional Lainnya</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-red-600">
+                            ({formatRupiah(cashFlowData.aktivitas_operasi.pembayaran_beban_operasional)})
+                          </td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-surface-container-low font-bold border-t border-outline-variant/30">
+                          <td className="px-4 py-2.5">Arus Kas Bersih dari Aktivitas Operasi</td>
+                          <td className={`px-4 py-2.5 text-right font-mono text-[13px] ${cashFlowData.aktivitas_operasi.arus_kas_bersih_operasi >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {formatRupiah(cashFlowData.aktivitas_operasi.arus_kas_bersih_operasi)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* II. AKTIVITAS INVESTASI */}
+                  <div className="border border-outline-variant/30 rounded-xl overflow-hidden bg-surface">
+                    <div className="bg-surface-container-low px-4 py-2.5 font-bold text-primary flex justify-between items-center">
+                      <span>II. ARUS KAS DARI AKTIVITAS INVESTASI</span>
+                    </div>
+                    <table className="w-full text-left">
+                      <tbody className="divide-y divide-outline-variant/15 text-on-surface">
+                        <tr className="hover:bg-surface-container/30">
+                          <td className="px-4 py-2.5 pl-6">Pembelian / Belanja Modal Aset Tetap</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-red-600">
+                            ({formatRupiah(cashFlowData.aktivitas_investasi.pembelian_aset_tetap)})
+                          </td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-surface-container-low font-bold border-t border-outline-variant/30">
+                          <td className="px-4 py-2.5">Arus Kas Bersih dari Aktivitas Investasi</td>
+                          <td className={`px-4 py-2.5 text-right font-mono text-[13px] ${cashFlowData.aktivitas_investasi.arus_kas_bersih_investasi >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {formatRupiah(cashFlowData.aktivitas_investasi.arus_kas_bersih_investasi)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* III. AKTIVITAS PENDANAAN */}
+                  <div className="border border-outline-variant/30 rounded-xl overflow-hidden bg-surface">
+                    <div className="bg-surface-container-low px-4 py-2.5 font-bold text-primary flex justify-between items-center">
+                      <span>III. ARUS KAS DARI AKTIVITAS PENDANAAN</span>
+                    </div>
+                    <table className="w-full text-left">
+                      <tbody className="divide-y divide-outline-variant/15 text-on-surface">
+                        <tr className="hover:bg-surface-container/30">
+                          <td className="px-4 py-2.5 pl-6">Setoran Modal / Prive Bersih Pemilik</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-on-surface">
+                            {formatRupiah(cashFlowData.aktivitas_pendanaan.setoran_modal_prive)}
+                          </td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-surface-container-low font-bold border-t border-outline-variant/30">
+                          <td className="px-4 py-2.5">Arus Kas Bersih dari Aktivitas Pendanaan</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-[13px] text-primary">
+                            {formatRupiah(cashFlowData.aktivitas_pendanaan.arus_kas_bersih_pendanaan)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* REKONSILIASI KAS BERSIH */}
+                  <div className="border-2 border-primary/30 rounded-xl overflow-hidden bg-primary/5 p-4 space-y-2">
+                    <div className="flex justify-between font-bold text-sm">
+                      <span>KENAIKAN / (PENURUNAN) BERSIH KAS & SETARA KAS</span>
+                      <span className={`font-mono ${cashFlowData.ringkasan.kenaikan_bersih_kas >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        {formatRupiah(cashFlowData.ringkasan.kenaikan_bersih_kas)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs text-on-surface-variant">
+                      <span>Saldo Awal Kas & Setara Kas</span>
+                      <span className="font-mono">{formatRupiah(cashFlowData.ringkasan.saldo_awal_kas)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-extrabold text-primary pt-2 border-t border-primary/20">
+                      <span>SALDO AKHIR KAS & SETARA KAS</span>
+                      <span className="font-mono">{formatRupiah(cashFlowData.ringkasan.saldo_akhir_kas)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

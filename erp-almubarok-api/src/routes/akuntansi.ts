@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../lib/db";
-import { tipe_akun, daftar_akun, jurnal_umum, cabang, users, penjualan, penjualan_detail } from "../lib/db/schema";
+import { tipe_akun, daftar_akun, jurnal_umum, cabang, users, penjualan, penjualan_detail, periode_akuntansi } from "../lib/db/schema";
 import { eq, and, gte, lte, lt, sql, asc, desc } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
 
@@ -270,6 +270,27 @@ akuntansiRoutes.post("/jurnal", async (c) => {
 
     if (Math.abs(totalDebit - totalKredit) > 0.001) {
       return c.json({ message: `Jurnal tidak seimbang. Debit (${totalDebit}) harus sama dengan Kredit (${totalKredit})` }, 400);
+    }
+
+    // Period Lock Guard: Cegah transaksi pada periode yang dikunci
+    const [lockedPeriod] = await db
+      .select()
+      .from(periode_akuntansi)
+      .where(
+        and(
+          lte(periode_akuntansi.tanggal_mulai, header.tanggal_transaksi),
+          gte(periode_akuntansi.tanggal_akhir, header.tanggal_transaksi)
+        )
+      )
+      .limit(1);
+
+    if (lockedPeriod) {
+      if (lockedPeriod.status === "HARD_CLOSED") {
+        return c.json({ message: `Periode transaksi ${lockedPeriod.bulan}/${lockedPeriod.tahun} telah ditutup permanen (Hard Closed). Transaksi tidak dapat diposting.` }, 403);
+      }
+      if (lockedPeriod.status === "SOFT_LOCKED" && activeUser?.id_jabatan !== 1) {
+        return c.json({ message: `Periode transaksi ${lockedPeriod.bulan}/${lockedPeriod.tahun} telah dikunci (Soft Locked). Hanya Super User yang diizinkan melakukan posting darurat.` }, 403);
+      }
     }
 
     // Check existing reference
