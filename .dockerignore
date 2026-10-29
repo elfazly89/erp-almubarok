@@ -1,0 +1,9 @@
+node_modules
+.next
+.vercel
+.git
+erp-almubarok.db
+erp-almubarok.db-shm
+erp-almubarok.db-wal
+.env
+.env.local

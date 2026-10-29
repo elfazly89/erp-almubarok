@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const apiBackendUrl = process.env.API_BACKEND_URL || "http://localhost:3001";
+
 const nextConfig: NextConfig = {
   // Better-sqlite3 is a native module, exclude from client bundle
   serverExternalPackages: ["better-sqlite3"],
@@ -7,7 +9,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:3001/api/:path*",
+        destination: `${apiBackendUrl}/api/:path*`,
       },
     ];
   },
