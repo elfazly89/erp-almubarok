@@ -11,23 +11,65 @@ Dokumentasi teknis, skema database, ERD, arsitektur, dan rincian modul dapat dib
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start (Jalankan di Komputer Baru)
 
-### 1. Jalankan Backend API
-Pastikan backend Hono API di folder `../erp-almubarok-api` telah berjalan pada port `3001`:
+### 1. Prasyarat Sistem
+- **Node.js** (v20 atau v24)
+- **PostgreSQL** (v15 - v17)
+- **Git**
+
+### 2. Clone Repository
 ```bash
-cd ../erp-almubarok-api
-npm install
-npm run dev
+git clone https://github.com/elfazly89/erp-almubarok.git
+cd erp-almubarok
 ```
 
-### 2. Jalankan Frontend Next.js
+### 3. Setup Database PostgreSQL
+1. Buat database bernama `erp_almubarok` di PostgreSQL:
+   ```sql
+   CREATE DATABASE erp_almubarok;
+   ```
+2. Restore skema & data dari file dump:
+   ```bash
+   psql -U postgres -d erp_almubarok -f erp_almubarok_dump.sql
+   ```
+
+### 4. Konfigurasi Environment (.env)
+- Di folder utama, buat file `.env.local` (sesuai `.env.example`):
+  ```env
+  NEXT_PUBLIC_API_URL=http://localhost:3001
+  JWT_SECRET=super_secret_key_erp_al_mubarok_2026_abdi_priyayi
+  ```
+- Di folder `erp-almubarok-api`, buat file `.env` (sesuai `.env.example`):
+  ```env
+  DATABASE_URL=postgresql://postgres:password_kamu@localhost:5432/erp_almubarok
+  JWT_SECRET=super_secret_key_erp_al_mubarok_2026_abdi_priyayi
+  ```
+
+### 5. Install Dependensi
 ```bash
-cd erp-almubarok-nextjs
+# Frontend
 npm install
-npm run dev
+
+# Backend API
+cd erp-almubarok-api
+npm install
+cd ..
 ```
-Akses aplikasi melalui browser di **`http://localhost:3000`**.
+
+### 6. Jalankan Aplikasi
+- **Cara Cepat**: Klik 2x file `run-local.bat`
+- **Cara Manual**:
+  - Terminal 1 (Backend API):
+    ```bash
+    cd erp-almubarok-api && npm run dev
+    ```
+  - Terminal 2 (Frontend Web):
+    ```bash
+    npm run dev
+    ```
+Buka browser di **`http://localhost:3000`**.
+- Akun default: `admin` / `admin123`
 
 ---
 
