@@ -13,9 +13,12 @@ import {
   kas_transaksi,
   kasir_shift,
   jurnal_umum,
-  pengaturan_aplikasi
+  pengaturan_aplikasi,
+  kartu_stok,
+  barang_batch,
+  barang
 } from "../lib/db/schema";
-import { eq, and, like, desc, sql } from "drizzle-orm";
+import { eq, and, like, desc, asc, gt, sql } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
 
 export const penjualanRoutes = new Hono<{
@@ -200,17 +203,20 @@ penjualanRoutes.post("/", async (c) => {
           jenis_item: item.jenis_item || "TRANSAKSI",
         });
 
-        // Cut Stock in stok_barang
+        // Cut Stock in stok_barang & Universal Stock Ledger
         const [stockRecord] = await tx
           .select()
           .from(stok_barang)
           .where(and(eq(stok_barang.id_barang, idBarang), eq(stok_barang.id_cabang, idCabang)));
 
+        const saldoAwal = stockRecord ? (stockRecord.stok_akhir || 0) : 0;
+        const saldoAkhir = saldoAwal - totalPcs;
+
         if (stockRecord) {
           await tx
             .update(stok_barang)
             .set({
-              stok_akhir: (stockRecord.stok_akhir || 0) - totalPcs,
+              stok_akhir: saldoAkhir,
               penjualan: (stockRecord.penjualan || 0) + totalPcs,
             })
             .where(eq(stok_barang.id, stockRecord.id));
@@ -219,12 +225,63 @@ penjualanRoutes.post("/", async (c) => {
           await tx.insert(stok_barang).values({
             id_barang: idBarang,
             id_cabang: idCabang,
-            stok_akhir: -totalPcs,
+            stok_akhir: saldoAkhir,
             penjualan: totalPcs,
             posisi_rak: "-",
             minimal_stok: 0,
             maksimal_stok: 100,
           });
+        }
+
+        // Catat ke Universal Stock Ledger (kartu_stok)
+        const nowLedgerStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+        await tx.insert(kartu_stok).values({
+          id_barang: idBarang,
+          id_cabang: idCabang,
+          tanggal_transaksi: nowLedgerStr,
+          tipe_transaksi: "PENJUALAN_POS",
+          nomor_referensi: newInvoice.no_invoice,
+          saldo_awal: saldoAwal,
+          masuk: 0,
+          keluar: totalPcs,
+          saldo_akhir: saldoAkhir,
+          hpp_satuan: hargaRata,
+          total_nilai: saldoAkhir * hargaRata,
+          keterangan: `Penjualan Kasir POS (${newInvoice.no_invoice})`,
+          id_user: user.id,
+        });
+
+        // Automated FEFO Batch Allocation (jika ada batch aktif)
+        try {
+          const activeBatches = await tx
+            .select()
+            .from(barang_batch)
+            .where(
+              and(
+                eq(barang_batch.id_barang, idBarang),
+                eq(barang_batch.id_cabang, idCabang),
+                eq(barang_batch.status, "AKTIF"),
+                gt(barang_batch.stok_batch, 0)
+              )
+            )
+            .orderBy(asc(barang_batch.tanggal_kadaluarsa));
+
+          let remToDeduct = totalPcs;
+          for (const b of activeBatches) {
+            if (remToDeduct <= 0) break;
+            const deductFromBatch = Math.min(b.stok_batch, remToDeduct);
+            const newBatchStock = b.stok_batch - deductFromBatch;
+            await tx
+              .update(barang_batch)
+              .set({
+                stok_batch: newBatchStock,
+                status: newBatchStock <= 0 ? "HABIS" : "AKTIF",
+              })
+              .where(eq(barang_batch.id_batch, b.id_batch));
+            remToDeduct -= deductFromBatch;
+          }
+        } catch (batchErr) {
+          console.warn("Notice: FEFO deduction skipped or non-critical:", batchErr);
         }
       }
 

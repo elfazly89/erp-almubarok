@@ -12,7 +12,8 @@ import {
   bayar_hutang,
   cabang,
   rekening_kas,
-  kas_transaksi
+  kas_transaksi,
+  kartu_stok
 } from "../lib/db/schema";
 import { eq, and, or, desc, asc, sql, inArray } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
@@ -409,24 +410,43 @@ pembelianRoutes.post("/invoice", async (c) => {
         const stockBefore = stockRecord ? (stockRecord.stok_akhir || 0) : 0;
 
         // Stock in
+        const stockAfter = stockBefore + qtyBeliPcs;
         if (stockRecord) {
           await tx
             .update(stok_barang)
             .set({
-              stok_akhir: stockBefore + qtyBeliPcs,
+              stok_akhir: stockAfter,
             })
             .where(eq(stok_barang.id, stockRecord.id));
         } else {
           await tx.insert(stok_barang).values({
             id_barang: idBarang,
             id_cabang: idCabang,
-            stok_akhir: qtyBeliPcs,
+            stok_akhir: stockAfter,
             penjualan: 0,
             posisi_rak: "-",
             minimal_stok: 0,
             maksimal_stok: 100,
           });
         }
+
+        // Catat ke Universal Stock Ledger (kartu_stok)
+        const nowLedgerStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+        await tx.insert(kartu_stok).values({
+          id_barang: idBarang,
+          id_cabang: idCabang,
+          tanggal_transaksi: nowLedgerStr,
+          tipe_transaksi: "PENERIMAAN_PEMBELIAN",
+          nomor_referensi: nomor_faktur.trim(),
+          saldo_awal: stockBefore,
+          masuk: qtyBeliPcs,
+          keluar: 0,
+          saldo_akhir: stockAfter,
+          hpp_satuan: hppEfektifSatuan,
+          total_nilai: stockAfter * hppEfektifSatuan,
+          keterangan: `Penerimaan Pembelian (${nomor_faktur.trim()})`,
+          id_user: user.id,
+        });
 
         // HPP Moving Average calculation using hppEfektifSatuan (incorporating freight/landed costs!)
         const [product] = await tx

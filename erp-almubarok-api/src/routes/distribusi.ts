@@ -15,7 +15,8 @@ import {
   pengiriman,
   pengiriman_detail,
   pengiriman_selisih,
-  users
+  users,
+  kartu_stok
 } from "../lib/db/schema";
 import { eq, and, gte, lte, desc, asc, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -1242,10 +1243,29 @@ distribusiRoutes.post("/selisih", async (c) => {
             .limit(1);
 
           if (stockSource) {
+            const srcSaldoAwal = stockSource.stok_akhir || 0;
+            const srcSaldoAkhir = srcSaldoAwal - qtySent;
             await tx
               .update(stok_barang)
-              .set({ stok_akhir: (stockSource.stok_akhir || 0) - qtySent })
+              .set({ stok_akhir: srcSaldoAkhir })
               .where(eq(stok_barang.id, stockSource.id));
+
+            const nowLedger = new Date().toISOString().replace("T", " ").substring(0, 19);
+            await tx.insert(kartu_stok).values({
+              id_barang: item.idBarang,
+              id_cabang: shipmentRecord.id_cabang_sumber,
+              tanggal_transaksi: nowLedger,
+              tipe_transaksi: "MUTASI_TRANSFER_KELUAR",
+              nomor_referensi: shipmentRecord.kode_pengiriman || `SJ-${idPengiriman}`,
+              saldo_awal: srcSaldoAwal,
+              masuk: 0,
+              keluar: qtySent,
+              saldo_akhir: srcSaldoAkhir,
+              hpp_satuan: 0,
+              total_nilai: 0,
+              keterangan: `Transfer Keluar ke Cabang Tujuan (${shipmentRecord.id_cabang_tujuan})`,
+              id_user: activeUser.id,
+            });
           }
         }
 
@@ -1256,19 +1276,39 @@ distribusiRoutes.post("/selisih", async (c) => {
           .where(and(eq(stok_barang.id_barang, item.idBarang), eq(stok_barang.id_cabang, shipmentRecord.id_cabang_tujuan)))
           .limit(1);
 
+        const destSaldoAwal = stockDest ? (stockDest.stok_akhir || 0) : 0;
+        const destSaldoAkhir = destSaldoAwal + qtyRec;
+
         if (stockDest) {
           await tx
             .update(stok_barang)
-            .set({ stok_akhir: (stockDest.stok_akhir || 0) + qtyRec })
+            .set({ stok_akhir: destSaldoAkhir })
             .where(eq(stok_barang.id, stockDest.id));
         } else {
           await tx.insert(stok_barang).values({
             id_barang: item.idBarang,
             id_cabang: shipmentRecord.id_cabang_tujuan,
-            stok_akhir: qtyRec,
+            stok_akhir: destSaldoAkhir,
             penjualan: 0,
           });
         }
+
+        const nowLedgerDest = new Date().toISOString().replace("T", " ").substring(0, 19);
+        await tx.insert(kartu_stok).values({
+          id_barang: item.idBarang,
+          id_cabang: shipmentRecord.id_cabang_tujuan,
+          tanggal_transaksi: nowLedgerDest,
+          tipe_transaksi: "MUTASI_TRANSFER_MASUK",
+          nomor_referensi: shipmentRecord.kode_pengiriman || `SJ-${idPengiriman}`,
+          saldo_awal: destSaldoAwal,
+          masuk: qtyRec,
+          keluar: 0,
+          saldo_akhir: destSaldoAkhir,
+          hpp_satuan: 0,
+          total_nilai: 0,
+          keterangan: `Penerimaan Mutasi dari Cabang Sumber (${shipmentRecord.id_cabang_sumber})`,
+          id_user: activeUser.id,
+        });
 
         if (qtyRec !== qtySent) {
           const diff = qtySent - qtyRec;

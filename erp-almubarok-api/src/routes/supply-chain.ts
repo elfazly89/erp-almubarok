@@ -11,6 +11,7 @@ import {
   daftar_akun,
   jurnal_umum,
   periode_akuntansi,
+  kartu_stok
 } from "../lib/db/schema";
 import { eq, and, sql, desc, asc, ilike, or, lte, gte, between } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
@@ -708,6 +709,26 @@ supplyChainRoutes.post("/stok-opname/:id/approve", async (c) => {
             posisi_rak: "-",
             minimal_stok: 0,
             maksimal_stok: 100,
+          });
+        }
+
+        // Catat ke kartu_stok jika ada penyesuaian selisih fisik
+        if (it.selisih_qty !== 0) {
+          const nowLedger = new Date().toISOString().replace("T", " ").substring(0, 19);
+          await tx.insert(kartu_stok).values({
+            id_barang: it.id_barang,
+            id_cabang: header.id_cabang,
+            tanggal_transaksi: nowLedger,
+            tipe_transaksi: "STOCK_OPNAME",
+            nomor_referensi: header.nomor_opname,
+            saldo_awal: it.stok_sistem,
+            masuk: it.selisih_qty > 0 ? it.selisih_qty : 0,
+            keluar: it.selisih_qty < 0 ? Math.abs(it.selisih_qty) : 0,
+            saldo_akhir: it.stok_fisik,
+            hpp_satuan: it.hpp_satuan,
+            total_nilai: it.stok_fisik * it.hpp_satuan,
+            keterangan: `Penyesuaian Fisik Stock Opname (${header.nomor_opname}): ${it.alasan_selisih || "-"}`,
+            id_user: user.id,
           });
         }
       }

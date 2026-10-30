@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Package, Plus, Edit2, Trash2, RefreshCw, Search, Eye, ChevronUp, ChevronDown, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { Package, Plus, Edit2, Trash2, RefreshCw, Search, Eye, ChevronUp, ChevronDown, AlertTriangle, CheckCircle, XCircle, Building2, ExternalLink, ArrowLeftRight } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 import { formatCurrency } from "@/lib/utils";
+import Link from "next/link";
 
 interface Kategori {
   id_kategori: number;
@@ -43,8 +44,24 @@ interface Barang {
   jual_rugi: number;
   status: string;
   status_pajak: string | null;
+  barcode_satuan_2?: string | null;
+  barcode_satuan_3?: string | null;
+  tipe_barang?: string | null;
+  lacak_kadaluarsa?: boolean;
   keterangan_1: string | null;
   keterangan_2: string | null;
+}
+
+interface MultiCabangBreakdown {
+  id_cabang: number;
+  kode_cabang: string;
+  nama_cabang: string;
+  stok_akhir: number;
+  posisi_rak: string;
+  minimal_stok: number;
+  maksimal_stok: number;
+  status_stok: string;
+  nilai_aset: number;
 }
 
 export default function BarangPage() {
@@ -61,9 +78,26 @@ export default function BarangPage() {
   const [selectedItem, setSelectedItem] = useState<Barang | null>(null);
   const [edit, setEdit] = useState<Barang | null>(null);
 
+  // Multi-Cabang Stock Inspection Modal
+  const [showMultiCabangModal, setShowMultiCabangModal] = useState(false);
+  const [multiCabangItem, setMultiCabangItem] = useState<Barang | null>(null);
+  const [multiCabangData, setMultiCabangData] = useState<{
+    barang: any;
+    total_stok_global: number;
+    total_nilai_global: number;
+    is_manager_or_admin: boolean;
+    breakdown: MultiCabangBreakdown[];
+  } | null>(null);
+  const [loadingMultiCabang, setLoadingMultiCabang] = useState(false);
+  const [cabangSearch, setCabangSearch] = useState("");
+
   // Form Fields
   const [barcode, setBarcode] = useState("");
+  const [barcode2, setBarcode2] = useState("");
+  const [barcode3, setBarcode3] = useState("");
   const [nama, setNama] = useState("");
+  const [tipeBarang, setTipeBarang] = useState("STOK");
+  const [lacakKadaluarsa, setLacakKadaluarsa] = useState(false);
   const [kategoriId, setKategoriId] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [satuan1, setSatuan1] = useState("pcs");
@@ -166,7 +200,11 @@ export default function BarangPage() {
   const openModal = (barang?: Barang) => {
     setEdit(barang || null);
     setBarcode(barang?.barcode || "");
+    setBarcode2(barang?.barcode_satuan_2 || "");
+    setBarcode3(barang?.barcode_satuan_3 || "");
     setNama(barang?.nama_barang || "");
+    setTipeBarang(barang?.tipe_barang || "STOK");
+    setLacakKadaluarsa(Boolean(barang?.lacak_kadaluarsa));
     setKategoriId(barang?.id_kategori?.toString() || "");
     setSupplierId(barang?.id_supplier?.toString() || "");
     setSatuan1(barang?.satuan_1 || "pcs");
@@ -199,6 +237,25 @@ export default function BarangPage() {
   const openViewModal = (item: Barang) => {
     setSelectedItem(item);
     setShowViewModal(true);
+  };
+
+  const openMultiCabangModal = async (item: Barang) => {
+    setMultiCabangItem(item);
+    setCabangSearch("");
+    setShowMultiCabangModal(true);
+    setLoadingMultiCabang(true);
+    try {
+      const res = await fetch(`/api/master/barang/${item.id_barang}/stok-cabang`);
+      if (res.ok) {
+        setMultiCabangData(await res.json());
+      } else {
+        showToast("Gagal memuat rincian stok multi-cabang.", "error");
+      }
+    } catch {
+      showToast("Kesalahan jaringan saat memuat stok cabang.", "error");
+    } finally {
+      setLoadingMultiCabang(false);
+    }
   };
 
   const handleSave = async () => {
@@ -270,6 +327,10 @@ export default function BarangPage() {
       jual_rugi: parseInt(jualRugi),
       status,
       status_pajak: statusPajak || null,
+      barcode_satuan_2: barcode2.trim() || null,
+      barcode_satuan_3: barcode3.trim() || null,
+      tipe_barang: tipeBarang,
+      lacak_kadaluarsa: lacakKadaluarsa,
       keterangan_1: ket1 || null,
       keterangan_2: ket2 || null,
     };
@@ -479,8 +540,34 @@ export default function BarangPage() {
                     <tr key={b.id_barang} className="hover:bg-surface-container-high/20 transition-colors">
                       <td className="px-5 py-4 text-on-surface-variant text-sm font-mono">{idx + 1}</td>
                       <td className="px-5 py-4">
-                        <span className="text-on-surface font-semibold block">{b.nama_barang}</span>
-                        <span className="text-on-surface-variant font-mono text-xs bg-surface-container/50 px-1.5 py-0.5 rounded border border-outline-variant/20">{b.barcode}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-on-surface font-semibold">{b.nama_barang}</span>
+                          {b.tipe_barang && b.tipe_barang !== "STOK" && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-secondary/10 text-secondary border border-secondary/20">
+                              {b.tipe_barang === "JASA" ? "JASA" : "HABIS PAKAI"}
+                            </span>
+                          )}
+                          {b.lacak_kadaluarsa && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                              FEFO
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                          <span className="text-on-surface-variant font-mono text-xs bg-surface-container/50 px-1.5 py-0.5 rounded border border-outline-variant/20">
+                            {b.barcode}
+                          </span>
+                          {b.barcode_satuan_2 && (
+                            <span className="text-on-surface-variant/80 font-mono text-[10px] bg-surface-container/30 px-1 py-0.5 rounded" title="Barcode Satuan 2">
+                              S2: {b.barcode_satuan_2}
+                            </span>
+                          )}
+                          {b.barcode_satuan_3 && (
+                            <span className="text-on-surface-variant/80 font-mono text-[10px] bg-surface-container/30 px-1 py-0.5 rounded" title="Barcode Satuan 3">
+                              S3: {b.barcode_satuan_3}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <span className="text-on-surface text-sm block font-medium">{b.nama_kategori || "-"}</span>
@@ -507,6 +594,13 @@ export default function BarangPage() {
                         <div className="flex items-center justify-end gap-2">
                           <button onClick={() => openViewModal(b)} className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-secondary/10 rounded-lg transition-colors" title="Lihat detail">
                             <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => openMultiCabangModal(b)}
+                            className="p-1.5 text-on-surface-variant hover:text-emerald-500 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                            title="Cek Stok 19 Cabang"
+                          >
+                            <Building2 className="w-4 h-4" />
                           </button>
                           {can_update && (
                             <button onClick={() => openModal(b)} className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Edit">
@@ -606,7 +700,16 @@ export default function BarangPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-outline-variant/40">
+              <div className="flex justify-between items-center pt-4 border-t border-outline-variant/40">
+                <button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    openMultiCabangModal(selectedItem);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2 shadow-sm"
+                >
+                  <Building2 className="w-4 h-4" /> Cek Stok 19 Cabang
+                </button>
                 <button
                   onClick={() => setShowViewModal(false)}
                   className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors"
@@ -695,12 +798,35 @@ export default function BarangPage() {
                     <option value="Konsinyasi" className="bg-surface text-on-surface">Konsinyasi</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-on-surface-variant mb-1">Tipe Produk</label>
+                  <select
+                    value={tipeBarang}
+                    onChange={(e) => setTipeBarang(e.target.value)}
+                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  >
+                    <option value="STOK" className="bg-surface text-on-surface">📦 Barang Persediaan (Storable)</option>
+                    <option value="JASA" className="bg-surface text-on-surface">🛠️ Jasa / Layanan (Service)</option>
+                    <option value="HABIS_PAKAI" className="bg-surface text-on-surface">🏷️ Habis Pakai (Consumable/Biaya)</option>
+                  </select>
+                </div>
+                <div className="pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer bg-surface-container-low p-2 rounded-lg border border-outline-variant/40">
+                    <input
+                      type="checkbox"
+                      checked={lacakKadaluarsa}
+                      onChange={(e) => setLacakKadaluarsa(e.target.checked)}
+                      className="rounded text-primary focus:ring-primary"
+                    />
+                    <span className="text-xs text-on-surface font-medium">Lacak Batch & Kadaluarsa (FEFO)</span>
+                  </label>
+                </div>
               </div>
 
               {/* Kolom 2: Satuan & HPP */}
               <div className="space-y-3 bg-surface-container/30 p-4 rounded-xl border border-outline-variant/30">
                 <h3 className="font-semibold text-on-surface text-sm border-b border-outline-variant/40 pb-2 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-primary" /> Struktur Satuan
+                  <span className="w-2 h-2 rounded-full bg-primary" /> Struktur Satuan & Barcode Kemasan
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -765,7 +891,31 @@ export default function BarangPage() {
                       value={isi3}
                       onChange={(e) => setIsi3(e.target.value)}
                       className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
-                      placeholder="e.g. 120"
+                      placeholder="e.g. 40"
+                    />
+                  </div>
+                </div>
+
+                {/* Multi-Barcode per Satuan Kemasan */}
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-outline-variant/30">
+                  <div>
+                    <label className="block text-xs font-medium text-on-surface-variant mb-1">Barcode Satuan 2</label>
+                    <input
+                      type="text"
+                      value={barcode2}
+                      onChange={(e) => setBarcode2(e.target.value)}
+                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      placeholder="Barcode Pack/Renceng"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-on-surface-variant mb-1">Barcode Satuan 3</label>
+                    <input
+                      type="text"
+                      value={barcode3}
+                      onChange={(e) => setBarcode3(e.target.value)}
+                      className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      placeholder="Barcode Dus/Karton"
                     />
                   </div>
                 </div>
@@ -989,6 +1139,218 @@ export default function BarangPage() {
                   Ya, Hapus
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Multi-Cabang Stock Inspection */}
+      {showMultiCabangModal && multiCabangItem && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-outline-variant/40 flex items-center justify-between bg-surface-container-high/40 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-on-surface text-base flex items-center gap-2">
+                    Ketersediaan Stok Multi-Cabang
+                  </h2>
+                  <p className="text-on-surface-variant text-xs mt-0.5">
+                    <span className="font-semibold text-on-surface">{multiCabangItem.nama_barang}</span>
+                    <span className="mx-1.5">•</span>
+                    <span className="font-mono">{multiCabangItem.barcode}</span>
+                    <span className="mx-1.5">•</span>
+                    Satuan: <span className="font-semibold">{multiCabangItem.satuan_1 || "pcs"}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMultiCabangModal(false)}
+                className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container transition-colors text-xl font-bold leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              {loadingMultiCabang ? (
+                <div className="py-20 flex flex-col items-center justify-center text-on-surface-variant gap-3">
+                  <RefreshCw className="w-8 h-8 animate-spin text-emerald-500" />
+                  <p className="text-sm font-medium">Menghitung ketersediaan stok fisik di seluruh cabang...</p>
+                </div>
+              ) : multiCabangData ? (
+                <>
+                  {/* KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-surface-container-low border border-outline-variant/30 rounded-xl p-3.5">
+                      <span className="text-[11px] font-medium text-on-surface-variant block uppercase tracking-wider">
+                        Total Stok Global
+                      </span>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <span className="text-xl font-bold font-mono text-on-surface">
+                          {multiCabangData.total_stok_global.toLocaleString("id-ID")}
+                        </span>
+                        <span className="text-xs text-on-surface-variant">{multiCabangItem.satuan_1 || "pcs"}</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-surface-container-low border border-outline-variant/30 rounded-xl p-3.5">
+                      <span className="text-[11px] font-medium text-on-surface-variant block uppercase tracking-wider">
+                        Total Nilai Aset
+                      </span>
+                      <div className="mt-1">
+                        <span className="text-xl font-bold font-mono text-emerald-500">
+                          {formatRupiah(multiCabangData.total_nilai_global)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-surface-container-low border border-outline-variant/30 rounded-xl p-3.5">
+                      <span className="text-[11px] font-medium text-on-surface-variant block uppercase tracking-wider">
+                        Cakupan Cabang
+                      </span>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <span className="text-xl font-bold font-mono text-on-surface">
+                          {multiCabangData.breakdown.length}
+                        </span>
+                        <span className="text-xs text-on-surface-variant">Cabang</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-surface-container-low border border-outline-variant/30 rounded-xl p-3.5">
+                      <span className="text-[11px] font-medium text-on-surface-variant block uppercase tracking-wider">
+                        Perlu Restok
+                      </span>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <span className="text-xl font-bold font-mono text-amber-500">
+                          {multiCabangData.breakdown.filter((b) => b.status_stok === "MENIPIS" || b.status_stok === "HABIS").length}
+                        </span>
+                        <span className="text-xs text-on-surface-variant">Cabang</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Search / Filter Cabang */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="relative flex-1 sm:max-w-xs">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-on-surface-variant" />
+                      <input
+                        type="text"
+                        value={cabangSearch}
+                        onChange={(e) => setCabangSearch(e.target.value)}
+                        placeholder="Filter nama cabang..."
+                        className="w-full bg-surface-container-low border border-outline-variant text-on-surface placeholder:text-on-surface-variant/50 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <span className="text-xs text-on-surface-variant">
+                      Menampilkan {multiCabangData.breakdown.filter((b) => b.nama_cabang.toLowerCase().includes(cabangSearch.toLowerCase())).length} dari {multiCabangData.breakdown.length} cabang
+                    </span>
+                  </div>
+
+                  {/* Table Cabang Breakdown */}
+                  <div className="border border-outline-variant/30 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-surface-container-low text-on-surface-variant border-b border-outline-variant/40 select-none">
+                          <th className="py-2.5 px-3 font-semibold w-10">#</th>
+                          <th className="py-2.5 px-3 font-semibold">Cabang</th>
+                          <th className="py-2.5 px-3 font-semibold">Rak</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Stok Fisik</th>
+                          <th className="py-2.5 px-3 font-semibold text-center">Buffer (Min/Max)</th>
+                          <th className="py-2.5 px-3 font-semibold text-center">Status Buffer</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Nilai Aset</th>
+                          <th className="py-2.5 px-3 font-semibold text-center w-28">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant/20">
+                        {multiCabangData.breakdown
+                          .filter((b) => b.nama_cabang.toLowerCase().includes(cabangSearch.toLowerCase()))
+                          .map((b, idx) => {
+                            const badgeColor =
+                              b.status_stok === "HABIS"
+                                ? "bg-red-500/10 text-red-500 border-red-500/20"
+                                : b.status_stok === "MENIPIS"
+                                ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                                : b.status_stok === "OVERSTOCK"
+                                ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                                : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+
+                            return (
+                              <tr key={b.id_cabang} className="hover:bg-surface-container-high/20 transition-colors">
+                                <td className="py-2.5 px-3 text-on-surface-variant font-mono">{idx + 1}</td>
+                                <td className="py-2.5 px-3">
+                                  <div className="font-semibold text-on-surface">{b.nama_cabang}</div>
+                                  <div className="text-[10px] text-on-surface-variant font-mono">{b.kode_cabang}</div>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-on-surface-variant">
+                                  {b.posisi_rak}
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <span
+                                    className={`font-mono font-bold text-sm ${
+                                      b.stok_akhir <= 0
+                                        ? "text-red-500"
+                                        : b.status_stok === "MENIPIS"
+                                        ? "text-amber-500"
+                                        : "text-on-surface"
+                                    }`}
+                                  >
+                                    {b.stok_akhir.toLocaleString("id-ID")}
+                                  </span>{" "}
+                                  <span className="text-[10px] text-on-surface-variant">{multiCabangItem.satuan_1 || "pcs"}</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center font-mono text-on-surface-variant">
+                                  {b.minimal_stok} / {b.maksimal_stok || "∞"}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor}`}>
+                                    {b.status_stok}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-medium text-on-surface">
+                                  {formatRupiah(b.nilai_aset)}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <Link
+                                    href={`/distribusi/transfer?q=${encodeURIComponent(multiCabangItem.nama_barang)}`}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-surface-container-high hover:bg-emerald-600 hover:text-white text-on-surface rounded-lg text-[11px] font-semibold transition-all border border-outline-variant/40"
+                                    title="Buat Pengiriman / Transfer Antar-Cabang"
+                                  >
+                                    <ArrowLeftRight className="w-3 h-3" /> Transfer
+                                  </Link>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {!multiCabangData.is_manager_or_admin && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-2 text-amber-600 text-xs">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>Akun Anda memiliki izin cabang tunggal. Data hanya menampilkan cabang tempat Anda ditugaskan.</span>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-outline-variant/40 flex items-center justify-between bg-surface-container-high/40 shrink-0">
+              <span className="text-xs text-on-surface-variant">
+                Data diperbarui secara realtime dari ledger kartu stok fisik cabang.
+              </span>
+              <button
+                onClick={() => setShowMultiCabangModal(false)}
+                className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface px-5 py-2 rounded-xl text-xs font-semibold transition-colors"
+              >
+                Tutup
+              </button>
             </div>
           </div>
         </div>

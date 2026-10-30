@@ -257,6 +257,10 @@ export const barang = pgTable("barang", {
   jual_rugi: integer("jual_rugi").default(0),
   status: text("status").default("Aktif"),
   status_pajak: text("status_pajak"),
+  barcode_satuan_2: text("barcode_satuan_2"),
+  barcode_satuan_3: text("barcode_satuan_3"),
+  tipe_barang: text("tipe_barang").default("STOK"), // 'STOK' | 'JASA' | 'HABIS_PAKAI'
+  lacak_kadaluarsa: boolean("lacak_kadaluarsa").default(false),
   keterangan_1: text("keterangan_1"),
   keterangan_2: text("keterangan_2"),
 });
@@ -1008,5 +1012,87 @@ export const stok_opname_detail = pgTable("stok_opname_detail", {
 export type BarangBatch = typeof barang_batch.$inferSelect;
 export type StokOpname = typeof stok_opname.$inferSelect;
 export type StokOpnameDetail = typeof stok_opname_detail.$inferSelect;
+
+// ==========================================
+// 6. MULTI-BIN SUB-LOKASI GUDANG CABANG
+// ==========================================
+export const gudang_lokasi = pgTable("gudang_lokasi", {
+  id_lokasi: serial("id_lokasi").primaryKey(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  kode_lokasi: text("kode_lokasi").notNull(),
+  nama_lokasi: text("nama_lokasi").notNull(),
+  tipe_lokasi: text("tipe_lokasi").default("DISPLAY").notNull(), // 'DISPLAY' | 'GUDANG_UTAMA' | 'KARANTINA'
+  keterangan: text("keterangan"),
+  is_aktif: boolean("is_aktif").default(true).notNull(),
+});
+
+export const stok_lokasi = pgTable("stok_lokasi", {
+  id: serial("id").primaryKey(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_lokasi: integer("id_lokasi").references(() => gudang_lokasi.id_lokasi).notNull(),
+  stok_qty: integer("stok_qty").default(0).notNull(),
+  posisi_rak: text("posisi_rak"),
+});
+
+// ==========================================
+// 7. UNIVERSAL STOCK LEDGER (KARTU STOK)
+// ==========================================
+export const kartu_stok = pgTable("kartu_stok", {
+  id_kartu: serial("id_kartu").primaryKey(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  id_lokasi: integer("id_lokasi").references(() => gudang_lokasi.id_lokasi),
+  tanggal_transaksi: text("tanggal_transaksi").notNull(),
+  tipe_transaksi: text("tipe_transaksi").notNull(),
+  nomor_referensi: text("nomor_referensi").notNull(),
+  saldo_awal: integer("saldo_awal").notNull(),
+  masuk: integer("masuk").default(0).notNull(),
+  keluar: integer("keluar").default(0).notNull(),
+  saldo_akhir: integer("saldo_akhir").notNull(),
+  hpp_satuan: integer("hpp_satuan").default(0).notNull(),
+  total_nilai: integer("total_nilai").default(0).notNull(),
+  keterangan: text("keterangan"),
+  id_user: integer("id_user").references(() => users.id).notNull(),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ==========================================
+// 8. QUICK ADJUSTMENT (PENYESUAIAN CEPAT STOK)
+// ==========================================
+export const stok_adjustment = pgTable("stok_adjustment", {
+  id_adj: serial("id_adj").primaryKey(),
+  nomor_adj: text("nomor_adj").notNull().unique(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  tanggal_adj: text("tanggal_adj").notNull(),
+  id_petugas: integer("id_petugas").references(() => users.id).notNull(),
+  tipe_alasan: text("tipe_alasan").notNull(),
+  tindakan_stok: text("tindakan_stok").default("PINDAH_KE_KARANTINA").notNull(),
+  total_item: integer("total_item").default(1).notNull(),
+  total_nilai_kerugian: integer("total_nilai_kerugian").default(0).notNull(),
+  keterangan: text("keterangan"),
+  id_jurnal: integer("id_jurnal").references(() => jurnal_umum.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const stok_adjustment_detail = pgTable("stok_adjustment_detail", {
+  id: serial("id").primaryKey(),
+  id_adj: integer("id_adj").references(() => stok_adjustment.id_adj, { onDelete: "cascade" }).notNull(),
+  id_barang: integer("id_barang").references(() => barang.id_barang).notNull(),
+  id_lokasi_asal: integer("id_lokasi_asal").references(() => gudang_lokasi.id_lokasi),
+  id_lokasi_tujuan: integer("id_lokasi_tujuan").references(() => gudang_lokasi.id_lokasi),
+  stok_sebelum: integer("stok_sebelum").notNull(),
+  qty_penyesuaian: integer("qty_penyesuaian").notNull(),
+  stok_setelah: integer("stok_setelah").notNull(),
+  hpp_satuan: integer("hpp_satuan").notNull(),
+  subtotal_nilai: integer("subtotal_nilai").notNull(),
+  id_batch: integer("id_batch").references(() => barang_batch.id_batch),
+});
+
+export type GudangLokasi = typeof gudang_lokasi.$inferSelect;
+export type StokLokasi = typeof stok_lokasi.$inferSelect;
+export type KartuStok = typeof kartu_stok.$inferSelect;
+export type StokAdjustment = typeof stok_adjustment.$inferSelect;
+export type StokAdjustmentDetail = typeof stok_adjustment_detail.$inferSelect;
+
 
 
