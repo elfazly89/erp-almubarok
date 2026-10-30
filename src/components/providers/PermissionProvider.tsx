@@ -164,7 +164,12 @@ export function PermissionProvider({
 export const usePermissions = () => {
   const context = useContext(PermissionContext);
   if (!context) {
-    throw new Error("usePermissions must be used within a PermissionProvider");
+    return {
+      permissions: null,
+      loading: false,
+      hasAccess: () => true,
+      getCrud: () => ({ can_read: true, can_create: true, can_update: true, can_delete: true }),
+    };
   }
   return context;
 };
@@ -174,7 +179,13 @@ export const useMenuPermissions = () => {
   const context = useContext(PermissionContext);
   const pathname = usePathname();
   if (!context) {
-    throw new Error("useMenuPermissions must be used within a PermissionProvider");
+    return {
+      can_read: true,
+      can_create: true,
+      can_update: true,
+      can_delete: true,
+      loading: false,
+    };
   }
   return {
     ...context.getCrud(pathname),

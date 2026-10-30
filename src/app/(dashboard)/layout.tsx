@@ -9,6 +9,8 @@ import { TOKEN_COOKIE } from "@/lib/auth/jwt";
 import { PermissionProvider } from "@/components/providers/PermissionProvider";
 import { apiFetch } from "@/lib/api-client";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardLayout({
   children,
 }: {

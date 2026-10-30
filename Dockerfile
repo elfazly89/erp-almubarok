@@ -9,6 +9,10 @@ RUN npm install
 
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=http://api:3001
+ENV API_BACKEND_URL=http://api:3001
+ENV JWT_SECRET=build_time_placeholder_secret_key_2026
 RUN npm run build
 
 FROM node:20-alpine AS runner
