@@ -20,6 +20,29 @@ export const cabang = pgTable("cabang", {
   longitude: text("longitude"),
   data_kode: text("data_kode"),
   is_dc: boolean("is_dc").default(false).notNull(),
+  jenis_cabang: text("jenis_cabang").default("INTERNAL").notNull(),
+  nisbah_pengelola: numeric("nisbah_pengelola").default("0"),
+  nisbah_investor: numeric("nisbah_investor").default("0"),
+  total_modal_investor: numeric("total_modal_investor").default("0"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── CABANG INVESTOR (KONSORSIUM MULTI-INVESTOR) ─────────────────────────────
+export const cabang_investor = pgTable("cabang_investor", {
+  id_cabang_investor: serial("id_cabang_investor").primaryKey(),
+  id_cabang: integer("id_cabang").notNull(),
+  nama_investor: text("nama_investor").notNull(),
+  telepon: text("telepon"),
+  email: text("email"),
+  nilai_investasi: numeric("nilai_investasi").default("0").notNull(),
+  porsi_kepemilikan: numeric("porsi_kepemilikan").default("0").notNull(),
+  nama_bank: text("nama_bank"),
+  no_rekening: text("no_rekening"),
+  atas_nama_rekening: text("atas_nama_rekening"),
+  tanggal_bergabung: text("tanggal_bergabung"),
+  status: text("status").default("AKTIF").notNull(),
+  catatan: text("catatan"),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
   updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 });

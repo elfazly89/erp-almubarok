@@ -15,7 +15,14 @@ import {
   CheckCircle2,
   HelpCircle,
   Database,
-  Scale
+  Scale,
+  Handshake,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Printer,
+  Award,
+  Landmark
 } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 import { useAppSettings } from "@/components/providers/AppSettingsProvider";
@@ -95,11 +102,53 @@ interface ReconciliationRow {
   status: "COCOK" | "PERLU REKONSILIASI";
 }
 
+interface InvestorDetail {
+  id_cabang_investor: number;
+  nama_investor: string;
+  telepon: string;
+  email: string;
+  nilai_investasi: number;
+  porsi_kepemilikan: number;
+  hak_bagi_hasil: number;
+  nama_bank: string;
+  no_rekening: string;
+  atas_nama_rekening: string;
+  tanggal_bergabung: string;
+}
+
+interface CabangBagiHasil {
+  id_cabang: number;
+  kode_cabang: string;
+  nama_cabang: string;
+  penjualan_bersih: number;
+  hpp: number;
+  laba_kotor: number;
+  beban_operasional: number;
+  laba_operasional: number;
+  nisbah_pengelola: number;
+  nisbah_investor: number;
+  hak_pengelola: number;
+  hak_total_investor: number;
+  total_modal_investor: number;
+  investors: InvestorDetail[];
+}
+
+interface BagiHasilSummary {
+  total_cabang_investor: number;
+  total_modal_investor: number;
+  total_laba_operasional: number;
+  total_bagi_hasil_investor: number;
+  total_bagi_hasil_pengelola: number;
+}
+
 const MULTI_BRANCH_JABATANS = [1, 2, 4, 8, 11]; // Super User, IT, Bendahara, Manager, SPV
 
 export default function ProfitCabangPage() {
   const { can_read, loading: permissionsLoading } = useMenuPermissions();
   const { settings } = useAppSettings();
+
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<"performa" | "bagi_hasil">("performa");
 
   // Filters
   const [startDate, setStartDate] = useState(() => {
@@ -123,6 +172,11 @@ export default function ProfitCabangPage() {
   const [profitSummary, setProfitSummary] = useState<ProfitData | null>(null);
   const [branchProfitList, setBranchProfitList] = useState<BranchProfitRow[]>([]);
   const [reconciliationList, setReconciliationList] = useState<ReconciliationRow[]>([]);
+
+  // Bagi Hasil State
+  const [bagiHasilList, setBagiHasilList] = useState<CabangBagiHasil[]>([]);
+  const [bagiHasilSummary, setBagiHasilSummary] = useState<BagiHasilSummary | null>(null);
+  const [expandedCabangId, setExpandedCabangId] = useState<number | null>(null);
   
   const [loadingStats, setLoadingStats] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
@@ -179,10 +233,11 @@ export default function ProfitCabangPage() {
     try {
       const qParams = `startDate=${startDate}&endDate=${endDate}&id_cabang=${selectedCabangId}`;
       
-      const [sumRes, branchRes, reconRes] = await Promise.all([
+      const [sumRes, branchRes, reconRes, bagiHasilRes] = await Promise.all([
         fetch(`/api/akuntansi/dashboard-profit?${qParams}`),
         fetch(`/api/akuntansi/dashboard-profit/cabang?${qParams}`),
-        fetch(`/api/akuntansi/dashboard-profit/rekonsiliasi?${qParams}`)
+        fetch(`/api/akuntansi/dashboard-profit/rekonsiliasi?${qParams}`),
+        fetch(`/api/akuntansi/dashboard-profit/bagi-hasil?${qParams}`),
       ]);
 
       if (sumRes.ok && branchRes.ok && reconRes.ok) {
@@ -195,6 +250,17 @@ export default function ProfitCabangPage() {
         if (reconJson.success) setReconciliationList(reconJson.data);
       } else {
         throw new Error("Gagal mengambil data dari server");
+      }
+
+      if (bagiHasilRes.ok) {
+        const bagiHasilJson = await bagiHasilRes.json();
+        if (bagiHasilJson.success) {
+          setBagiHasilList(bagiHasilJson.data || []);
+          setBagiHasilSummary(bagiHasilJson.summary || null);
+          if (bagiHasilJson.data && bagiHasilJson.data.length > 0) {
+            setExpandedCabangId((prev) => (prev === null ? bagiHasilJson.data[0].id_cabang : prev));
+          }
+        }
       }
     } catch (e: any) {
       console.error(e);
@@ -281,34 +347,81 @@ export default function ProfitCabangPage() {
             <Scale className="w-7 h-7 text-primary" /> Dashboard Profit & Rekonsiliasi Cabang
           </h1>
           <p className="text-on-surface-variant text-sm mt-1">
-            Analisis profitabilitas, HPP, margin laba kotor, dan verifikasi silang POS vs Akuntansi
+            Analisis profitabilitas, HPP, margin laba kotor, verifikasi silang POS vs Jurnal, dan bagi hasil investor
           </p>
         </div>
-        
-        {/* Toggle Mode */}
-        <div className="flex items-center bg-surface-container-low border border-outline-variant p-1 rounded-xl shadow-sm">
+      </div>
+
+      {/* Navigation Tabs Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-outline-variant/40 pb-3 print:hidden">
+        <div className="flex items-center gap-2 bg-surface-container-low p-1 rounded-xl border border-outline-variant/30 w-fit">
           <button
-            onClick={() => setViewMode("pos")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
-              viewMode === "pos"
+            onClick={() => setActiveTab("performa")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === "performa"
                 ? "bg-primary text-on-primary shadow-sm"
                 : "text-on-surface-variant hover:text-on-surface"
             }`}
           >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            POS (Operasional)
+            <Scale className="w-4 h-4" />
+            Performa & Konsistensi (POS vs Jurnal)
           </button>
           <button
-            onClick={() => setViewMode("jurnal")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
-              viewMode === "jurnal"
-                ? "bg-primary text-on-primary shadow-sm"
+            onClick={() => setActiveTab("bagi_hasil")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === "bagi_hasil"
+                ? "bg-amber-600 text-white shadow-sm"
                 : "text-on-surface-variant hover:text-on-surface"
             }`}
           >
-            <FileText className="w-3.5 h-3.5" />
-            Akuntansi (Jurnal)
+            <Handshake className="w-4 h-4" />
+            Bagi Hasil Cabang Investor
+            {bagiHasilList.length > 0 && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                activeTab === "bagi_hasil" ? "bg-white/20 text-white" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+              }`}>
+                {bagiHasilList.length}
+              </span>
+            )}
           </button>
+        </div>
+
+        {/* Tab-specific actions */}
+        <div>
+          {activeTab === "performa" ? (
+            <div className="flex items-center bg-surface-container-low border border-outline-variant p-1 rounded-xl shadow-sm">
+              <button
+                onClick={() => setViewMode("pos")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  viewMode === "pos"
+                    ? "bg-primary text-on-primary shadow-sm"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                POS (Operasional)
+              </button>
+              <button
+                onClick={() => setViewMode("jurnal")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  viewMode === "jurnal"
+                    ? "bg-primary text-on-primary shadow-sm"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Akuntansi (Jurnal)
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-2 bg-surface-container-high hover:bg-surface-container border border-outline-variant/60 text-on-surface px-4 py-2 rounded-xl text-xs font-bold transition-colors shadow-sm"
+            >
+              <Printer className="w-4 h-4 text-primary" />
+              Cetak Laporan Bagi Hasil
+            </button>
+          )}
         </div>
       </div>
 
@@ -390,7 +503,9 @@ export default function ProfitCabangPage() {
             </div>
           )}
 
-          {/* Reconciliation Alert Box */}
+          {activeTab === "performa" ? (
+            <div className="space-y-6">
+              {/* Reconciliation Alert Box */}
           {needsReconciliationCount > 0 && (
             <div className="bg-warning/15 border border-warning/35 text-on-surface rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -669,6 +784,297 @@ export default function ProfitCabangPage() {
               </table>
             </div>
           </div>
+
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Print Header */}
+          <div className="hidden print:block border-b-2 border-black pb-4 text-center">
+            <h1 className="text-xl font-bold tracking-wider">SISTEM MANAJEMEN TERPADU AL-MUBAROK</h1>
+            <h2 className="text-base font-semibold mt-1">LAPORAN REKAPITULASI BAGI HASIL CABANG INVESTOR</h2>
+            <p className="text-xs text-gray-600 mt-1">Periode Operasional: {startDate} s/d {endDate}</p>
+          </div>
+
+          {/* Information Banner */}
+          <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-4 flex items-start gap-3 print:hidden shadow-sm">
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-400 shrink-0">
+              <Handshake className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-on-surface">Prinsip & Dasar Perhitungan Bagi Hasil (Syariah Mudharabah / Musyarakah)</h4>
+              <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                Bagi hasil dihitung dari <strong>Laba Operasional Bersih Toko</strong> (Penjualan Bersih dikurangi HPP Toko dan Beban Operasional Cabang).
+                Laba bersih tersebut didistribusikan kepada Al-Mubarok (selaku Pengelola) dan Investor (selaku Pemodal) berdasarkan persentase nisbah yang disepakati. Bagian dividen investor selanjutnya dibagi secara proporsional kepada masing-masing anggota konsorsium investor berdasarkan persentase kepemilikan modal disetor.
+              </p>
+            </div>
+          </div>
+
+          {/* KPI Summary Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* Total Cabang Investor */}
+            <div className="bg-surface border border-outline-variant/40 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Cabang Investor</span>
+                <strong className="text-xl font-bold block text-on-surface font-mono mt-1">
+                  {bagiHasilSummary?.total_cabang_investor || 0}
+                </strong>
+                <span className="text-[9px] text-on-surface-variant/80 mt-0.5 block">Mitra Aktif</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600">
+                <Building2 className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Total Modal Konsorsium */}
+            <div className="bg-surface border border-outline-variant/40 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Total Modal Konsorsium</span>
+                <strong className="text-base font-bold block text-on-surface font-mono mt-1">
+                  {formatCurrency(bagiHasilSummary?.total_modal_investor || 0)}
+                </strong>
+                <span className="text-[9px] text-on-surface-variant/80 mt-0.5 block">Modal Disetor</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-surface-container-high border border-outline-variant/30 flex items-center justify-center text-on-surface-variant">
+                <DollarSign className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Laba Operasional Toko */}
+            <div className="bg-surface border border-outline-variant/40 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Laba Bersih Operasional</span>
+                <strong className={`text-base font-bold block font-mono mt-1 ${(bagiHasilSummary?.total_laba_operasional || 0) >= 0 ? "text-primary" : "text-error"}`}>
+                  {formatCurrency(bagiHasilSummary?.total_laba_operasional || 0)}
+                </strong>
+                <span className="text-[9px] text-on-surface-variant/80 mt-0.5 block">Basis Bagi Hasil</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Hak Al-Mubarok */}
+            <div className="bg-surface border border-outline-variant/40 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Hak Al-Mubarok (Pengelola)</span>
+                <strong className="text-base font-bold block text-primary font-mono mt-1">
+                  {formatCurrency(bagiHasilSummary?.total_bagi_hasil_pengelola || 0)}
+                </strong>
+                <span className="text-[9px] text-primary/80 font-bold mt-0.5 block">Nisbah Pengelola</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Award className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Hak Investor */}
+            <div className="bg-surface border border-outline-variant/40 p-4 rounded-2xl flex items-center justify-between shadow-sm bg-gradient-to-br from-amber-500/5 to-transparent">
+              <div>
+                <span className="text-[10px] text-amber-700 dark:text-amber-400 uppercase font-bold tracking-wider">Hak Investor (Dividen)</span>
+                <strong className="text-base font-bold block text-amber-600 dark:text-amber-400 font-mono mt-1">
+                  {formatCurrency(bagiHasilSummary?.total_bagi_hasil_investor || 0)}
+                </strong>
+                <span className="text-[9px] text-amber-600/80 font-bold mt-0.5 block">Total Pencairan</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600">
+                <Handshake className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Investor Branches List */}
+          {bagiHasilList.length === 0 ? (
+            <div className="bg-surface border border-dashed border-outline-variant/60 rounded-2xl p-12 text-center shadow-sm">
+              <Handshake className="w-12 h-12 text-on-surface-variant/40 mx-auto mb-3" />
+              <h3 className="text-sm font-bold text-on-surface">Belum Ada Cabang Bertipe Investor</h3>
+              <p className="text-xs text-on-surface-variant mt-1 max-w-md mx-auto">
+                Semua cabang saat ini berstatus Cabang Internal. Untuk mengaktifkan bagi hasil, buka modul <strong>Master Cabang</strong>, edit cabang terkait, dan ubah jenis kepemilikan menjadi <strong>Cabang Investor</strong> serta daftarkan nama-nama investornya.
+              </p>
+              <a
+                href="/cabang"
+                className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-xl shadow-sm hover:opacity-90 transition-opacity"
+              >
+                Kelola Master Cabang
+              </a>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {bagiHasilList.map((cab) => {
+                const isExpanded = expandedCabangId === cab.id_cabang;
+                return (
+                  <div key={cab.id_cabang} className="bg-surface border border-outline-variant/40 rounded-2xl overflow-hidden shadow-sm">
+                    {/* Card Header */}
+                    <div
+                      onClick={() => setExpandedCabangId(isExpanded ? null : cab.id_cabang)}
+                      className="p-5 bg-surface-container-low/50 hover:bg-surface-container-low cursor-pointer transition-colors border-b border-outline-variant/30 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0">
+                          <Handshake className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-bold text-on-surface">{cab.nama_cabang}</h3>
+                            <span className="font-mono text-xs px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/40 text-on-surface-variant font-semibold">
+                              {cab.kode_cabang}
+                            </span>
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                              Cabang Investor
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-on-surface-variant mt-1.5 flex-wrap">
+                            <span>
+                              Nisbah: <strong className="text-on-surface">Al-Mubarok {cab.nisbah_pengelola}% : Investor {cab.nisbah_investor}%</strong>
+                            </span>
+                            <span>•</span>
+                            <span>
+                              Total Modal: <strong className="text-on-surface font-mono">{formatCurrency(cab.total_modal_investor)}</strong>
+                            </span>
+                            <span>•</span>
+                            <span>
+                              Konsorsium: <strong className="text-on-surface">{cab.investors.length} Investor</strong>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4 self-end md:self-auto">
+                        <div className="text-right">
+                          <span className="text-[10px] text-on-surface-variant block uppercase font-bold tracking-wider">Dividen Investor</span>
+                          <span className="text-base font-bold text-amber-600 dark:text-amber-400 font-mono">
+                            {formatCurrency(cab.hak_total_investor)}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors print:hidden"
+                        >
+                          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Financial Breakdown Grid */}
+                    <div className="p-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 bg-surface-container-lowest border-b border-outline-variant/20 font-mono text-xs">
+                      <div className="p-3 rounded-xl bg-surface border border-outline-variant/20">
+                        <span className="text-[10px] text-on-surface-variant font-sans font-semibold block uppercase">Penjualan Bersih</span>
+                        <strong className="text-xs text-on-surface block mt-1">{formatCurrency(cab.penjualan_bersih)}</strong>
+                      </div>
+                      <div className="p-3 rounded-xl bg-surface border border-outline-variant/20">
+                        <span className="text-[10px] text-on-surface-variant font-sans font-semibold block uppercase">HPP (POS)</span>
+                        <strong className="text-xs text-on-surface-variant block mt-1">{formatCurrency(cab.hpp)}</strong>
+                      </div>
+                      <div className="p-3 rounded-xl bg-surface border border-outline-variant/20">
+                        <span className="text-[10px] text-on-surface-variant font-sans font-semibold block uppercase">Laba Kotor</span>
+                        <strong className="text-xs text-primary block mt-1">{formatCurrency(cab.laba_kotor)}</strong>
+                      </div>
+                      <div className="p-3 rounded-xl bg-surface border border-outline-variant/20">
+                        <span className="text-[10px] text-on-surface-variant font-sans font-semibold block uppercase">Beban Operasional</span>
+                        <strong className="text-xs text-error block mt-1">{formatCurrency(cab.beban_operasional)}</strong>
+                      </div>
+                      <div className="p-3 rounded-xl bg-surface border border-outline-variant/20">
+                        <span className="text-[10px] text-on-surface-variant font-sans font-semibold block uppercase">Laba Operasional</span>
+                        <strong className={`text-xs block mt-1 ${cab.laba_operasional >= 0 ? "text-primary" : "text-error"}`}>
+                          {formatCurrency(cab.laba_operasional)}
+                        </strong>
+                      </div>
+                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/20">
+                        <span className="text-[10px] text-primary font-sans font-bold block uppercase">Hak Pengelola ({cab.nisbah_pengelola}%)</span>
+                        <strong className="text-xs text-primary block mt-1">{formatCurrency(cab.hak_pengelola)}</strong>
+                      </div>
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-sans font-bold block uppercase">Hak Investor ({cab.nisbah_investor}%)</span>
+                        <strong className="text-xs text-amber-600 dark:text-amber-400 block mt-1">{formatCurrency(cab.hak_total_investor)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Investor Detail Table (Shown if expanded or in print) */}
+                    <div className={`${isExpanded ? "block" : "hidden print:block"}`}>
+                      <div className="px-5 py-3 bg-surface-container-low border-b border-outline-variant/20 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-primary" />
+                          <span className="text-xs font-bold text-on-surface uppercase tracking-wide">
+                            Rincian Pembagian Dividen Anggota Konsorsium Investor
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-on-surface-variant font-mono">
+                          {cab.investors.length} Investor Terdaftar
+                        </span>
+                      </div>
+
+                      {cab.investors.length === 0 ? (
+                        <div className="p-8 text-center text-on-surface-variant text-xs">
+                          Belum ada data pemodal terdaftar untuk cabang ini. Daftarkan pemodal di menu Master Cabang.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="bg-surface-container-low/50 border-b border-outline-variant/30 text-on-surface-variant">
+                                <th className="px-5 py-3">Nama Investor</th>
+                                <th className="px-5 py-3">Kontak</th>
+                                <th className="px-5 py-3 text-right">Modal Disetor</th>
+                                <th className="px-5 py-3 text-center">Porsi (%)</th>
+                                <th className="px-5 py-3">Rekening Pencairan</th>
+                                <th className="px-5 py-3 text-right">Hak Bagi Hasil Periode Ini</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-outline-variant/15 font-mono">
+                              {cab.investors.map((inv, idx) => (
+                                <tr key={inv.id_cabang_investor || idx} className="hover:bg-surface-container-low/30 transition-colors">
+                                  <td className="px-5 py-3 font-sans font-bold text-on-surface">
+                                    {inv.nama_investor}
+                                  </td>
+                                  <td className="px-5 py-3 font-sans text-on-surface-variant text-[11px]">
+                                    <div>{inv.telepon || "-"}</div>
+                                    {inv.email && <div className="text-[10px] text-on-surface-variant/70">{inv.email}</div>}
+                                  </td>
+                                  <td className="px-5 py-3 text-right font-semibold text-on-surface">
+                                    {formatCurrency(inv.nilai_investasi)}
+                                  </td>
+                                  <td className="px-5 py-3 text-center">
+                                    <span className="px-2 py-0.5 rounded-full bg-surface-container-high border border-outline-variant/30 text-[11px] font-bold text-on-surface">
+                                      {Number(inv.porsi_kepemilikan).toFixed(2)}%
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-3 font-sans text-[11px]">
+                                    {inv.nama_bank ? (
+                                      <div>
+                                        <div className="font-semibold text-on-surface">{inv.nama_bank} - <span className="font-mono">{inv.no_rekening}</span></div>
+                                        <div className="text-[10px] text-on-surface-variant">a.n. {inv.atas_nama_rekening || inv.nama_investor}</div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-on-surface-variant/60 italic">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-3 text-right font-bold text-amber-600 dark:text-amber-400 text-sm">
+                                    {formatCurrency(inv.hak_bagi_hasil)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-surface-container-low font-mono font-bold border-t border-outline-variant/30 text-on-surface">
+                              <tr>
+                                <td colSpan={2} className="px-5 py-3 font-sans">Total Modal & Bagi Hasil Cabang</td>
+                                <td className="px-5 py-3 text-right">{formatCurrency(cab.total_modal_investor)}</td>
+                                <td className="px-5 py-3 text-center">100.00%</td>
+                                <td className="px-5 py-3"></td>
+                                <td className="px-5 py-3 text-right text-amber-600 dark:text-amber-400 text-sm">
+                                  {formatCurrency(cab.hak_total_investor)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
         </div>
       )}

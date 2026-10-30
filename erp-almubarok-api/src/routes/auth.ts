@@ -380,7 +380,7 @@ authRoutes.get("/app-settings", async (c) => {
     const settings = await db.select().from(pengaturan_aplikasi);
     const config: Record<string, string> = {
       app_name: "ERP Al-Mubarok",
-      company_name: "Yayasan Al-Mubarok",
+      company_name: "Sistem Manajemen Terpadu",
     };
     for (const item of settings) {
       config[item.key] = item.value;

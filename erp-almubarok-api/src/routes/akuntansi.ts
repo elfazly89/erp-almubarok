@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../lib/db";
-import { tipe_akun, daftar_akun, jurnal_umum, cabang, users, penjualan, penjualan_detail, periode_akuntansi } from "../lib/db/schema";
+import { tipe_akun, daftar_akun, jurnal_umum, cabang, cabang_investor, users, penjualan, penjualan_detail, periode_akuntansi } from "../lib/db/schema";
 import { eq, and, gte, lte, lt, sql, asc, desc } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
 
@@ -992,4 +992,165 @@ akuntansiRoutes.get("/dashboard-profit/rekonsiliasi", async (c) => {
     success: true,
     data: results,
   });
+});
+
+// ==========================================
+// 6. DASHBOARD BAGI HASIL CABANG INVESTOR
+// ==========================================
+akuntansiRoutes.get("/dashboard-profit/bagi-hasil", async (c) => {
+  try {
+    const startDate = c.req.query("startDate");
+    const endDate = c.req.query("endDate");
+    const idCabang = c.req.query("id_cabang");
+
+    // Filter cabang bertipe INVESTOR
+    const filterConds = [eq(cabang.jenis_cabang, "INVESTOR")];
+    if (idCabang && !isNaN(parseInt(idCabang))) {
+      filterConds.push(eq(cabang.id_cabang, parseInt(idCabang)));
+    }
+
+    const cabangInvestorList = await db
+      .select({
+        id_cabang: cabang.id_cabang,
+        kode_cabang: cabang.kode_cabang,
+        nama_cabang: cabang.nama_cabang,
+        jenis_cabang: cabang.jenis_cabang,
+        nisbah_pengelola: cabang.nisbah_pengelola,
+        nisbah_investor: cabang.nisbah_investor,
+        total_modal_investor: cabang.total_modal_investor,
+      })
+      .from(cabang)
+      .where(and(...filterConds))
+      .orderBy(cabang.nama_cabang);
+
+    const results = [];
+    let grandTotalModal = 0;
+    let grandTotalLabaOperasional = 0;
+    let grandTotalBagiHasilInvestor = 0;
+    let grandTotalBagiHasilPengelola = 0;
+
+    for (const cab of cabangInvestorList) {
+      const cabId = cab.id_cabang;
+
+      const salesCond = [eq(penjualan.id_cabang, cabId)];
+      if (startDate) salesCond.push(gte(penjualan.tanggal_invoice, startDate));
+      if (endDate) salesCond.push(lte(penjualan.tanggal_invoice, endDate));
+
+      const [salesPOS] = await db
+        .select({
+          bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS INTEGER)`,
+          diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS INTEGER)`,
+        })
+        .from(penjualan)
+        .where(and(...salesCond));
+
+      const hppCond = [eq(penjualan.id_cabang, cabId)];
+      if (startDate) hppCond.push(gte(penjualan.tanggal_invoice, startDate));
+      if (endDate) hppCond.push(lte(penjualan.tanggal_invoice, endDate));
+
+      const [hppPOS] = await db
+        .select({
+          total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS INTEGER)`,
+        })
+        .from(penjualan_detail)
+        .innerJoin(penjualan, eq(penjualan_detail.id_penjualan, penjualan.id_penjualan))
+        .where(and(...hppCond));
+
+      const journalCond = [eq(jurnal_umum.cabang_id, cabId)];
+      if (startDate) journalCond.push(gte(jurnal_umum.tanggal_transaksi, startDate));
+      if (endDate) journalCond.push(lte(jurnal_umum.tanggal_transaksi, endDate));
+
+      const [bebanOperasional] = await db
+        .select({
+          total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        })
+        .from(jurnal_umum)
+        .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
+        .where(and(eq(daftar_akun.tipe_akun_id, 6), ...journalCond));
+
+      const valBruto = salesPOS?.bruto || 0;
+      const valDiskon = salesPOS?.diskon || 0;
+      const valSalesBersih = valBruto - valDiskon;
+      const valHpp = hppPOS?.total_hpp || 0;
+      const valLabaKotor = valSalesBersih - valHpp;
+      const valBeban = bebanOperasional?.total || 0;
+      const valLabaOperasional = valLabaKotor - valBeban;
+
+      const nisbahPengelola = parseFloat(cab.nisbah_pengelola || "0") || 0;
+      const nisbahInvestor = parseFloat(cab.nisbah_investor || "0") || 0;
+
+      let hakPengelola = 0;
+      let hakTotalInvestor = 0;
+
+      if (valLabaOperasional > 0) {
+        hakPengelola = Math.round(valLabaOperasional * (nisbahPengelola / 100));
+        hakTotalInvestor = Math.round(valLabaOperasional * (nisbahInvestor / 100));
+      }
+
+      // Ambil daftar investor untuk cabang ini
+      const investors = await db
+        .select()
+        .from(cabang_investor)
+        .where(and(eq(cabang_investor.id_cabang, cabId), eq(cabang_investor.status, "AKTIF")))
+        .orderBy(desc(cabang_investor.nilai_investasi));
+
+      const investorDetails = investors.map((inv) => {
+        const porsi = parseFloat(inv.porsi_kepemilikan || "0") || 0;
+        const modal = parseFloat(inv.nilai_investasi || "0") || 0;
+        const hakBagiHasil = hakTotalInvestor > 0 ? Math.round(hakTotalInvestor * (porsi / 100)) : 0;
+
+        return {
+          id_cabang_investor: inv.id_cabang_investor,
+          nama_investor: inv.nama_investor,
+          telepon: inv.telepon,
+          email: inv.email,
+          nilai_investasi: modal,
+          porsi_kepemilikan: porsi,
+          hak_bagi_hasil: hakBagiHasil,
+          nama_bank: inv.nama_bank,
+          no_rekening: inv.no_rekening,
+          atas_nama_rekening: inv.atas_nama_rekening,
+          tanggal_bergabung: inv.tanggal_bergabung,
+        };
+      });
+
+      const totalModalCabang = parseFloat(cab.total_modal_investor || "0") || 0;
+
+      grandTotalModal += totalModalCabang;
+      grandTotalLabaOperasional += valLabaOperasional;
+      grandTotalBagiHasilInvestor += hakTotalInvestor;
+      grandTotalBagiHasilPengelola += hakPengelola;
+
+      results.push({
+        id_cabang: cab.id_cabang,
+        kode_cabang: cab.kode_cabang,
+        nama_cabang: cab.nama_cabang,
+        penjualan_bersih: valSalesBersih,
+        hpp: valHpp,
+        laba_kotor: valLabaKotor,
+        beban_operasional: valBeban,
+        laba_operasional: valLabaOperasional,
+        nisbah_pengelola: nisbahPengelola,
+        nisbah_investor: nisbahInvestor,
+        hak_pengelola: hakPengelola,
+        hak_total_investor: hakTotalInvestor,
+        total_modal_investor: totalModalCabang,
+        investors: investorDetails,
+      });
+    }
+
+    return c.json({
+      success: true,
+      summary: {
+        total_cabang_investor: cabangInvestorList.length,
+        total_modal_investor: grandTotalModal,
+        total_laba_operasional: grandTotalLabaOperasional,
+        total_bagi_hasil_investor: grandTotalBagiHasilInvestor,
+        total_bagi_hasil_pengelola: grandTotalBagiHasilPengelola,
+      },
+      data: results,
+    });
+  } catch (err: any) {
+    return c.json({ error: "Gagal memuat bagi hasil investor: " + err.message }, 500);
+  }
 });

@@ -177,7 +177,7 @@ export default function PengaturanAplikasiPage() {
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium"
-                  placeholder="Contoh: Pondok Pesantren Al-Mubarok"
+                  placeholder="Contoh: Sistem Manajemen Terpadu"
                   disabled={!can_update}
                 />
                 <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Nama instansi yang akan dicetak pada kop surat jalan, invoice pembelian, dan nota POS kasir.</span>

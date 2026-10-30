@@ -8,8 +8,17 @@ export const metadata: Metadata = {
     template: "%s — ERP Al-Mubarok",
     default: "ERP Al-Mubarok",
   },
-  description: "Sistem ERP terintegrasi Pondok Pesantren Al-Mubarok",
+  description: "Sistem ERP terintegrasi Al-Mubarok",
   keywords: ["ERP", "Al-Mubarok", "Pesantren", "Manajemen"],
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-icon.png" },
+    ],
+  },
 };
 
 export default function RootLayout({

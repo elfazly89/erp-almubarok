@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyToken, TOKEN_COOKIE } from "@/lib/auth/jwt";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/app-settings"];
 
 function addSecurityHeaders(response: NextResponse) {
   response.headers.set("X-Frame-Options", "DENY");
@@ -32,11 +32,12 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // Allow static files
+  // Allow static files and public assets
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    pathname.startsWith("/icons")
+    pathname.startsWith("/icons") ||
+    /\.(png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|eot)$/i.test(pathname)
   ) {
     return NextResponse.next();
   }

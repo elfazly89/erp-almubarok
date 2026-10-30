@@ -5,6 +5,7 @@ import {
   kategori_barang,
   supplier,
   cabang,
+  cabang_investor,
   pelanggan,
   stok_barang,
   users,
@@ -417,6 +418,11 @@ masterRoutes.get("/cabang", async (c) => {
         longitude: cabang.longitude,
         data_kode: cabang.data_kode,
         is_dc: cabang.is_dc,
+        jenis_cabang: cabang.jenis_cabang,
+        nisbah_pengelola: cabang.nisbah_pengelola,
+        nisbah_investor: cabang.nisbah_investor,
+        total_modal_investor: cabang.total_modal_investor,
+        jumlah_investor: sql<number>`(SELECT COUNT(*)::int FROM cabang_investor WHERE cabang_investor.id_cabang = ${cabang.id_cabang} AND cabang_investor.status = 'AKTIF')`,
       })
       .from(cabang)
       .leftJoin(users, eq(cabang.admin, users.id))
@@ -446,16 +452,6 @@ masterRoutes.post("/cabang", async (c) => {
       return c.json({ error: "Kode cabang sudah terdaftar pada cabang lain." }, 409);
     }
 
-    // 3. Validasi keunikan nama_cabang
-    const [existingNama] = await db
-      .select({ id: cabang.id_cabang })
-      .from(cabang)
-      .where(eq(cabang.nama_cabang, body.nama_cabang.trim()))
-      .limit(1);
-    if (existingNama) {
-      return c.json({ error: "Nama cabang sudah terdaftar pada cabang lain." }, 409);
-    }
-
     const [newCabang] = await db
       .insert(cabang)
       .values({
@@ -469,6 +465,10 @@ masterRoutes.post("/cabang", async (c) => {
         longitude: body.longitude || null,
         data_kode: body.data_kode || null,
         is_dc: body.is_dc ?? false,
+        jenis_cabang: body.jenis_cabang || "INTERNAL",
+        nisbah_pengelola: body.nisbah_pengelola !== undefined ? String(body.nisbah_pengelola) : "0",
+        nisbah_investor: body.nisbah_investor !== undefined ? String(body.nisbah_investor) : "0",
+        total_modal_investor: body.total_modal_investor !== undefined ? String(body.total_modal_investor) : "0",
       })
       .returning();
     return c.json(newCabang, 201);
@@ -501,16 +501,6 @@ masterRoutes.put("/cabang/:id", async (c) => {
       return c.json({ error: "Kode cabang sudah terdaftar pada cabang lain." }, 409);
     }
 
-    // 3. Validasi keunikan nama_cabang (kecuali cabang ini sendiri)
-    const [existingNama] = await db
-      .select({ id: cabang.id_cabang })
-      .from(cabang)
-      .where(and(eq(cabang.nama_cabang, body.nama_cabang.trim()), ne(cabang.id_cabang, id)))
-      .limit(1);
-    if (existingNama) {
-      return c.json({ error: "Nama cabang sudah terdaftar pada cabang lain." }, 409);
-    }
-
     await db
       .update(cabang)
       .set({
@@ -524,11 +514,165 @@ masterRoutes.put("/cabang/:id", async (c) => {
         longitude: body.longitude || null,
         data_kode: body.data_kode || null,
         is_dc: body.is_dc ?? false,
+        jenis_cabang: body.jenis_cabang || "INTERNAL",
+        nisbah_pengelola: body.nisbah_pengelola !== undefined ? String(body.nisbah_pengelola) : undefined,
+        nisbah_investor: body.nisbah_investor !== undefined ? String(body.nisbah_investor) : undefined,
+        total_modal_investor: body.total_modal_investor !== undefined ? String(body.total_modal_investor) : undefined,
       })
       .where(eq(cabang.id_cabang, id));
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: "Gagal memperbarui cabang: " + err.message }, 500);
+  }
+});
+
+// ==========================================
+// 4.1. KONSORSIUM INVESTOR CABANG
+// ==========================================
+masterRoutes.get("/cabang/:id/investor", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ error: "ID Cabang tidak valid" }, 400);
+
+    const data = await db
+      .select()
+      .from(cabang_investor)
+      .where(eq(cabang_investor.id_cabang, id))
+      .orderBy(desc(cabang_investor.id_cabang_investor));
+    return c.json(data);
+  } catch (err: any) {
+    return c.json({ error: "Gagal memuat investor: " + err.message }, 500);
+  }
+});
+
+masterRoutes.post("/cabang/:id/investor", async (c) => {
+  try {
+    const id_cabang = parseInt(c.req.param("id"));
+    if (isNaN(id_cabang)) return c.json({ error: "ID Cabang tidak valid" }, 400);
+
+    const body = await c.req.json();
+    if (!body.nama_investor?.trim()) {
+      return c.json({ error: "Nama investor wajib diisi" }, 400);
+    }
+
+    const [newInv] = await db
+      .insert(cabang_investor)
+      .values({
+        id_cabang,
+        nama_investor: body.nama_investor.trim(),
+        telepon: body.telepon?.trim() || null,
+        email: body.email?.trim() || null,
+        nilai_investasi: String(body.nilai_investasi || 0),
+        porsi_kepemilikan: String(body.porsi_kepemilikan || 0),
+        nama_bank: body.nama_bank?.trim() || null,
+        no_rekening: body.no_rekening?.trim() || null,
+        atas_nama_rekening: body.atas_nama_rekening?.trim() || null,
+        tanggal_bergabung: body.tanggal_bergabung || new Date().toISOString().slice(0, 10),
+        status: body.status || "AKTIF",
+        catatan: body.catatan?.trim() || null,
+      })
+      .returning();
+
+    // Recalculate total_modal_investor on cabang
+    const [sumModal] = await db
+      .select({ total: sql<string>`COALESCE(SUM(nilai_investasi), 0)` })
+      .from(cabang_investor)
+      .where(and(eq(cabang_investor.id_cabang, id_cabang), eq(cabang_investor.status, "AKTIF")));
+
+    await db
+      .update(cabang)
+      .set({ total_modal_investor: sumModal?.total || "0" })
+      .where(eq(cabang.id_cabang, id_cabang));
+
+    return c.json(newInv, 201);
+  } catch (err: any) {
+    return c.json({ error: "Gagal menambah investor: " + err.message }, 500);
+  }
+});
+
+masterRoutes.put("/cabang-investor/:id", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ error: "ID Investor tidak valid" }, 400);
+
+    const body = await c.req.json();
+    if (!body.nama_investor?.trim()) {
+      return c.json({ error: "Nama investor wajib diisi" }, 400);
+    }
+
+    const [existing] = await db
+      .select()
+      .from(cabang_investor)
+      .where(eq(cabang_investor.id_cabang_investor, id));
+    if (!existing) {
+      return c.json({ error: "Investor tidak ditemukan" }, 404);
+    }
+
+    await db
+      .update(cabang_investor)
+      .set({
+        nama_investor: body.nama_investor.trim(),
+        telepon: body.telepon !== undefined ? (body.telepon?.trim() || null) : undefined,
+        email: body.email !== undefined ? (body.email?.trim() || null) : undefined,
+        nilai_investasi: body.nilai_investasi !== undefined ? String(body.nilai_investasi) : undefined,
+        porsi_kepemilikan: body.porsi_kepemilikan !== undefined ? String(body.porsi_kepemilikan) : undefined,
+        nama_bank: body.nama_bank !== undefined ? (body.nama_bank?.trim() || null) : undefined,
+        no_rekening: body.no_rekening !== undefined ? (body.no_rekening?.trim() || null) : undefined,
+        atas_nama_rekening: body.atas_nama_rekening !== undefined ? (body.atas_nama_rekening?.trim() || null) : undefined,
+        status: body.status || undefined,
+        catatan: body.catatan !== undefined ? (body.catatan?.trim() || null) : undefined,
+        updated_at: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(cabang_investor.id_cabang_investor, id));
+
+    // Recalculate total_modal_investor
+    const [sumModal] = await db
+      .select({ total: sql<string>`COALESCE(SUM(nilai_investasi), 0)` })
+      .from(cabang_investor)
+      .where(and(eq(cabang_investor.id_cabang, existing.id_cabang), eq(cabang_investor.status, "AKTIF")));
+
+    await db
+      .update(cabang)
+      .set({ total_modal_investor: sumModal?.total || "0" })
+      .where(eq(cabang.id_cabang, existing.id_cabang));
+
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: "Gagal memperbarui investor: " + err.message }, 500);
+  }
+});
+
+masterRoutes.delete("/cabang-investor/:id", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ error: "ID Investor tidak valid" }, 400);
+
+    const [existing] = await db
+      .select()
+      .from(cabang_investor)
+      .where(eq(cabang_investor.id_cabang_investor, id));
+    if (!existing) {
+      return c.json({ error: "Investor tidak ditemukan" }, 404);
+    }
+
+    await db
+      .delete(cabang_investor)
+      .where(eq(cabang_investor.id_cabang_investor, id));
+
+    // Recalculate total_modal_investor
+    const [sumModal] = await db
+      .select({ total: sql<string>`COALESCE(SUM(nilai_investasi), 0)` })
+      .from(cabang_investor)
+      .where(and(eq(cabang_investor.id_cabang, existing.id_cabang), eq(cabang_investor.status, "AKTIF")));
+
+    await db
+      .update(cabang)
+      .set({ total_modal_investor: sumModal?.total || "0" })
+      .where(eq(cabang.id_cabang, existing.id_cabang));
+
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: "Gagal menghapus investor: " + err.message }, 500);
   }
 });
 

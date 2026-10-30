@@ -383,7 +383,7 @@ export default function BisyarohPage() {
             <Wallet className="w-8 h-8 text-primary" /> Bisyaroh (Penggajian)
           </h1>
           <p className="text-on-background/70 text-sm mt-1">
-            Manajemen dan proses slip gaji abdi pondok pesantren
+            Manajemen dan proses slip gaji abdi Al-Mubarok
           </p>
         </div>
 
@@ -923,7 +923,7 @@ export default function BisyarohPage() {
                   <Logo size="sm" className="w-14 h-14 border-0 shadow-none bg-transparent" />
                   <div>
                     <h2 className="text-xl font-extrabold text-primary uppercase tracking-wide">PERUSAHAAN AL-MUBAROK</h2>
-                    <p className="text-xs text-on-surface-variant/80 mt-1 font-semibold">Pondok Pesantren Al-Mubarok Sukowono Jember</p>
+                    <p className="text-xs text-on-surface-variant/80 mt-1 font-semibold">Al-Mubarok Sukowono Jember</p>
                     <p className="text-[10px] text-on-surface-variant/60">Jl. Kyai Haji Achmad Shiddiq No. 12, Sukowono</p>
                   </div>
                 </div>

@@ -723,7 +723,7 @@ pengaturanRoutes.get("/aplikasi", async (c) => {
     const settings = await db.select().from(pengaturan_aplikasi);
     const config: Record<string, string> = {
       app_name: "ERP Al-Mubarok",
-      company_name: "Yayasan Al-Mubarok",
+      company_name: "Sistem Manajemen Terpadu",
       cash_approval_threshold: "500000",
       coa_kategori_penjualan: "7",
       coa_kategori_operasional: "10",

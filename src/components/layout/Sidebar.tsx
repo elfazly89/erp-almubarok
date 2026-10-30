@@ -226,7 +226,7 @@ function SidebarContent({
             isVisualCollapsed ? "opacity-0 max-w-0 scale-0 pointer-events-none" : "opacity-100 max-w-[200px] scale-100"
           )}>
             <p className="font-bold text-on-surface text-sm leading-tight truncate">{settings.app_name}</p>
-            <p className="text-on-surface-variant text-[10px] tracking-wider font-semibold">Sistem Manajemen</p>
+            <p className="text-on-surface-variant text-[10px] tracking-wider font-semibold">Sistem Manajemen Terpadu</p>
           </div>
         </div>
       </div>

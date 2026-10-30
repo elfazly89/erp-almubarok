@@ -60,7 +60,7 @@ const guides: Record<string, PageGuide> = {
   },
   "/hrd/jabatan": {
     title: "Daftar Jabatan",
-    description: "Mengelola struktur jabatan organisasi di lingkungan pondok pesantren.",
+    description: "Mengelola struktur jabatan organisasi di lingkungan Al-Mubarok.",
     workflow: [
       "Klik 'Tambah Jabatan' untuk mendefinisikan peran baru.",
       "Edit nama jabatan jika ada perubahan struktur.",
@@ -88,7 +88,7 @@ const guides: Record<string, PageGuide> = {
   },
   "/hrd/hari-libur": {
     title: "Hari Libur",
-    description: "Pencatatan tanggal merah atau hari libur internal pondok pesantren.",
+    description: "Pencatatan tanggal merah atau hari libur internal Al-Mubarok.",
     workflow: [
       "Daftarkan hari libur nasional atau libur khusus pesantren dengan memilih tanggal.",
       "Hapus hari libur jika terjadi pembatalan jadwal."

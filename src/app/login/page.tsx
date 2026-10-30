@@ -61,7 +61,7 @@ export default function LoginPage() {
         <div className={`bg-surface backdrop-blur-xl border border-outline-variant/60 rounded-2xl shadow-2xl p-8 transition-all duration-300 ${shouldShake ? "animate-shake" : ""}`}>
           {/* Logo & Title */}
           <div className="text-center mb-8">
-            <Logo size="lg" className="mx-auto mb-4 hover:scale-105 transition-transform duration-300 shadow-lg" />
+            <Logo size="lg" className="mx-auto mb-4 hover:scale-105 transition-transform duration-300 drop-shadow-md" />
             <h1 className="text-2xl font-bold text-on-surface">{settings.app_name}</h1>
             <p className="text-on-surface-variant text-sm mt-1">
               {settings.company_name}
@@ -83,7 +83,7 @@ export default function LoginPage() {
                 htmlFor="kode_user"
                 className="block text-sm font-medium text-on-surface-variant mb-2"
               >
-                Kode User
+                User
               </label>
               <input
                 id="kode_user"
@@ -93,7 +93,7 @@ export default function LoginPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, kode_user: e.target.value }))
                 }
-                placeholder="Masukkan kode user"
+                placeholder="Masukkan user"
                 required
                 minLength={3}
                 maxLength={50}
@@ -160,7 +160,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-on-surface-variant/60 text-xs mt-8">
-            © {new Date().getFullYear()} Pondok Pesantren Al-Mubarok
+            © {new Date().getFullYear()} Al-Mubarok
           </p>
         </div>
       </div>

@@ -192,7 +192,7 @@ export default function UsersPage() {
         "1995-08-20",
         "3525012345678901",
         "S1 PAI",
-        "Pondok Pesantren Al-Mubarok",
+        "Al-Mubarok",
         "Staf TU MA",
         "Staf Admin",
         "Pusat",

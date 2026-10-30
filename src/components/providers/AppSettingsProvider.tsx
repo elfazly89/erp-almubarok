@@ -18,7 +18,7 @@ const AppSettingsContext = createContext<AppSettingsContextType | undefined>(und
 export function AppSettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>({
     app_name: "ERP Al-Mubarok",
-    company_name: "Yayasan Al-Mubarok",
+    company_name: "Sistem Manajemen Terpadu",
   });
   const [loading, setLoading] = useState(true);
 
@@ -30,7 +30,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
         if (result.success && result.data) {
           setSettings({
             app_name: result.data.app_name || "ERP Al-Mubarok",
-            company_name: result.data.company_name || "Yayasan Al-Mubarok",
+            company_name: result.data.company_name || "Sistem Manajemen Terpadu",
           });
         }
       }
