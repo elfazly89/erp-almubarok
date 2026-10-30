@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 3OFAz6rAlj7pbATCUx1hFU6NtJ1ZDhMdptGsCyRmP9itYgBl0qjikf25G3OPyvP
+-- \restrict 3OFAz6rAlj7pbATCUx1hFU6NtJ1ZDhMdptGsCyRmP9itYgBl0qjikf25G3OPyvP
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 17.10
@@ -9181,5 +9181,5 @@ ALTER TABLE ONLY public.stok_setting_cabang
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3OFAz6rAlj7pbATCUx1hFU6NtJ1ZDhMdptGsCyRmP9itYgBl0qjikf25G3OPyvP
+-- \unrestrict 3OFAz6rAlj7pbATCUx1hFU6NtJ1ZDhMdptGsCyRmP9itYgBl0qjikf25G3OPyvP
 

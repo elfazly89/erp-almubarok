@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: erp-postgres
     restart: unless-stopped
     environment:
@@ -15,10 +15,11 @@ services:
     # ports:
     #   - "127.0.0.1:5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d erp_almubarok"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-erp_almubarok}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 15
+      start_period: 30s
     mem_limit: 1024m
     logging:
       driver: "json-file"
