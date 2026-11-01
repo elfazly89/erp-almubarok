@@ -5,6 +5,20 @@ const apiBackendUrl = process.env.API_BACKEND_URL || "http://localhost:3001";
 const nextConfig: NextConfig = {
   // Better-sqlite3 is a native module, exclude from client bundle
   serverExternalPackages: ["better-sqlite3"],
+  async redirects() {
+    return [
+      {
+        source: "/kas/shift",
+        destination: "/hrd/shift-kasir",
+        permanent: true,
+      },
+      {
+        source: "/kas/shift/laporan",
+        destination: "/hrd/shift-kasir/laporan",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

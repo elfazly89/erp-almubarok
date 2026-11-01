@@ -11,7 +11,8 @@ import {
   users,
   penjualan,
   pengaturan_aplikasi,
-  kasir_jadwal
+  kasir_jadwal,
+  jadwal_karyawan
 } from "../lib/db/schema";
 import { eq, and, desc, gte, lte, sql, or, between, lt, asc } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
@@ -573,20 +574,39 @@ kasRoutes.post("/shift/buka", async (c) => {
       return c.json({ success: false, error: "Rekening kas tidak valid" }, 400);
     }
 
-    // Validate cashier schedule for today
+    // Validate cashier schedule for today in unified jadwal_karyawan (with fallback to kasir_jadwal)
     const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split("T")[0];
-    const scheduled = await db
+    let scheduled = await db
       .select()
-      .from(kasir_jadwal)
+      .from(jadwal_karyawan)
       .where(
         and(
-          eq(kasir_jadwal.id_kasir, idUser),
-          eq(kasir_jadwal.id_cabang, idCabang),
-          eq(kasir_jadwal.tanggal, today),
-          eq(kasir_jadwal.aktif, true)
+          eq(jadwal_karyawan.user_id, idUser),
+          eq(jadwal_karyawan.id_cabang, idCabang),
+          eq(jadwal_karyawan.tanggal, today),
+          eq(jadwal_karyawan.aktif, true),
+          eq(jadwal_karyawan.status_hari, "KERJA")
         )
       )
       .limit(1);
+
+    if (scheduled.length === 0) {
+      const fallback = await db
+        .select()
+        .from(kasir_jadwal)
+        .where(
+          and(
+            eq(kasir_jadwal.id_kasir, idUser),
+            eq(kasir_jadwal.id_cabang, idCabang),
+            eq(kasir_jadwal.tanggal, today),
+            eq(kasir_jadwal.aktif, true)
+          )
+        )
+        .limit(1);
+      if (fallback.length > 0) {
+        scheduled = fallback as any;
+      }
+    }
 
     if (scheduled.length === 0) {
       return c.json({

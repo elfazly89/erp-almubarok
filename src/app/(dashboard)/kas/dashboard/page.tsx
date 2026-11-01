@@ -247,7 +247,7 @@ export default function KasDashboardPage() {
               <span className="text-xs font-semibold text-on-surface-variant uppercase block">Pintasan Cepat</span>
               <div className="grid grid-cols-2 gap-3 text-xs font-semibold">
                 <Link
-                  href="/kas/shift"
+                  href="/hrd/shift-kasir"
                   className="p-3 bg-surface-container hover:bg-surface-container-high border border-outline-variant/30 rounded-xl text-center block transition text-on-surface"
                 >
                   <Clock className="w-5 h-5 text-primary mx-auto mb-1.5" />

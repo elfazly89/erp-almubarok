@@ -29,6 +29,7 @@ import { userRoutes } from "./routes/user";
 import { kasRoutes } from "./routes/kas";
 import { supplyChainRoutes } from "./routes/supply-chain";
 import { dashboardRoutes } from "./routes/dashboard";
+import { investorRoutes } from "./routes/investor";
 import { startDailyProductLevelScheduler } from "./services/product-level.service";
 
 const app = new Hono().basePath("/api");
@@ -79,6 +80,7 @@ app.route("/promo", promoRoutes);
 app.route("/voucher", voucherRoutes);
 app.route("/user", userRoutes);
 app.route("/dashboard", dashboardRoutes);
+app.route("/investor", investorRoutes);
 
 // Mobile endpoints (protected — memerlukan access_token di header Authorization)
 app.route("/mobile", mobileRoutes);
@@ -119,6 +121,7 @@ async function ensureDatabaseSchema() {
 
       -- 3. Tabel Barang & Stok
       ALTER TABLE barang 
+        ADD COLUMN IF NOT EXISTS kode_barang text,
         ADD COLUMN IF NOT EXISTS level_barang text DEFAULT 'MEDIUM',
         ADD COLUMN IF NOT EXISTS level_mode text DEFAULT 'AUTO',
         ADD COLUMN IF NOT EXISTS terakhir_terjual text,
@@ -126,6 +129,13 @@ async function ensureDatabaseSchema() {
         ADD COLUMN IF NOT EXISTS lapor_pajak boolean DEFAULT true;
 
       ALTER TABLE stok_barang 
+        ADD COLUMN IF NOT EXISTS stok_akhir integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS minimal_stok integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS maksimal_stok integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS posisi_rak text,
+        ADD COLUMN IF NOT EXISTS penjualan integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS transfer_masuk integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS transfer_keluar integer DEFAULT 0,
         ADD COLUMN IF NOT EXISTS level_cabang text DEFAULT 'MEDIUM',
         ADD COLUMN IF NOT EXISTS terakhir_terjual_cabang text;
 
@@ -343,11 +353,14 @@ async function ensureDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_barang_level ON barang (level_barang);
       CREATE INDEX IF NOT EXISTS idx_barang_lapor_pajak ON barang (lapor_pajak);
       CREATE INDEX IF NOT EXISTS idx_stok_barang_cabang ON stok_barang (id_barang, id_cabang);
+      CREATE INDEX IF NOT EXISTS idx_stok_kritis ON stok_barang (id_cabang, stok_akhir);
       CREATE INDEX IF NOT EXISTS idx_stok_level_cabang ON stok_barang (level_cabang);
       CREATE INDEX IF NOT EXISTS idx_users_cabang ON users (id_cabang);
       CREATE INDEX IF NOT EXISTS idx_penjualan_id_cabang ON penjualan (id_cabang);
+      CREATE INDEX IF NOT EXISTS idx_penjualan_tgl_cbg ON penjualan (tanggal_invoice, id_cabang);
       CREATE INDEX IF NOT EXISTS idx_kartu_stok_barang ON kartu_stok (id_barang, id_cabang);
       CREATE INDEX IF NOT EXISTS idx_barang_batch_cabang ON barang_batch (id_barang, id_cabang);
+      CREATE INDEX IF NOT EXISTS idx_barang_batch_exp ON barang_batch (id_cabang, tanggal_kadaluarsa);
     `);
     console.log("✅ Integritas skema database PostgreSQL (kolom, tabel enterprise & indeks performa) terverifikasi.");
   } catch (err: any) {
@@ -355,11 +368,20 @@ async function ensureDatabaseSchema() {
   }
 }
 
-serve({
-  fetch: app.fetch,
-  port: 3001
-}, async (info) => {
-  console.log(`🚀 ERP Al Mubarok Hono API running on http://localhost:${info.port}/api`);
+async function startServer() {
   await ensureDatabaseSchema();
-  startDailyProductLevelScheduler();
+  serve(
+    {
+      fetch: app.fetch,
+      port: 3001,
+    },
+    (info) => {
+      console.log(`🚀 ERP Al Mubarok Hono API running on http://localhost:${info.port}/api`);
+      startDailyProductLevelScheduler();
+    }
+  );
+}
+
+startServer().catch((err) => {
+  console.error("❌ Gagal memulai server ERP API:", err);
 });

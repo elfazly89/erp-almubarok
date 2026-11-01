@@ -135,7 +135,15 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
           });
           setLastUpdated(timeStr);
         } else {
-          setErrorMsg(resData.error || "Gagal memuat data dashboard");
+          const rawErr = String(resData?.error || "");
+          const isSqlErr =
+            rawErr.toLowerCase().includes("failed query") ||
+            rawErr.toLowerCase().includes("select ") ||
+            rawErr.toLowerCase().includes("syntax error");
+          const friendly = isSqlErr
+            ? "Gagal memuat beberapa data statistik dashboard. Silakan coba lagi."
+            : rawErr || "Gagal memuat data dashboard";
+          setErrorMsg(friendly);
         }
       } catch (err: any) {
         setErrorMsg("Koneksi terputus ke server API");

@@ -276,7 +276,7 @@ export default function KasTransaksiPage() {
           <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
           <div className="space-y-1">
             <strong className="font-semibold block">Shift Kasir Belum Dibuka!</strong>
-            <span>Anda belum membuka shift kasir hari ini. Silakan buka shift terlebih dahulu di menu <a href="/kas/shift" className="underline font-bold hover:text-amber-700">Shift Kasir</a> sebelum mencatat mutasi kas atau melakukan transaksi POS.</span>
+            <span>Anda belum membuka shift kasir hari ini. Silakan buka shift terlebih dahulu di menu <a href="/hrd/shift-kasir" className="underline font-bold hover:text-amber-700">Shift Kasir</a> sebelum mencatat mutasi kas atau melakukan transaksi POS.</span>
           </div>
         </div>
       )}

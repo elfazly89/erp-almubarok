@@ -60,7 +60,8 @@ export default function SelisihPengirimanPage() {
   const [quantitiesReceived, setQuantitiesReceived] = useState<{ [key: number]: string }>({});
   const [discrepancyTypes, setDiscrepancyTypes] = useState<{ [key: number]: string }>({});
   const [discrepancyReasons, setDiscrepancyReasons] = useState<{ [key: number]: string }>({});
-  const [simulatedPhotoUploaded, setSimulatedPhotoUploaded] = useState<{ [key: number]: boolean }>({});
+  const [photoProofs, setPhotoProofs] = useState<{ [key: number]: string }>({});
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   
   const [pemeriksaName, setPemeriksaName] = useState("");
   const [waktuCek] = useState(new Date().toISOString().slice(0, 16).replace("T", " "));
@@ -148,8 +149,8 @@ export default function SelisihPengirimanPage() {
   // Select shipment to verify
   const currentSj = shipmentsToCheck.find((s) => s.id.toString() === selectedSjId);
 
-  // Barcode Scanner Simulator
-  const simulateBarcodeScan = (itemId: number, maxQty: number) => {
+  // Barcode / Counter Increment
+  const incrementReceivedQty = (itemId: number, maxQty: number) => {
     const currentQtyVal = quantitiesReceived[itemId] || "0";
     const nextQty = Math.min(maxQty, parseInt(currentQtyVal) + 1);
     setQuantitiesReceived((prev) => ({
@@ -158,11 +159,48 @@ export default function SelisihPengirimanPage() {
     }));
   };
 
-  const handleTogglePhotoSimulation = (itemId: number) => {
-    setSimulatedPhotoUploaded((prev) => ({
-      ...prev,
-      [itemId]: !prev[itemId],
-    }));
+  // Real photo upload handler with canvas compression
+  const handlePhotoUpload = (itemId: number, file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      triggerNotification("error", "Ukuran foto maksimal 5MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 800;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+        setPhotoProofs((prev) => ({ ...prev, [itemId]: compressedBase64 }));
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = (itemId: number) => {
+    setPhotoProofs((prev) => {
+      const copy = { ...prev };
+      delete copy[itemId];
+      return copy;
+    });
   };
 
   const triggerNotification = (type: "success" | "error", message: string) => {
@@ -190,7 +228,7 @@ export default function SelisihPengirimanPage() {
           jumlahDiterima: qtyTerima,
           jenisSelisih: diff !== 0 ? (discrepancyTypes[item.id] || (diff > 0 ? "KURANG" : "LEBIH")) : undefined,
           alasan: diff !== 0 ? (discrepancyReasons[item.id] || "Pengecekan fisik manual") : undefined,
-          fotoBukti: diff !== 0 ? (simulatedPhotoUploaded[item.id] ? `Bukti_Foto_${item.id}.jpg` : "Tidak ada foto") : undefined,
+          fotoBukti: diff !== 0 ? (photoProofs[item.id] || "Tidak ada foto") : undefined,
         };
       });
 
@@ -211,7 +249,7 @@ export default function SelisihPengirimanPage() {
         setQuantitiesReceived({});
         setDiscrepancyTypes({});
         setDiscrepancyReasons({});
-        setSimulatedPhotoUploaded({});
+        setPhotoProofs({});
         await fetchQueuedShipments();
       } else {
         triggerNotification("error", json.message || "Gagal menyimpan hasil pemeriksaan.");
@@ -410,11 +448,11 @@ export default function SelisihPengirimanPage() {
                                 <td className="px-4 py-3 text-right">
                                   <div className="flex items-center justify-end gap-1.5">
                                     <button
-                                      onClick={() => simulateBarcodeScan(item.id, qtyKirim)}
+                                      onClick={() => incrementReceivedQty(item.id, qtyKirim)}
                                       className="p-1 bg-primary/10 hover:bg-primary/20 text-primary rounded transition-colors flex items-center gap-1 text-[10px] font-bold cursor-pointer"
-                                      title="Simulasikan Scan Barcode"
+                                      title="Tambah Jumlah Diterima (+1)"
                                     >
-                                      <QrCode className="w-3.5 h-3.5" /> Scan
+                                      <QrCode className="w-3.5 h-3.5" /> +1
                                     </button>
                                     <input
                                       type="number"
@@ -452,17 +490,43 @@ export default function SelisihPengirimanPage() {
                                 <td className="px-4 py-3">
                                   {isDiscrepant ? (
                                     <div className="space-y-1.5">
-                                      <button
-                                        onClick={() => handleTogglePhotoSimulation(item.id)}
-                                        className={`flex items-center justify-center gap-1 border px-2 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer ${
-                                          simulatedPhotoUploaded[item.id]
-                                            ? "bg-success/10 text-success border-success/30"
-                                            : "bg-surface hover:bg-surface-container-high text-on-surface-variant border-outline-variant"
-                                        }`}
-                                      >
-                                        <Camera className="w-3.5 h-3.5" />
-                                        {simulatedPhotoUploaded[item.id] ? "Foto Bukti Terunggah" : "Simulasikan Foto Bukti"}
-                                      </button>
+                                      {photoProofs[item.id] ? (
+                                        <div className="flex items-center gap-2">
+                                          <img
+                                            src={photoProofs[item.id]}
+                                            alt="Bukti"
+                                            className="w-8 h-8 object-cover rounded-lg border border-outline-variant cursor-pointer hover:opacity-80"
+                                            onClick={() => setViewingPhoto(photoProofs[item.id])}
+                                            title="Klik untuk perbesar"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemovePhoto(item.id)}
+                                            className="text-[10px] text-error hover:underline font-semibold cursor-pointer"
+                                          >
+                                            Hapus
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <input
+                                            type="file"
+                                            accept="image/*"
+                                            capture="environment"
+                                            id={`photo-input-${item.id}`}
+                                            className="hidden"
+                                            onChange={(e) => handlePhotoUpload(item.id, e.target.files?.[0])}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => document.getElementById(`photo-input-${item.id}`)?.click()}
+                                            className="flex items-center justify-center gap-1 border px-2 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer bg-surface hover:bg-surface-container-high text-on-surface-variant border-outline-variant"
+                                          >
+                                            <Camera className="w-3.5 h-3.5" />
+                                            Ambil / Upload Foto
+                                          </button>
+                                        </>
+                                      )}
                                       <input
                                         type="text"
                                         placeholder="Catatan alasan selisih..."
@@ -603,7 +667,16 @@ export default function SelisihPengirimanPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-on-surface-variant block">Petugas: <strong>{caseReport.pemeriksa}</strong></span>
-                          <span className="text-[9px] text-primary block hover:underline cursor-pointer">{caseReport.fotoBukti}</span>
+                          {caseReport.fotoBukti && caseReport.fotoBukti !== "Tidak ada foto" ? (
+                            <button
+                              onClick={() => setViewingPhoto(caseReport.fotoBukti)}
+                              className="text-[10px] text-primary hover:underline font-bold flex items-center gap-1 mt-0.5 cursor-pointer"
+                            >
+                              <Camera className="w-3 h-3" /> Lihat Foto Bukti
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-on-surface-variant block">Tidak ada foto</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold border ${
@@ -642,6 +715,46 @@ export default function SelisihPengirimanPage() {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Photo Preview Modal */}
+      {viewingPhoto && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-xs animate-in fade-in"
+          onClick={() => setViewingPhoto(null)}
+        >
+          <div
+            className="bg-surface border border-outline-variant/60 rounded-2xl max-w-lg w-full max-h-[85vh] overflow-hidden p-4 shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
+              <span className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-primary" /> Foto Bukti Pemeriksaan
+              </span>
+              <button
+                onClick={() => setViewingPhoto(null)}
+                className="text-on-surface-variant hover:text-on-surface text-xs font-bold px-2 py-1 rounded-lg hover:bg-surface-container"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="py-3 flex justify-center bg-black/10 rounded-xl my-2">
+              <img
+                src={viewingPhoto}
+                alt="Foto Bukti"
+                className="max-h-[60vh] max-w-full object-contain rounded-lg"
+              />
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setViewingPhoto(null)}
+                className="bg-primary hover:bg-primary-container text-on-primary px-4 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}

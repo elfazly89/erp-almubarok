@@ -30,15 +30,6 @@ interface ForecastItem {
   lastUpdate: string;
 }
 
-// Fallback mock data
-const MOCK_FORECAST: ForecastItem[] = [
-  { id: 1, id_barang: 1, id_cabang: 1, barang: "Minyak Goreng Sunco 2L", barcode: "8991234567890", kategori: "Sembako", cabang: "SUKOWONO", stok: 12, ads: 8.5, estimasiHabisHari: 1, tanggalHabis: "—", status: "KRITIS", lastUpdate: "—" },
-  { id: 2, id_barang: 2, id_cabang: 2, barang: "Beras Cap Mangkok 5kg", barcode: "8992345678901", kategori: "Sembako", cabang: "KALISAT", stok: 8, ads: 4.2, estimasiHabisHari: 1, tanggalHabis: "—", status: "KRITIS", lastUpdate: "—" },
-  { id: 3, id_barang: 3, id_cabang: 3, barang: "Gula Pasir Gulaku 1kg", barcode: "8990123456789", kategori: "Sembako", cabang: "PONPES", stok: 25, ads: 10.0, estimasiHabisHari: 2, tanggalHabis: "—", status: "PERHATIAN", lastUpdate: "—" },
-  { id: 4, id_barang: 4, id_cabang: 4, barang: "Aqua Gelas Dus", barcode: "8993456789012", kategori: "Minuman", cabang: "LEDOKOMBO", stok: 18, ads: 6.0, estimasiHabisHari: 3, tanggalHabis: "—", status: "PERHATIAN", lastUpdate: "—" },
-  { id: 5, id_barang: 5, id_cabang: 5, barang: "Indomie Goreng Spesial", barcode: "8994567890123", kategori: "Mie Instan", cabang: "GUNUNG MALANG", stok: 45, ads: 12.5, estimasiHabisHari: 3, tanggalHabis: "—", status: "PERHATIAN", lastUpdate: "—" },
-];
-
 export default function ForecastStokPage() {
   const [search, setSearch] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("Semua Cabang");
@@ -48,7 +39,6 @@ export default function ForecastStokPage() {
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
-  const [usingMock, setUsingMock] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -57,16 +47,11 @@ export default function ForecastStokPage() {
       const res = await fetch(`/api/distribusi/forecast?${params}`);
       const json = await res.json();
 
-      if (json.success && json.data?.length > 0) {
+      if (json.success && Array.isArray(json.data)) {
         setData(json.data);
-        setUsingMock(false);
-      } else {
-        setData(MOCK_FORECAST);
-        setUsingMock(true);
       }
-    } catch {
-      setData(MOCK_FORECAST);
-      setUsingMock(true);
+    } catch (err) {
+      console.error("Gagal memuat forecast stok:", err);
     } finally {
       setLoading(false);
     }
@@ -117,11 +102,6 @@ export default function ForecastStokPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {usingMock && (
-            <span className="text-[10px] bg-warning/10 text-warning border border-warning/20 px-2 py-1 rounded-full font-bold">
-              Data Simulasi
-            </span>
-          )}
           <button
             onClick={handleRecalculate}
             disabled={calculating}

@@ -38,7 +38,10 @@ import {
   Banknote,
   TrendingUp,
   Sparkles,
-  Receipt
+  Receipt,
+  Landmark,
+  PieChart,
+  ClipboardCheck
 } from "lucide-react";
 import { useAppSettings } from "@/components/providers/AppSettingsProvider";
 
@@ -63,7 +66,8 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Absensi", href: "/hrd/absensi", icon: <UserCheck className="w-4 h-4" /> },
       { label: "Shift Kasir", href: "/hrd/shift-kasir", icon: <Clock className="w-4 h-4" /> },
       { label: "Laporan Shift", href: "/hrd/shift-kasir/laporan", icon: <FileText className="w-4 h-4" /> },
-      { label: "Jadwal Kasir", href: "/hrd/jadwal-kasir", icon: <CalendarDays className="w-4 h-4" /> },
+      { label: "Jadwal Shift Global", href: "/hrd/jadwal-karyawan", icon: <CalendarDays className="w-4 h-4" /> },
+      { label: "Jadwal Kasir", href: "/hrd/jadwal-kasir", icon: <Clock className="w-4 h-4" /> },
       { label: "Jabatan", href: "/hrd/jabatan", icon: <FileText className="w-4 h-4" /> },
       { label: "Jam Kerja", href: "/hrd/jam-kerja", icon: <Clock className="w-4 h-4" /> },
       { label: "Hari Libur", href: "/hrd/hari-libur", icon: <CalendarOff className="w-4 h-4" /> },
@@ -80,6 +84,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Kategori", href: "/kategori", icon: <FileText className="w-4 h-4" /> },
       { label: "Supplier", href: "/supplier", icon: <Users className="w-4 h-4" /> },
       { label: "Stok Barang", href: "/stok", icon: <Layers className="w-4 h-4" /> },
+      { label: "Stock Opname Fisik", href: "/barang/stok-opname", icon: <ClipboardCheck className="w-4 h-4" /> },
     ],
   },
   {
@@ -145,6 +150,17 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Transfer Kas", href: "/kas/transfer", icon: <Send className="w-4 h-4" /> },
       { label: "Rekonsiliasi", href: "/kas/rekonsiliasi", icon: <FileText className="w-4 h-4" /> },
       { label: "Laporan Kas", href: "/kas/laporan", icon: <FileText className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Manajemen Investor",
+    icon: <Landmark className="w-5 h-5 text-amber-500" />,
+    children: [
+      { label: "Dasbor Investor", href: "/investor", icon: <LayoutDashboard className="w-4 h-4" /> },
+      { label: "Profil & Pengaturan", href: "/investor/profil", icon: <Sliders className="w-4 h-4" /> },
+      { label: "Transaksi Modal", href: "/investor/transaksi", icon: <Wallet className="w-4 h-4" /> },
+      { label: "Pembagian Bagi Hasil", href: "/investor/bagi-hasil", icon: <TrendingUp className="w-4 h-4 text-emerald-500" /> },
+      { label: "Buku Pembantu Modal", href: "/investor/buku-pembantu", icon: <FileText className="w-4 h-4" /> },
     ],
   },
   {

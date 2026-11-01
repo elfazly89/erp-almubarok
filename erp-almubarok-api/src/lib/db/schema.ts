@@ -889,6 +889,50 @@ export const kasir_jadwal = pgTable("kasir_jadwal", {
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
 
+// ─── JADWAL KARYAWAN GLOBAL ──────────────────────────────────────────────────
+export const jadwal_karyawan = pgTable("jadwal_karyawan", {
+  id: serial("id").primaryKey(),
+  user_id: integer("user_id").references(() => users.id).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  id_jabatan: integer("id_jabatan").references(() => jabatan.id_jabatan).notNull(),
+  id_shift: integer("id_shift").references(() => jam_kerja.id),
+  tanggal: text("tanggal").notNull(), // Format YYYY-MM-DD
+  status_hari: text("status_hari").default("KERJA").notNull(), // 'KERJA' | 'LIBUR_ROSTER' | 'CUTI' | 'HARI_LIBUR_NASIONAL'
+  catatan: text("catatan"),
+  aktif: boolean("aktif").default(true).notNull(),
+  created_by: integer("created_by").references(() => users.id),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── JABATAN SHIFT CONFIG ────────────────────────────────────────────────────
+export const jabatan_shift_config = pgTable("jabatan_shift_config", {
+  id: serial("id").primaryKey(),
+  id_jabatan: integer("id_jabatan").references(() => jabatan.id_jabatan).notNull().unique(),
+  tipe_kerja: text("tipe_kerja").notNull(), // 'NON_SHIFT' | 'SHIFT_ROTASI'
+  default_id_shift: integer("default_id_shift").references(() => jam_kerja.id),
+  hari_kerja_aktif: text("hari_kerja_aktif").default("1,2,3,4,5,6").notNull(), // 1=Senin s/d 6=Sabtu (0=Ahad libur)
+  keterangan: text("keterangan"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ─── TUKAR SHIFT ─────────────────────────────────────────────────────────────
+export const tukar_shift = pgTable("tukar_shift", {
+  id: serial("id").primaryKey(),
+  id_jadwal_pengaju: integer("id_jadwal_pengaju").references(() => jadwal_karyawan.id).notNull(),
+  user_pengaju: integer("user_pengaju").references(() => users.id).notNull(),
+  id_jadwal_pengganti: integer("id_jadwal_pengganti").references(() => jadwal_karyawan.id).notNull(),
+  user_pengganti: integer("user_pengganti").references(() => users.id).notNull(),
+  tanggal_tukar: text("tanggal_tukar").notNull(),
+  alasan: text("alasan").notNull(),
+  status: text("status").default("PENDING").notNull(), // 'PENDING' | 'APPROVED' | 'REJECTED'
+  reviewed_by: integer("reviewed_by").references(() => users.id),
+  reviewed_at: text("reviewed_at"),
+  catatan_reviewer: text("catatan_reviewer"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
 // ─── REKONSILIASI KAS ────────────────────────────────────────────────────────
 export const rekonsiliasi_kas = pgTable("rekonsiliasi_kas", {
   id: serial("id").primaryKey(),
@@ -910,6 +954,9 @@ export type RekeningKas = typeof rekening_kas.$inferSelect;
 export type KasTransaksi = typeof kas_transaksi.$inferSelect;
 export type KasirShift = typeof kasir_shift.$inferSelect;
 export type KasirJadwal = typeof kasir_jadwal.$inferSelect;
+export type JadwalKaryawan = typeof jadwal_karyawan.$inferSelect;
+export type JabatanShiftConfig = typeof jabatan_shift_config.$inferSelect;
+export type TukarShift = typeof tukar_shift.$inferSelect;
 export type RekonsiliasiKas = typeof rekonsiliasi_kas.$inferSelect;
 
 // ─── PERIODE AKUNTANSI & CLOSING LOCK ─────────────────────────────────────────
@@ -1139,6 +1186,109 @@ export const user_dashboard_preferences = pgTable("user_dashboard_preferences", 
 
 export type UserDashboardPreferences = typeof user_dashboard_preferences.$inferSelect;
 export type NewUserDashboardPreferences = typeof user_dashboard_preferences.$inferInsert;
+
+// ==========================================
+// 9. MODUL MANAJEMEN INVESTOR
+// ==========================================
+
+export const investor_profil = pgTable("investor_profil", {
+  id: serial("id").primaryKey(),
+  nama_investor: text("nama_investor").notNull(),
+  nomor_identitas: text("nomor_identitas"),
+  telepon: text("telepon"),
+  email: text("email"),
+  alamat: text("alamat"),
+  nama_bank: text("nama_bank").notNull(),
+  nomor_rekening: text("nomor_rekening").notNull(),
+  atas_nama_rekening: text("atas_nama_rekening").notNull(),
+  nisbah_pengelola: numeric("nisbah_pengelola").default("40").notNull(), // % Al-Mubarok
+  nisbah_investor: numeric("nisbah_investor").default("60").notNull(),   // % Hak Investor
+  saldo_modal_saat_ini: numeric("saldo_modal_saat_ini").default("0").notNull(),
+  akumulasi_defisit: numeric("akumulasi_defisit").default("0").notNull(), // Deficit Carryforward
+  status: text("status").default("AKTIF").notNull(),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const investor_transaksi_modal = pgTable("investor_transaksi_modal", {
+  id: serial("id").primaryKey(),
+  nomor_referensi: text("nomor_referensi").notNull().unique(),
+  id_investor: integer("id_investor").references(() => investor_profil.id).notNull(),
+  jenis_transaksi: text("jenis_transaksi").notNull(), // 'SETORAN_AWAL' | 'TAMBAHAN_MODAL' | 'PENARIKAN_MODAL' | 'REINVESTASI_BAGI_HASIL'
+  tanggal_transaksi: text("tanggal_transaksi").notNull(),
+  nominal: numeric("nominal").notNull(),
+  id_rekening_kas: integer("id_rekening_kas").references(() => rekening_kas.id),
+  id_kas_transaksi: integer("id_kas_transaksi").references(() => kas_transaksi.id),
+  id_jurnal: integer("id_jurnal"),
+  keterangan: text("keterangan"),
+  bukti_lampiran: text("bukti_lampiran"),
+  status: text("status").default("PENDING").notNull(), // 'PENDING' | 'APPROVED' | 'REJECTED'
+  diajukan_oleh: integer("diajukan_oleh").references(() => users.id).notNull(),
+  disetujui_oleh: integer("disetujui_oleh").references(() => users.id),
+  tanggal_persetujuan: text("tanggal_persetujuan"),
+  catatan_persetujuan: text("catatan_persetujuan"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const investor_bagi_hasil = pgTable("investor_bagi_hasil", {
+  id: serial("id").primaryKey(),
+  nomor_rekap: text("nomor_rekap").notNull().unique(),
+  id_investor: integer("id_investor").references(() => investor_profil.id).notNull(),
+  periode_bulan: integer("periode_bulan").notNull(), // 1 - 12
+  periode_tahun: integer("periode_tahun").notNull(), // e.g. 2026
+  tanggal_mulai: text("tanggal_mulai").notNull(),
+  tanggal_selesai: text("tanggal_selesai").notNull(),
+  
+  // Agregasi Finansial Konsolidasi Seluruh Cabang INVESTOR
+  total_penjualan_bruto: numeric("total_penjualan_bruto").default("0").notNull(),
+  total_diskon_retur: numeric("total_diskon_retur").default("0").notNull(),
+  total_penjualan_bersih: numeric("total_penjualan_bersih").default("0").notNull(),
+  total_hpp: numeric("total_hpp").default("0").notNull(),
+  total_laba_kotor: numeric("total_laba_kotor").default("0").notNull(),
+  total_beban_operasional: numeric("total_beban_operasional").default("0").notNull(),
+  laba_konsolidasi_kotor: numeric("laba_konsolidasi_kotor").default("0").notNull(),
+  
+  defisit_bulan_lalu: numeric("defisit_bulan_lalu").default("0").notNull(),
+  laba_kena_bagi_hasil: numeric("laba_kena_bagi_hasil").default("0").notNull(),
+  defisit_terbawa_berikutnya: numeric("defisit_terbawa_berikutnya").default("0").notNull(),
+  
+  nisbah_pengelola_persen: numeric("nisbah_pengelola_persen").notNull(),
+  nisbah_investor_persen: numeric("nisbah_investor_persen").notNull(),
+  nominal_hak_pengelola: numeric("nominal_hak_pengelola").default("0").notNull(),
+  nominal_hak_investor: numeric("nominal_hak_investor").default("0").notNull(),
+  
+  // Realisasi & Settlement
+  metode_penyelesaian: text("metode_penyelesaian").default("TRANSFER_BANK"), // 'TRANSFER_BANK' | 'REINVESTASI_MODAL'
+  nominal_transfer: numeric("nominal_transfer").default("0").notNull(),
+  nominal_reinvestasi: numeric("nominal_reinvestasi").default("0").notNull(),
+  id_rekening_kas: integer("id_rekening_kas").references(() => rekening_kas.id),
+  id_kas_transaksi: integer("id_kas_transaksi"),
+  id_jurnal: integer("id_jurnal"),
+  
+  status: text("status").default("PENDING").notNull(), // 'PENDING' | 'APPROVED' | 'DIBAYARKAN' | 'REJECTED'
+  diajukan_oleh: integer("diajukan_oleh").references(() => users.id).notNull(),
+  disetujui_oleh: integer("disetujui_oleh").references(() => users.id),
+  tanggal_persetujuan: text("tanggal_persetujuan"),
+  catatan: text("catatan"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const investor_bagi_hasil_cabang = pgTable("investor_bagi_hasil_cabang", {
+  id: serial("id").primaryKey(),
+  id_bagi_hasil: integer("id_bagi_hasil").references(() => investor_bagi_hasil.id).notNull(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  penjualan_bersih: numeric("penjualan_bersih").notNull(),
+  hpp: numeric("hpp").notNull(),
+  laba_kotor: numeric("laba_kotor").notNull(),
+  beban_operasional: numeric("beban_operasional").notNull(),
+  laba_operasional: numeric("laba_operasional").notNull(),
+});
+
+export type InvestorProfil = typeof investor_profil.$inferSelect;
+export type InvestorTransaksiModal = typeof investor_transaksi_modal.$inferSelect;
+export type InvestorBagiHasil = typeof investor_bagi_hasil.$inferSelect;
+export type InvestorBagiHasilCabang = typeof investor_bagi_hasil_cabang.$inferSelect;
+
 
 
 

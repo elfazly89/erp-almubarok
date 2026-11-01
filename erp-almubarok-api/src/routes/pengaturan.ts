@@ -366,7 +366,8 @@ async function ensureMenusSeeded() {
     const NEW_HRD_SUBS = [
       { nama: "Shift Kasir", link: "/hrd/shift-kasir", urutan: 9, targetJabatanIds: [1, 2, 7] }, // Admin, Owner, Kasir
       { nama: "Laporan Shift", link: "/hrd/shift-kasir/laporan", urutan: 10, targetJabatanIds: [1, 2] }, // Admin, Owner
-      { nama: "Jadwal Kasir", link: "/hrd/jadwal-kasir", urutan: 11, targetJabatanIds: [1, 2] }, // Admin, Owner (HRD)
+      { nama: "Jadwal Kasir", link: "/hrd/jadwal-kasir", urutan: 11, targetJabatanIds: [1, 2, 3] }, // Admin, Owner, HRD
+      { nama: "Jadwal Shift Global", link: "/hrd/jadwal-karyawan", urutan: 12, targetJabatanIds: [1, 2, 3] }, // Super User, IT, HRD
     ];
 
     for (const sub of NEW_HRD_SUBS) {

@@ -209,6 +209,26 @@ const guides: Record<string, PageGuide> = {
     ],
     tips: "Warna stok akan berubah menjadi peringatan jika kuantitas barang di bawah batas minimal stok."
   },
+  "/barang/stok-opname": {
+    title: "Stock Opname Fisik",
+    description: "Modul audit fisik persediaan barang toko/gudang untuk mendeteksi selisih kuantitas fisik vs sistem, kalkulasi nilai kerugian/surplus, dan auto-journaling akuntansi.",
+    workflow: [
+      "Klik 'Mulai Sesi Opname Baru' dan pilih cabang toko/gudang yang akan dihitung stok fisiknya.",
+      "Buka lembar hitung opname, gunakan barcode scanner atau pencarian untuk memasukkan kuantitas riil di rak/gudang.",
+      "Sistem secara otomatis menghitung selisih kuantitas fisik vs sistem serta nilai rupiah selisih berdasarkan HPP.",
+      "Setelah perhitungan fisik selesai, klik 'Ajukan Approval' agar sesi dapat diverifikasi oleh Supervisor / Manager.",
+      "Setelah disetujui, stok_barang cabang diperbarui ke jumlah fisik dan sistem otomatis memposting jurnal penyesuaian selisih persediaan."
+    ],
+    features: [
+      "Snapshot Otomatis Stok Sistem per Cabang",
+      "Input Cepat Barcode Scanner & Lembar Hitung Terstruktur",
+      "Cetak Lembar Hitung & Berita Acara Opname",
+      "Kalkulasi Otomatis Selisih Qty & Selisih Nilai Rupiah",
+      "Workflow Multi-Level Approval (Draft -> Menunggu Approval -> Disetujui)",
+      "Auto-Journaling Akuntansi Penyeimbang Beban Selisih Stok"
+    ],
+    tips: "Pastikan tidak ada transaksi penjualan atau mutasi barang yang sedang berlangsung di cabang tersebut saat sesi opname fisik sedang dihitung."
+  },
   "/penjualan/pos": {
     title: "Kasir POS (Point of Sale)",
     description: "Layar kasir utama untuk transaksi penjualan produk kepada pembeli retail maupun grosir.",
@@ -582,6 +602,23 @@ const guides: Record<string, PageGuide> = {
       "Auto-Journaling Akuntansi Penyeimbang secara Real-time"
     ],
     tips: "Pengeluaran di atas batas threshold (dikonfigurasi di Pengaturan Aplikasi) membutuhkan persetujuan supervisor melalui tombol 'Setujui' di baris tabel."
+  },
+  "/hrd/shift-kasir": {
+    title: "Shift & Sesi Laci Kasir",
+    description: "Mengelola sesi kerja kasir harian per shift untuk mengontrol uang laci kasir dan menghitung selisih uang fisik.",
+    workflow: [
+      "Kasir mengklik 'Buka Shift' dengan memilih rekening kas toko dan mengisi saldo awal laci.",
+      "Setelah selesai bertugas, klik 'Closing Shift' dan masukkan nominal uang fisik di laci beserta jumlah setoran.",
+      "Sistem menghitung otomatis selisih uang fisik vs hitungan transaksi sistem POS.",
+      "Supervisor memverifikasi hasil closing kasir untuk menutup shift secara permanen."
+    ],
+    features: [
+      "Mekanisme Buka/Tutup Shift Kasir Terkomputerisasi",
+      "Kalkulator Selisih Uang Fisik Otomatis",
+      "Pencatatan Setoran Kas dari Laci ke Kas Induk",
+      "Verifikasi Supervisor (Closing Status Approval)"
+    ],
+    tips: "Kasir wajib membuka shift sebelum melayani transaksi POS. Setoran closing tidak boleh melebihi total uang yang ada di laci kasir."
   },
   "/kas/shift": {
     title: "Shift & Sesi Laci Kasir",

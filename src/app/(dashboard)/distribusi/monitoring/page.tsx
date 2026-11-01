@@ -52,26 +52,31 @@ export default function MonitoringDistribusiPage() {
           let distance = 8.5;
           let eta = 25;
 
-          if (s.status === "Pengambilan Barang") {
-            pos = "Gudang DC (Proses Dimuat)";
-            progress = 25;
+          if (s.status === "Draft") {
+            pos = "Gudang DC (Persiapan / Draft SJ)";
+            progress = 20;
             distance = 10.0;
-            eta = 30;
-          } else if (s.status === "Pengepakan") {
-            pos = "Gudang DC (Selesai Pengepakan)";
-            progress = 40;
-            distance = 10.0;
-            eta = 30;
+            eta = 45;
           } else if (s.status === "Dalam Perjalanan") {
-            pos = "Jalan Raya (Menuju Cabang)";
-            progress = 70;
-            distance = 4.8;
-            eta = 12;
+            pos = `Menuju Cabang ${s.nama_cabang_tujuan || ""}`;
+            progress = 65;
+            distance = 5.2;
+            eta = 15;
           } else if (s.status === "Diterima Sementara" || s.status === "Sedang Dicek") {
-            pos = `Cabang ${s.nama_cabang_tujuan} (Proses Bongkar)`;
-            progress = 90;
+            pos = `Cabang ${s.nama_cabang_tujuan || ""} (Proses Bongkar & Cek Fisik)`;
+            progress = 85;
             distance = 0.1;
             eta = 1;
+          } else if (s.status === "Ada Selisih") {
+            pos = `Cabang ${s.nama_cabang_tujuan || ""} (Selesai Cek - Ada Selisih)`;
+            progress = 95;
+            distance = 0.0;
+            eta = 0;
+          } else if (s.status === "Diterima Lengkap" || s.status === "Selesai") {
+            pos = `Cabang ${s.nama_cabang_tujuan || ""} (Diterima Lengkap)`;
+            progress = 100;
+            distance = 0.0;
+            eta = 0;
           }
 
           return {

@@ -12,7 +12,10 @@ import {
   bisyaroh,
   cabang,
   jurnal_umum,
-  kasir_jadwal
+  kasir_jadwal,
+  jadwal_karyawan,
+  jabatan_shift_config,
+  tukar_shift
 } from "../lib/db/schema";
 import { eq, and, or, like, ilike, sql, asc, desc, gte, lte, inArray } from "drizzle-orm";
 import { hashPassword } from "../lib/auth/password";
@@ -1435,6 +1438,885 @@ hrdRoutes.delete("/kasir-jadwal/:id", async (c) => {
     return c.json({ success: true });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 11. KONFIGURASI SHIFT PER JABATAN
+// ==========================================
+
+// GET /jabatan-shift-config - Ambil seluruh jabatan beserta konfigurasi shift
+hrdRoutes.get("/jabatan-shift-config", async (c) => {
+  try {
+    const list = await db
+      .select({
+        id: jabatan_shift_config.id,
+        id_jabatan: jabatan.id_jabatan,
+        jabatan: jabatan.jabatan,
+        tipe_kerja: sql<string>`COALESCE(${jabatan_shift_config.tipe_kerja}, 'NON_SHIFT')`,
+        default_id_shift: jabatan_shift_config.default_id_shift,
+        default_nama_shift: jam_kerja.nama_shift,
+        hari_kerja_aktif: sql<string>`COALESCE(${jabatan_shift_config.hari_kerja_aktif}, '1,2,3,4,5,6')`,
+        keterangan: jabatan_shift_config.keterangan,
+        jam_masuk: jam_kerja.jam_masuk,
+        jam_pulang: jam_kerja.jam_pulang,
+      })
+      .from(jabatan)
+      .leftJoin(jabatan_shift_config, eq(jabatan.id_jabatan, jabatan_shift_config.id_jabatan))
+      .leftJoin(jam_kerja, eq(jabatan_shift_config.default_id_shift, jam_kerja.id))
+      .orderBy(asc(jabatan.id_jabatan));
+
+    return c.json({ success: true, data: list });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal mengambil konfigurasi shift jabatan: " + error.message }, 500);
+  }
+});
+
+// PUT /jabatan-shift-config/:id_jabatan - Update konfigurasi shift untuk jabatan tertentu
+hrdRoutes.put("/jabatan-shift-config/:id_jabatan", async (c) => {
+  const activeUser = c.get("user");
+  // Otoritas Sentralisasi HRD Pusat: Hanya Super User (1), IT (2), atau HRD (3)
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat mengubah template shift jabatan." }, 403);
+  }
+
+  const idJabatan = parseInt(c.req.param("id_jabatan"));
+  if (isNaN(idJabatan)) {
+    return c.json({ success: false, error: "ID Jabatan tidak valid" }, 400);
+  }
+
+  try {
+    const body = await c.req.json();
+    const { tipe_kerja, default_id_shift, hari_kerja_aktif, keterangan } = body;
+
+    if (!tipe_kerja || (tipe_kerja !== "NON_SHIFT" && tipe_kerja !== "SHIFT_ROTASI")) {
+      return c.json({ success: false, error: "Tipe kerja harus NON_SHIFT atau SHIFT_ROTASI" }, 400);
+    }
+
+    const defaultShiftId = default_id_shift ? parseInt(default_id_shift) : null;
+
+    const [existing] = await db
+      .select({ id: jabatan_shift_config.id })
+      .from(jabatan_shift_config)
+      .where(eq(jabatan_shift_config.id_jabatan, idJabatan))
+      .limit(1);
+
+    if (existing) {
+      const [updated] = await db
+        .update(jabatan_shift_config)
+        .set({
+          tipe_kerja,
+          default_id_shift: defaultShiftId,
+          hari_kerja_aktif: hari_kerja_aktif || "1,2,3,4,5,6",
+          keterangan: keterangan || null,
+          updated_at: new Date().toISOString(),
+        })
+        .where(eq(jabatan_shift_config.id_jabatan, idJabatan))
+        .returning();
+      return c.json({ success: true, data: updated });
+    } else {
+      const [inserted] = await db
+        .insert(jabatan_shift_config)
+        .values({
+          id_jabatan: idJabatan,
+          tipe_kerja,
+          default_id_shift: defaultShiftId,
+          hari_kerja_aktif: hari_kerja_aktif || "1,2,3,4,5,6",
+          keterangan: keterangan || null,
+        })
+        .returning();
+      return c.json({ success: true, data: inserted }, 201);
+    }
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal memperbarui konfigurasi shift jabatan: " + error.message }, 500);
+  }
+});
+
+// ==========================================
+// 12. JADWAL KARYAWAN GLOBAL (UNIFIED ROSTER)
+// ==========================================
+
+// GET /jadwal-karyawan - Ambil data jadwal karyawan dengan filter fleksibel
+hrdRoutes.get("/jadwal-karyawan", async (c) => {
+  try {
+    const { id_cabang, id_jabatan, user_id, startDate, endDate, bulan, status_hari, aktif } = c.req.query();
+
+    const conditions: any[] = [];
+
+    if (id_cabang) {
+      const pCabang = parseInt(id_cabang);
+      if (!isNaN(pCabang)) conditions.push(eq(jadwal_karyawan.id_cabang, pCabang));
+    }
+
+    if (id_jabatan) {
+      const pJabatan = parseInt(id_jabatan);
+      if (!isNaN(pJabatan)) conditions.push(eq(jadwal_karyawan.id_jabatan, pJabatan));
+    }
+
+    if (user_id) {
+      const pUser = parseInt(user_id);
+      if (!isNaN(pUser)) conditions.push(eq(jadwal_karyawan.user_id, pUser));
+    }
+
+    if (bulan) {
+      conditions.push(like(jadwal_karyawan.tanggal, `${bulan}-%`));
+    } else {
+      if (startDate) conditions.push(gte(jadwal_karyawan.tanggal, startDate));
+      if (endDate) conditions.push(lte(jadwal_karyawan.tanggal, endDate));
+    }
+
+    if (status_hari) {
+      conditions.push(eq(jadwal_karyawan.status_hari, status_hari));
+    }
+
+    if (aktif !== undefined) {
+      conditions.push(eq(jadwal_karyawan.aktif, aktif === "true"));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const data = await db
+      .select({
+        id: jadwal_karyawan.id,
+        user_id: jadwal_karyawan.user_id,
+        nama_user: users.nama_user,
+        kode_user: users.kode_user,
+        foto: users.foto,
+        id_cabang: jadwal_karyawan.id_cabang,
+        nama_cabang: cabang.nama_cabang,
+        kode_cabang: cabang.kode_cabang,
+        id_jabatan: jadwal_karyawan.id_jabatan,
+        jabatan: jabatan.jabatan,
+        id_shift: jadwal_karyawan.id_shift,
+        nama_shift: jam_kerja.nama_shift,
+        jam_masuk: jam_kerja.jam_masuk,
+        jam_pulang: jam_kerja.jam_pulang,
+        tanggal: jadwal_karyawan.tanggal,
+        status_hari: jadwal_karyawan.status_hari,
+        catatan: jadwal_karyawan.catatan,
+        aktif: jadwal_karyawan.aktif,
+        created_at: jadwal_karyawan.created_at,
+      })
+      .from(jadwal_karyawan)
+      .innerJoin(users, eq(jadwal_karyawan.user_id, users.id))
+      .innerJoin(cabang, eq(jadwal_karyawan.id_cabang, cabang.id_cabang))
+      .innerJoin(jabatan, eq(jadwal_karyawan.id_jabatan, jabatan.id_jabatan))
+      .leftJoin(jam_kerja, eq(jadwal_karyawan.id_shift, jam_kerja.id))
+      .where(whereClause)
+      .orderBy(asc(jadwal_karyawan.tanggal), asc(users.nama_user));
+
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal mengambil jadwal karyawan: " + error.message }, 500);
+  }
+});
+
+// POST /jadwal-karyawan - Input jadwal baru (single atau batch)
+hrdRoutes.post("/jadwal-karyawan", async (c) => {
+  const activeUser = c.get("user");
+  // Sentralisasi HRD: Hanya Super User (1), IT (2), atau HRD (3)
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat membuat jadwal shift karyawan." }, 403);
+  }
+
+  try {
+    const body = await c.req.json();
+    const items = Array.isArray(body) ? body : [body];
+
+    if (items.length === 0) {
+      return c.json({ success: false, error: "Payload jadwal tidak boleh kosong" }, 400);
+    }
+
+    const inserted: any[] = [];
+
+    for (const item of items) {
+      const parsedUserId = parseInt(item.user_id);
+      const parsedCabang = parseInt(item.id_cabang);
+      const parsedShift = item.id_shift ? parseInt(item.id_shift) : null;
+      const statusHari = item.status_hari || (parsedShift ? "KERJA" : "LIBUR_ROSTER");
+
+      if (isNaN(parsedUserId) || isNaN(parsedCabang) || !item.tanggal) {
+        return c.json({
+          success: false,
+          error: "Setiap baris wajib memiliki user_id, id_cabang, dan tanggal yang valid",
+        }, 400);
+      }
+
+      // Ambil jabatan user jika tidak dikirim
+      let parsedJabatan = item.id_jabatan ? parseInt(item.id_jabatan) : null;
+      if (!parsedJabatan || isNaN(parsedJabatan)) {
+        const [usr] = await db.select({ id_jabatan: users.id_jabatan }).from(users).where(eq(users.id, parsedUserId)).limit(1);
+        parsedJabatan = usr?.id_jabatan || 7;
+      }
+
+      // Validasi konflik: satu user tidak boleh punya jadwal aktif ganda di tanggal yang sama
+      const [conflict] = await db
+        .select({
+          id: jadwal_karyawan.id,
+          nama_user: users.nama_user,
+          nama_cabang: cabang.nama_cabang,
+          nama_shift: jam_kerja.nama_shift,
+          status_hari: jadwal_karyawan.status_hari,
+        })
+        .from(jadwal_karyawan)
+        .innerJoin(users, eq(jadwal_karyawan.user_id, users.id))
+        .innerJoin(cabang, eq(jadwal_karyawan.id_cabang, cabang.id_cabang))
+        .leftJoin(jam_kerja, eq(jadwal_karyawan.id_shift, jam_kerja.id))
+        .where(
+          and(
+            eq(jadwal_karyawan.user_id, parsedUserId),
+            eq(jadwal_karyawan.tanggal, item.tanggal),
+            eq(jadwal_karyawan.aktif, true)
+          )
+        )
+        .limit(1);
+
+      if (conflict) {
+        return c.json({
+          success: false,
+          error: `Karyawan ${conflict.nama_user} sudah memiliki jadwal aktif pada tanggal ${item.tanggal} di cabang ${conflict.nama_cabang} (${conflict.nama_shift || conflict.status_hari})`,
+        }, 409);
+      }
+
+      const [newJadwal] = await db
+        .insert(jadwal_karyawan)
+        .values({
+          user_id: parsedUserId,
+          id_cabang: parsedCabang,
+          id_jabatan: parsedJabatan,
+          id_shift: parsedShift,
+          tanggal: item.tanggal,
+          status_hari: statusHari,
+          catatan: item.catatan || null,
+          aktif: item.aktif !== undefined ? item.aktif : true,
+          created_by: activeUser.id,
+        })
+        .returning();
+
+      // Sinkronisasi ke kasir_jadwal jika karyawan adalah Kasir (id_jabatan 7) dan status KERJA
+      if (parsedJabatan === 7 && parsedShift && statusHari === "KERJA") {
+        await db
+          .insert(kasir_jadwal)
+          .values({
+            id_cabang: parsedCabang,
+            id_kasir: parsedUserId,
+            id_shift: parsedShift,
+            tanggal: item.tanggal,
+            catatan: item.catatan || null,
+            aktif: true,
+            created_by: activeUser.id,
+          })
+          .onConflictDoNothing();
+      }
+
+      inserted.push(newJadwal);
+    }
+
+    return c.json({ success: true, data: inserted, count: inserted.length }, 201);
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal menyimpan jadwal karyawan: " + error.message }, 500);
+  }
+});
+
+// PUT /jadwal-karyawan/:id - Ubah jadwal tertentu (quick toggle / detail edit)
+hrdRoutes.put("/jadwal-karyawan/:id", async (c) => {
+  const activeUser = c.get("user");
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat mengubah jadwal shift karyawan." }, 403);
+  }
+
+  const id = c.req.param("id");
+  try {
+    const currentId = parseInt(id);
+    if (isNaN(currentId)) {
+      return c.json({ success: false, error: "ID jadwal tidak valid" }, 400);
+    }
+
+    const [existing] = await db
+      .select()
+      .from(jadwal_karyawan)
+      .where(eq(jadwal_karyawan.id, currentId))
+      .limit(1);
+
+    if (!existing) {
+      return c.json({ success: false, error: "Jadwal tidak ditemukan" }, 404);
+    }
+
+    const body = await c.req.json();
+    const updateObj: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (body.id_shift !== undefined) {
+      updateObj.id_shift = body.id_shift ? parseInt(body.id_shift) : null;
+    }
+    if (body.id_cabang !== undefined) {
+      updateObj.id_cabang = parseInt(body.id_cabang);
+    }
+    if (body.status_hari !== undefined) {
+      updateObj.status_hari = body.status_hari;
+    }
+    if (body.tanggal !== undefined) {
+      updateObj.tanggal = body.tanggal;
+    }
+    if (body.catatan !== undefined) {
+      updateObj.catatan = body.catatan;
+    }
+    if (body.aktif !== undefined) {
+      updateObj.aktif = body.aktif;
+    }
+
+    const [updated] = await db
+      .update(jadwal_karyawan)
+      .set(updateObj)
+      .where(eq(jadwal_karyawan.id, currentId))
+      .returning();
+
+    // Update kasir_jadwal jika terkait
+    if (existing.id_jabatan === 7) {
+      if (updateObj.status_hari === "LIBUR_ROSTER" || updateObj.aktif === false) {
+        await db
+          .delete(kasir_jadwal)
+          .where(
+            and(
+              eq(kasir_jadwal.id_kasir, existing.user_id),
+              eq(kasir_jadwal.tanggal, existing.tanggal)
+            )
+          );
+      } else if (updateObj.id_shift) {
+        await db
+          .update(kasir_jadwal)
+          .set({ id_shift: updateObj.id_shift, catatan: updateObj.catatan })
+          .where(
+            and(
+              eq(kasir_jadwal.id_kasir, existing.user_id),
+              eq(kasir_jadwal.tanggal, existing.tanggal)
+            )
+          );
+      }
+    }
+
+    return c.json({ success: true, data: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal memperbarui jadwal: " + error.message }, 500);
+  }
+});
+
+// DELETE /jadwal-karyawan/:id - Hapus jadwal
+hrdRoutes.delete("/jadwal-karyawan/:id", async (c) => {
+  const activeUser = c.get("user");
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat menghapus jadwal karyawan." }, 403);
+  }
+
+  const id = c.req.param("id");
+  try {
+    const currentId = parseInt(id);
+    if (isNaN(currentId)) {
+      return c.json({ success: false, error: "ID jadwal tidak valid" }, 400);
+    }
+
+    const [existing] = await db
+      .select()
+      .from(jadwal_karyawan)
+      .where(eq(jadwal_karyawan.id, currentId))
+      .limit(1);
+
+    if (!existing) {
+      return c.json({ success: false, error: "Jadwal tidak ditemukan" }, 404);
+    }
+
+    await db.delete(jadwal_karyawan).where(eq(jadwal_karyawan.id, currentId));
+
+    // Sinkronisasi hapus dari kasir_jadwal jika kasir
+    if (existing.id_jabatan === 7) {
+      await db
+        .delete(kasir_jadwal)
+        .where(
+          and(
+            eq(kasir_jadwal.id_kasir, existing.user_id),
+            eq(kasir_jadwal.tanggal, existing.tanggal)
+          )
+        );
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal menghapus jadwal: " + error.message }, 500);
+  }
+});
+
+// POST /jadwal-karyawan/copy - Salin jadwal aktif lintas bulan
+hrdRoutes.post("/jadwal-karyawan/copy", async (c) => {
+  const activeUser = c.get("user");
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat menyalin jadwal karyawan." }, 403);
+  }
+
+  try {
+    const body = await c.req.json();
+    const { fromMonth, toMonth, id_cabang, id_jabatan } = body;
+
+    if (!fromMonth || !toMonth) {
+      return c.json({ success: false, error: "Parameter fromMonth dan toMonth wajib diisi (format: YYYY-MM)" }, 400);
+    }
+
+    const conditions: any[] = [
+      like(jadwal_karyawan.tanggal, `${fromMonth}-%`),
+      eq(jadwal_karyawan.aktif, true),
+    ];
+
+    if (id_cabang) {
+      const pCabang = parseInt(id_cabang);
+      if (!isNaN(pCabang)) conditions.push(eq(jadwal_karyawan.id_cabang, pCabang));
+    }
+
+    if (id_jabatan) {
+      const pJabatan = parseInt(id_jabatan);
+      if (!isNaN(pJabatan)) conditions.push(eq(jadwal_karyawan.id_jabatan, pJabatan));
+    }
+
+    const sourceJadwals = await db
+      .select()
+      .from(jadwal_karyawan)
+      .where(and(...conditions));
+
+    if (sourceJadwals.length === 0) {
+      return c.json({ success: false, error: "Tidak ada jadwal aktif ditemukan pada bulan asal" }, 404);
+    }
+
+    const [toYearStr, toMonthStr] = toMonth.split("-");
+    const toYear = parseInt(toYearStr);
+    const toMonthNum = parseInt(toMonthStr);
+    const maxDaysInTargetMonth = new Date(toYear, toMonthNum, 0).getDate();
+
+    // Ambil jadwal tujuan yang sudah ada untuk proteksi O(1)
+    const existingTargetSchedules = await db
+      .select({ user_id: jadwal_karyawan.user_id, tanggal: jadwal_karyawan.tanggal })
+      .from(jadwal_karyawan)
+      .where(and(like(jadwal_karyawan.tanggal, `${toMonth}-%`), eq(jadwal_karyawan.aktif, true)));
+
+    const existingTargetSet = new Set(
+      existingTargetSchedules.map((s) => `${s.user_id}_${s.tanggal}`)
+    );
+
+    let insertedCount = 0;
+    let skippedCount = 0;
+    const inserts: any[] = [];
+
+    for (const src of sourceJadwals) {
+      const dayStr = src.tanggal.split("-")[2];
+      const dayNum = parseInt(dayStr);
+      if (dayNum > maxDaysInTargetMonth) {
+        skippedCount++;
+        continue;
+      }
+
+      const targetDate = `${toMonth}-${dayStr}`;
+      if (existingTargetSet.has(`${src.user_id}_${targetDate}`)) {
+        skippedCount++;
+        continue;
+      }
+
+      inserts.push({
+        user_id: src.user_id,
+        id_cabang: src.id_cabang,
+        id_jabatan: src.id_jabatan,
+        id_shift: src.id_shift,
+        tanggal: targetDate,
+        status_hari: src.status_hari,
+        catatan: `Salinan dari jadwal ${src.tanggal}`,
+        aktif: true,
+        created_by: activeUser.id,
+      });
+
+      existingTargetSet.add(`${src.user_id}_${targetDate}`);
+      insertedCount++;
+    }
+
+    // Chunked insert
+    const chunkSize = 100;
+    for (let i = 0; i < inserts.length; i += chunkSize) {
+      await db.insert(jadwal_karyawan).values(inserts.slice(i, i + chunkSize));
+    }
+
+    return c.json({
+      success: true,
+      message: `Berhasil menyalin ${insertedCount} jadwal ke bulan ${toMonth}. (${skippedCount} dilewati karena konflik/tanggal tidak valid)`,
+      copied: insertedCount,
+      skipped: skippedCount,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal menyalin jadwal: " + error.message }, 500);
+  }
+});
+
+// POST /jadwal-karyawan/auto-generate - Generator rotasi shift bulanan terotomasi
+hrdRoutes.post("/jadwal-karyawan/auto-generate", async (c) => {
+  const activeUser = c.get("user");
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat menjalankan generator jadwal shift." }, 403);
+  }
+
+  try {
+    const body = await c.req.json();
+    const {
+      bulan,
+      id_cabang,
+      id_jabatan,
+      shift_ids = [],
+      users: userConfigs = [],
+      pola = "ROTASI_HARIAN", // 'ROTASI_HARIAN' | 'ROTASI_MINGGUAN' | 'POLA_CYCLE'
+      overwrite = false,
+    } = body;
+
+    if (!bulan || !id_cabang || userConfigs.length === 0 || shift_ids.length === 0) {
+      return c.json({
+        success: false,
+        error: "Wajib mengisi bulan (YYYY-MM), cabang, minimal 1 shift, dan minimal 1 karyawan.",
+      }, 400);
+    }
+
+    const parsedCabang = parseInt(id_cabang);
+    const parsedJabatan = id_jabatan ? parseInt(id_jabatan) : null;
+    const parsedShiftIds = shift_ids.map((s: any) => parseInt(s)).filter((s: number) => !isNaN(s));
+
+    if (parsedShiftIds.length === 0) {
+      return c.json({ success: false, error: "Daftar shift tidak valid" }, 400);
+    }
+
+    const [yearStr, monthStr] = bulan.split("-");
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+    if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+      return c.json({ success: false, error: "Format bulan tidak valid (gunakan YYYY-MM)" }, 400);
+    }
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const allDates: { tanggal: string; dayOfWeek: number }[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dStr = String(d).padStart(2, "0");
+      const fullDate = `${yearStr}-${monthStr}-${dStr}`;
+      const dayOfWeek = new Date(year, month - 1, d).getDay(); // 0 = Ahad, 1 = Senin, ...
+      allDates.push({ tanggal: fullDate, dayOfWeek });
+    }
+
+    const targetUserIds = userConfigs.map((u: any) => parseInt(u.user_id)).filter((id: number) => !isNaN(id));
+
+    if (overwrite) {
+      await db.delete(jadwal_karyawan).where(
+        and(
+          inArray(jadwal_karyawan.user_id, targetUserIds),
+          eq(jadwal_karyawan.id_cabang, parsedCabang),
+          like(jadwal_karyawan.tanggal, `${bulan}-%`)
+        )
+      );
+    }
+
+    const existingSchedules = await db
+      .select({ user_id: jadwal_karyawan.user_id, tanggal: jadwal_karyawan.tanggal })
+      .from(jadwal_karyawan)
+      .where(
+        and(
+          inArray(jadwal_karyawan.user_id, targetUserIds),
+          like(jadwal_karyawan.tanggal, `${bulan}-%`),
+          eq(jadwal_karyawan.aktif, true)
+        )
+      );
+
+    const existingSet = new Set(existingSchedules.map((s) => `${s.user_id}_${s.tanggal}`));
+
+    let insertedCount = 0;
+    let skippedCount = 0;
+    const inserts: any[] = [];
+
+    // Loop per karyawan
+    for (let uIdx = 0; uIdx < userConfigs.length; uIdx++) {
+      const uCfg = userConfigs[uIdx];
+      const uId = parseInt(uCfg.user_id);
+      if (isNaN(uId)) continue;
+
+      const uJabatan = uCfg.id_jabatan ? parseInt(uCfg.id_jabatan) : parsedJabatan || 7;
+      // Index pergeseran awal shift agar antar karyawan tidak semua dapat shift yang sama
+      const shiftOffset = uCfg.shift_awal_index !== undefined ? parseInt(uCfg.shift_awal_index) : uIdx;
+      // Hari libur mingguan khusus karyawan ini (0 = Ahad s.d. 6 = Sabtu)
+      const dayOff = uCfg.hari_libur_mingguan !== undefined ? parseInt(uCfg.hari_libur_mingguan) : (uIdx % 7);
+
+      for (let dayIdx = 0; dayIdx < allDates.length; dayIdx++) {
+        const { tanggal, dayOfWeek } = allDates[dayIdx];
+
+        if (existingSet.has(`${uId}_${tanggal}`)) {
+          skippedCount++;
+          continue;
+        }
+
+        // Cek apakah hari ini merupakan jatah Hari Libur Bergilir (Day-Off)
+        const isDayOff = dayOfWeek === dayOff;
+
+        if (isDayOff) {
+          inserts.push({
+            user_id: uId,
+            id_cabang: parsedCabang,
+            id_jabatan: uJabatan,
+            id_shift: null,
+            tanggal,
+            status_hari: "LIBUR_ROSTER",
+            catatan: "Jatah Libur Mingguan Bergilir (Day-Off)",
+            aktif: true,
+            created_by: activeUser.id,
+          });
+          insertedCount++;
+        } else {
+          // Tentukan shift rotasi
+          let shiftIndex = 0;
+          if (pola === "ROTASI_MINGGUAN") {
+            const weekNumber = Math.floor(dayIdx / 7);
+            shiftIndex = (weekNumber + shiftOffset) % parsedShiftIds.length;
+          } else {
+            // ROTASI_HARIAN (selang-seling setiap hari kerja)
+            shiftIndex = (dayIdx + shiftOffset) % parsedShiftIds.length;
+          }
+
+          const shiftId = parsedShiftIds[shiftIndex];
+
+          inserts.push({
+            user_id: uId,
+            id_cabang: parsedCabang,
+            id_jabatan: uJabatan,
+            id_shift: shiftId,
+            tanggal,
+            status_hari: "KERJA",
+            catatan: `Auto-generate rotasi shift (${pola})`,
+            aktif: true,
+            created_by: activeUser.id,
+          });
+          insertedCount++;
+        }
+      }
+    }
+
+    // Chunked insertion
+    const chunkSize = 100;
+    for (let i = 0; i < inserts.length; i += chunkSize) {
+      await db.insert(jadwal_karyawan).values(inserts.slice(i, i + chunkSize));
+    }
+
+    return c.json({
+      success: true,
+      message: `Generator selesai: Berhasil membuat ${insertedCount} jadwal (${skippedCount} dilewati karena sudah ada).`,
+      inserted: insertedCount,
+      skipped: skippedCount,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal auto-generate jadwal: " + error.message }, 500);
+  }
+});
+
+// ==========================================
+// 13. WORKFLOW TUKAR SHIFT (SHIFT SWAP)
+// ==========================================
+
+// GET /tukar-shift - Ambil daftar permohonan tukar shift
+hrdRoutes.get("/tukar-shift", async (c) => {
+  try {
+    const { status, user_id, bulan } = c.req.query();
+    const conditions: any[] = [];
+
+    if (status) conditions.push(eq(tukar_shift.status, status));
+    if (user_id) {
+      const pUser = parseInt(user_id);
+      if (!isNaN(pUser)) {
+        conditions.push(or(eq(tukar_shift.user_pengaju, pUser), eq(tukar_shift.user_pengganti, pUser)));
+      }
+    }
+    if (bulan) conditions.push(like(tukar_shift.tanggal_tukar, `${bulan}-%`));
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const list = await db
+      .select({
+        id: tukar_shift.id,
+        id_jadwal_pengaju: tukar_shift.id_jadwal_pengaju,
+        user_pengaju: tukar_shift.user_pengaju,
+        id_jadwal_pengganti: tukar_shift.id_jadwal_pengganti,
+        user_pengganti: tukar_shift.user_pengganti,
+        tanggal_tukar: tukar_shift.tanggal_tukar,
+        alasan: tukar_shift.alasan,
+        status: tukar_shift.status,
+        reviewed_by: tukar_shift.reviewed_by,
+        reviewed_at: tukar_shift.reviewed_at,
+        catatan_reviewer: tukar_shift.catatan_reviewer,
+        created_at: tukar_shift.created_at,
+      })
+      .from(tukar_shift)
+      .where(whereClause)
+      .orderBy(desc(tukar_shift.id));
+
+    // Perkaya data dengan nama user dan shift
+    const enriched = await Promise.all(
+      list.map(async (row) => {
+        const [u1] = await db.select({ nama: users.nama_user, kode: users.kode_user }).from(users).where(eq(users.id, row.user_pengaju)).limit(1);
+        const [u2] = await db.select({ nama: users.nama_user, kode: users.kode_user }).from(users).where(eq(users.id, row.user_pengganti)).limit(1);
+        const [j1] = await db
+          .select({ id_shift: jadwal_karyawan.id_shift, nama_shift: jam_kerja.nama_shift, status_hari: jadwal_karyawan.status_hari })
+          .from(jadwal_karyawan)
+          .leftJoin(jam_kerja, eq(jadwal_karyawan.id_shift, jam_kerja.id))
+          .where(eq(jadwal_karyawan.id, row.id_jadwal_pengaju))
+          .limit(1);
+        const [j2] = await db
+          .select({ id_shift: jadwal_karyawan.id_shift, nama_shift: jam_kerja.nama_shift, status_hari: jadwal_karyawan.status_hari })
+          .from(jadwal_karyawan)
+          .leftJoin(jam_kerja, eq(jadwal_karyawan.id_shift, jam_kerja.id))
+          .where(eq(jadwal_karyawan.id, row.id_jadwal_pengganti))
+          .limit(1);
+
+        return {
+          ...row,
+          nama_pengaju: u1?.nama || "Karyawan",
+          kode_pengaju: u1?.kode || "",
+          shift_pengaju: j1?.nama_shift || j1?.status_hari || "-",
+          nama_pengganti: u2?.nama || "Karyawan",
+          kode_pengganti: u2?.kode || "",
+          shift_pengganti: j2?.nama_shift || j2?.status_hari || "-",
+        };
+      })
+    );
+
+    return c.json({ success: true, data: enriched });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal mengambil permohonan tukar shift: " + error.message }, 500);
+  }
+});
+
+// POST /tukar-shift - Ajukan permohonan tukar shift
+hrdRoutes.post("/tukar-shift", async (c) => {
+  const activeUser = c.get("user");
+  try {
+    const body = await c.req.json();
+    const { id_jadwal_pengaju, user_pengganti, id_jadwal_pengganti, tanggal_tukar, alasan } = body;
+
+    if (!id_jadwal_pengaju || !user_pengganti || !id_jadwal_pengganti || !tanggal_tukar || !alasan) {
+      return c.json({ success: false, error: "Seluruh field permohonan tukar shift wajib diisi." }, 400);
+    }
+
+    const [jPengaju] = await db.select().from(jadwal_karyawan).where(eq(jadwal_karyawan.id, parseInt(id_jadwal_pengaju))).limit(1);
+    const [jPengganti] = await db.select().from(jadwal_karyawan).where(eq(jadwal_karyawan.id, parseInt(id_jadwal_pengganti))).limit(1);
+
+    if (!jPengaju || !jPengganti) {
+      return c.json({ success: false, error: "Jadwal yang dipilih tidak valid atau sudah dihapus." }, 404);
+    }
+
+    const [inserted] = await db
+      .insert(tukar_shift)
+      .values({
+        id_jadwal_pengaju: jPengaju.id,
+        user_pengaju: jPengaju.user_id,
+        id_jadwal_pengganti: jPengganti.id,
+        user_pengganti: parseInt(user_pengganti),
+        tanggal_tukar,
+        alasan,
+        status: "PENDING",
+      })
+      .returning();
+
+    return c.json({ success: true, data: inserted, message: "Permohonan tukar shift berhasil diajukan dan menunggu persetujuan HRD Pusat." }, 201);
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal mengajukan tukar shift: " + error.message }, 500);
+  }
+});
+
+// PUT /tukar-shift/:id/review - HRD Pusat Approve / Reject Permohonan Tukar Shift
+hrdRoutes.put("/tukar-shift/:id/review", async (c) => {
+  const activeUser = c.get("user");
+  if (activeUser.id_jabatan !== 1 && activeUser.id_jabatan !== 2 && activeUser.id_jabatan !== 3) {
+    return c.json({ success: false, error: "Akses ditolak: Hanya HRD Pusat yang dapat menyetujui atau menolak permohonan tukar shift." }, 403);
+  }
+
+  const id = c.req.param("id");
+  try {
+    const currentId = parseInt(id);
+    if (isNaN(currentId)) {
+      return c.json({ success: false, error: "ID tukar shift tidak valid" }, 400);
+    }
+
+    const [req] = await db.select().from(tukar_shift).where(eq(tukar_shift.id, currentId)).limit(1);
+    if (!req) {
+      return c.json({ success: false, error: "Permohonan tukar shift tidak ditemukan" }, 404);
+    }
+
+    if (req.status !== "PENDING") {
+      return c.json({ success: false, error: `Permohonan sudah berstatus ${req.status}` }, 400);
+    }
+
+    const body = await c.req.json();
+    const { action, catatan_reviewer } = body; // action: 'APPROVE' | 'REJECT'
+
+    if (action !== "APPROVE" && action !== "REJECT") {
+      return c.json({ success: false, error: "Action harus berupa APPROVE atau REJECT" }, 400);
+    }
+
+    if (action === "REJECT") {
+      const [updated] = await db
+        .update(tukar_shift)
+        .set({
+          status: "REJECTED",
+          reviewed_by: activeUser.id,
+          reviewed_at: new Date().toISOString(),
+          catatan_reviewer: catatan_reviewer || "Ditolak oleh HRD Pusat",
+        })
+        .where(eq(tukar_shift.id, currentId))
+        .returning();
+
+      return c.json({ success: true, data: updated, message: "Permohonan tukar shift telah ditolak." });
+    }
+
+    // Action === APPROVE: Lakukan atomic swap antara dua jadwal
+    const [j1] = await db.select().from(jadwal_karyawan).where(eq(jadwal_karyawan.id, req.id_jadwal_pengaju)).limit(1);
+    const [j2] = await db.select().from(jadwal_karyawan).where(eq(jadwal_karyawan.id, req.id_jadwal_pengganti)).limit(1);
+
+    if (!j1 || !j2) {
+      return c.json({ success: false, error: "Salah satu data jadwal sudah tidak ada lagi di sistem." }, 400);
+    }
+
+    // Tukar shift dan status_hari antar kedua record jadwal
+    await db
+      .update(jadwal_karyawan)
+      .set({
+        id_shift: j2.id_shift,
+        status_hari: j2.status_hari,
+        catatan: `Tukar shift resmi disetujui (sebelumnya: ${j1.status_hari})`,
+        updated_at: new Date().toISOString(),
+      })
+      .where(eq(jadwal_karyawan.id, j1.id));
+
+    await db
+      .update(jadwal_karyawan)
+      .set({
+        id_shift: j1.id_shift,
+        status_hari: j1.status_hari,
+        catatan: `Tukar shift resmi disetujui (sebelumnya: ${j2.status_hari})`,
+        updated_at: new Date().toISOString(),
+      })
+      .where(eq(jadwal_karyawan.id, j2.id));
+
+    const [updatedReq] = await db
+      .update(tukar_shift)
+      .set({
+        status: "APPROVED",
+        reviewed_by: activeUser.id,
+        reviewed_at: new Date().toISOString(),
+        catatan_reviewer: catatan_reviewer || "Disetujui oleh HRD Pusat",
+      })
+      .where(eq(tukar_shift.id, currentId))
+      .returning();
+
+    return c.json({
+      success: true,
+      data: updatedReq,
+      message: "Permohonan tukar shift berhasil disetujui dan jadwal kedua karyawan telah diperbarui di roster.",
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal memproses review tukar shift: " + error.message }, 500);
   }
 });
 

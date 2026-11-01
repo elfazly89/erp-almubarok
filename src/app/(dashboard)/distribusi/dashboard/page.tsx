@@ -26,41 +26,9 @@ interface DashboardData {
   prioritas: { cabang: string; skor: number; status: string; alasan: string }[];
 }
 
-// Fallback MOCK data jika DB belum punya data (forecast belum pernah dijalankan)
-const MOCK_CRITICAL_ITEMS = [
-  { cabang: "SUKOWONO", barang: "Minyak Goreng Sunco 2L", stok: 12, ads: 8.5, habis: 1.4, status: "KRITIS" },
-  { cabang: "KALISAT", barang: "Beras Cap Mangkok 5kg", stok: 8, ads: 4.2, habis: 1.9, status: "KRITIS" },
-  { cabang: "PONPES", barang: "Gula Pasir Gulaku 1kg", stok: 25, ads: 10.0, habis: 2.5, status: "PERHATIAN" },
-  { cabang: "LEDOKOMBO", barang: "Aqua Gelas Dus", stok: 18, ads: 6.0, habis: 3.0, status: "PERHATIAN" },
-  { cabang: "GUNUNG MALANG", barang: "Indomie Goreng Spesial", stok: 45, ads: 12.5, habis: 3.6, status: "PERHATIAN" },
-  { cabang: "SUKOSARI", barang: "Sabun Nuvo Cair 450ml", stok: 5, ads: 1.2, habis: 4.1, status: "PERHATIAN" },
-];
-const MOCK_CRITICAL_BRANCHES = [
-  { cabang: "SUKOWONO", jmlKritis: 18, totalItem: 120, status: "Kritis" },
-  { cabang: "KALISAT", jmlKritis: 12, totalItem: 95, status: "Kritis" },
-  { cabang: "PONPES", jmlKritis: 9, totalItem: 150, status: "Perhatian" },
-  { cabang: "LEDOKOMBO", jmlKritis: 6, totalItem: 110, status: "Perhatian" },
-  { cabang: "GUNUNG MALANG", jmlKritis: 4, totalItem: 85, status: "Aman" },
-];
-const MOCK_FAST_MOVING = [
-  { barang: "Minyak Goreng Sunco 2L", ads: 42.5, cabang: "Jaringan DC" },
-  { barang: "Gula Pasir Gulaku 1kg", ads: 38.0, cabang: "Jaringan DC" },
-  { barang: "Aqua Gelas Dus", ads: 35.2, cabang: "Jaringan DC" },
-  { barang: "Indomie Goreng Spesial", ads: 30.8, cabang: "Jaringan DC" },
-  { barang: "Telur Ayam Negeri / Kg", ads: 28.4, cabang: "Jaringan DC" },
-];
-const MOCK_PRIORITY = [
-  { cabang: "SUKOWONO", skor: 92, status: "Sangat Tinggi", alasan: "Estimasi habis < 2 hari & jarak 5km" },
-  { cabang: "KALISAT", skor: 85, status: "Tinggi", alasan: "Kecepatan jual tinggi & stok kritis" },
-  { cabang: "PONPES", skor: 74, status: "Sedang", alasan: "Stok menipis untuk kebutuhan harian" },
-  { cabang: "LEDOKOMBO", skor: 68, status: "Sedang", alasan: "Waktu pengiriman 1 hari" },
-  { cabang: "GUNUNG MALANG", skor: 45, status: "Rendah", alasan: "Stok aman untuk 7 hari ke depan" },
-];
-
 export default function DashboardDistribusiPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [usingMock, setUsingMock] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   const fetchData = useCallback(async () => {
@@ -69,29 +37,11 @@ export default function DashboardDistribusiPage() {
       const res = await fetch("/api/distribusi/dashboard");
       const json = await res.json();
 
-      if (json.success && json.barangKritis?.length > 0) {
+      if (json.success) {
         setData(json);
-        setUsingMock(false);
-      } else {
-        // Fallback ke mock jika data DB kosong
-        setData({
-          kpi: { totalCabang: 16, totalKritis: 35, serviceLevel: 94.8, pendingRekomendasi: 12 },
-          barangKritis: MOCK_CRITICAL_ITEMS,
-          cabangKritis: MOCK_CRITICAL_BRANCHES,
-          fastMoving: MOCK_FAST_MOVING,
-          prioritas: MOCK_PRIORITY,
-        });
-        setUsingMock(true);
       }
-    } catch {
-      setData({
-        kpi: { totalCabang: 16, totalKritis: 35, serviceLevel: 94.8, pendingRekomendasi: 12 },
-        barangKritis: MOCK_CRITICAL_ITEMS,
-        cabangKritis: MOCK_CRITICAL_BRANCHES,
-        fastMoving: MOCK_FAST_MOVING,
-        prioritas: MOCK_PRIORITY,
-      });
-      setUsingMock(true);
+    } catch (err) {
+      console.error("Gagal memuat dashboard distribusi:", err);
     } finally {
       setLoading(false);
       setLastUpdated(new Date().toLocaleTimeString("id-ID"));
@@ -119,11 +69,6 @@ export default function DashboardDistribusiPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {usingMock && (
-            <span className="text-[10px] bg-warning/10 text-warning border border-warning/20 px-2 py-1 rounded-full font-bold">
-              Data Simulasi — Jalankan Forecast untuk data nyata
-            </span>
-          )}
           <button
             onClick={fetchData}
             disabled={loading}

@@ -10,6 +10,8 @@ import {
   bisyaroh,
   daftar_gaji_jabatan,
   hutang_karyawan,
+  jadwal_karyawan,
+  jabatan_shift_config,
 } from "../lib/db/schema";
 import { eq, and, desc, gte, lte } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
@@ -90,6 +92,58 @@ mobileRoutes.get("/absensi/status", async (c) => {
   const masuk = records.find((r) => r.jenis === "Masuk");
   const pulang = records.find((r) => r.jenis === "Pulang");
 
+  // Cari jadwal hari ini dari jadwal_karyawan
+  const [activeJadwal] = await db
+    .select({
+      id_jadwal: jadwal_karyawan.id,
+      id_shift: jadwal_karyawan.id_shift,
+      nama_shift: jam_kerja.nama_shift,
+      jam_masuk: jam_kerja.jam_masuk,
+      jam_pulang: jam_kerja.jam_pulang,
+      status_hari: jadwal_karyawan.status_hari,
+      catatan: jadwal_karyawan.catatan,
+    })
+    .from(jadwal_karyawan)
+    .leftJoin(jam_kerja, eq(jadwal_karyawan.id_shift, jam_kerja.id))
+    .where(
+      and(
+        eq(jadwal_karyawan.user_id, user.id),
+        eq(jadwal_karyawan.tanggal, today),
+        eq(jadwal_karyawan.aktif, true)
+      )
+    )
+    .limit(1);
+
+  let jadwalHariIni = activeJadwal || null;
+
+  // Jika belum ada jadwal roster, cek konfigurasi default non-shift per jabatan
+  if (!jadwalHariIni && user.id_jabatan) {
+    const [cfg] = await db
+      .select({
+        id_shift: jabatan_shift_config.default_id_shift,
+        nama_shift: jam_kerja.nama_shift,
+        jam_masuk: jam_kerja.jam_masuk,
+        jam_pulang: jam_kerja.jam_pulang,
+        tipe_kerja: jabatan_shift_config.tipe_kerja,
+      })
+      .from(jabatan_shift_config)
+      .leftJoin(jam_kerja, eq(jabatan_shift_config.default_id_shift, jam_kerja.id))
+      .where(eq(jabatan_shift_config.id_jabatan, user.id_jabatan))
+      .limit(1);
+
+    if (cfg && cfg.tipe_kerja === "NON_SHIFT" && cfg.id_shift) {
+      jadwalHariIni = {
+        id_jadwal: 0,
+        id_shift: cfg.id_shift,
+        nama_shift: cfg.nama_shift,
+        jam_masuk: cfg.jam_masuk,
+        jam_pulang: cfg.jam_pulang,
+        status_hari: "KERJA",
+        catatan: "Jadwal Reguler Jabatan",
+      };
+    }
+  }
+
   return c.json({
     tanggal: today,
     sudah_masuk: !!masuk,
@@ -98,7 +152,8 @@ mobileRoutes.get("/absensi/status", async (c) => {
     sudah_pulang: !!pulang,
     jam_pulang: pulang?.jam ?? null,
     lokasi_pulang: pulang?.status_lokasi ?? null,
-    shift: masuk?.shift ?? null,
+    shift: masuk?.shift ?? jadwalHariIni?.nama_shift ?? null,
+    jadwal_hari_ini: jadwalHariIni,
   });
 });
 
@@ -178,13 +233,60 @@ mobileRoutes.post("/absensi/check-in", async (c) => {
     return c.json({ error: "Anda sudah melakukan absensi masuk hari ini." }, 409);
   }
 
-  // Ambil nama shift jika shift_id diberikan
+  // Smart Shift Detection dari jadwal_karyawan atau jabatan_shift_config
+  let finalShiftId = shift_id ? parseInt(shift_id) : null;
   let namaShift: string | null = null;
-  if (shift_id) {
+  let scheduleNote: string | null = null;
+
+  // Cek jadwal hari ini di jadwal_karyawan
+  const [activeJadwal] = await db
+    .select({
+      id_shift: jadwal_karyawan.id_shift,
+      status_hari: jadwal_karyawan.status_hari,
+      nama_shift: jam_kerja.nama_shift,
+    })
+    .from(jadwal_karyawan)
+    .leftJoin(jam_kerja, eq(jadwal_karyawan.id_shift, jam_kerja.id))
+    .where(
+      and(
+        eq(jadwal_karyawan.user_id, user.id),
+        eq(jadwal_karyawan.tanggal, today),
+        eq(jadwal_karyawan.aktif, true)
+      )
+    )
+    .limit(1);
+
+  if (activeJadwal) {
+    if (activeJadwal.status_hari === "LIBUR_ROSTER") {
+      scheduleNote = "Masuk pada Hari Libur Roster (Perlu Konfirmasi HRD)";
+    } else if (activeJadwal.id_shift) {
+      if (!finalShiftId) finalShiftId = activeJadwal.id_shift;
+      namaShift = activeJadwal.nama_shift;
+    }
+  } else if (!finalShiftId && user.id_jabatan) {
+    const [cfg] = await db
+      .select({
+        default_id_shift: jabatan_shift_config.default_id_shift,
+        nama_shift: jam_kerja.nama_shift,
+      })
+      .from(jabatan_shift_config)
+      .leftJoin(jam_kerja, eq(jabatan_shift_config.default_id_shift, jam_kerja.id))
+      .where(eq(jabatan_shift_config.id_jabatan, user.id_jabatan))
+      .limit(1);
+
+    if (cfg?.default_id_shift) {
+      finalShiftId = cfg.default_id_shift;
+      namaShift = cfg.nama_shift;
+    } else {
+      scheduleNote = "Absen di luar jadwal roster (Perlu Konfirmasi HRD)";
+    }
+  }
+
+  if (finalShiftId && !namaShift) {
     const [shiftData] = await db
       .select({ nama_shift: jam_kerja.nama_shift })
       .from(jam_kerja)
-      .where(eq(jam_kerja.id, parseInt(shift_id)))
+      .where(eq(jam_kerja.id, finalShiftId))
       .limit(1);
     namaShift = shiftData?.nama_shift ?? null;
   }
@@ -199,6 +301,11 @@ mobileRoutes.post("/absensi/check-in", async (c) => {
   const now = new Date();
   const jam = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
 
+  const noteParts: string[] = [];
+  if (jarakMeter !== null) noteParts.push(`Jarak: ${Math.round(jarakMeter)}m`);
+  if (scheduleNote) noteParts.push(scheduleNote);
+  const finalCatatan = noteParts.length > 0 ? noteParts.join(" | ") : null;
+
   const [newAbsensi] = await db
     .insert(absensi)
     .values({
@@ -211,8 +318,8 @@ mobileRoutes.post("/absensi/check-in", async (c) => {
       longitude: String(lonUser),
       status_lokasi: statusLokasi,
       foto_selfie: pathFoto,
-      id_shift: shift_id ? parseInt(shift_id) : null,
-      catatan: jarakMeter !== null ? `Jarak dari kantor: ${Math.round(jarakMeter)}m` : null,
+      id_shift: finalShiftId,
+      catatan: finalCatatan,
     })
     .returning();
 

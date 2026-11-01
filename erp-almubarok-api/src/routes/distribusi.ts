@@ -93,11 +93,16 @@ distribusiRoutes.post("/forecast", async (c) => {
     const allBarang = await db.select({ id: barang.id_barang }).from(barang);
     const allCabang = await db.select({ id: cabang.id_cabang }).from(cabang);
 
+    const validBarangIds = new Set(allBarang.map((b) => b.id));
+    const validCabangIds = new Set(allCabang.map((c) => c.id));
+
     // 1. Batch load all stok_barang
     const stokList = await db.select().from(stok_barang);
     const stokMap = new Map<string, number>();
     for (const s of stokList) {
-      stokMap.set(`${s.id_barang}-${s.id_cabang}`, s.stok_akhir || 0);
+      if (s.id_barang && s.id_cabang) {
+        stokMap.set(`${s.id_barang}-${s.id_cabang}`, s.stok_akhir || 0);
+      }
     }
 
     // 2. Batch load all 30-day sales data
@@ -118,7 +123,9 @@ distribusiRoutes.post("/forecast", async (c) => {
 
     const salesMap = new Map<string, number>();
     for (const s of salesList) {
-      salesMap.set(`${s.id_barang}-${s.id_cabang}`, Number(s.totalQty || 0));
+      if (s.id_barang && s.id_cabang) {
+        salesMap.set(`${s.id_barang}-${s.id_cabang}`, Number(s.totalQty || 0));
+      }
     }
 
     // 3. Batch load all stok_setting_cabang
@@ -128,86 +135,84 @@ distribusiRoutes.post("/forecast", async (c) => {
       settingMap.set(`${s.id_barang}-${s.id_cabang}`, s);
     }
 
-    // 4. Batch load all forecast_stok
-    const forecastList = await db.select().from(forecast_stok);
-    const forecastMap = new Map<string, typeof forecast_stok.$inferSelect>();
-    for (const f of forecastList) {
-      forecastMap.set(`${f.id_barang}-${f.id_cabang}`, f);
+    // 4. Gather active (id_barang, id_cabang) pairs from inventory and recent sales
+    const pairMap = new Map<string, { id_barang: number; id_cabang: number }>();
+    for (const s of stokList) {
+      if (s.id_barang && s.id_cabang && validBarangIds.has(s.id_barang) && validCabangIds.has(s.id_cabang)) {
+        pairMap.set(`${s.id_barang}-${s.id_cabang}`, { id_barang: s.id_barang, id_cabang: s.id_cabang });
+      }
     }
-
-    // 5. Batch load all sales_velocity
-    const velocityList = await db.select().from(sales_velocity);
-    const velocityMap = new Map<string, typeof sales_velocity.$inferSelect>();
-    for (const v of velocityList) {
-      velocityMap.set(`${v.id_barang}-${v.id_cabang}`, v);
-    }
-
-    let processed = 0;
-
-    for (const b of allBarang) {
-      for (const cs of allCabang) {
-        const key = `${b.id}-${cs.id}`;
-        const stokSekarang = stokMap.get(key) ?? 0;
-        const totalQty30 = salesMap.get(key) ?? 0;
-        const ads30 = totalQty30 / 30;
-
-        const setting = settingMap.get(key);
-        const leadTime = setting?.lead_time_days ?? 2;
-        const safetyDays = setting?.safety_stock ?? 3;
-
-        const stockCoverHari = ads30 > 0 ? Math.floor(stokSekarang / ads30) : 999;
-
-        let status = "AMAN";
-        if (stockCoverHari <= leadTime) status = "KRITIS";
-        else if (stockCoverHari <= safetyDays) status = "PERHATIAN";
-
-        const habisDate = new Date(today);
-        habisDate.setDate(today.getDate() + Math.min(stockCoverHari, 365));
-        const tanggalHabis = ads30 > 0 ? habisDate.toISOString().split("T")[0] : null;
-
-        const existing = forecastMap.get(key);
-        if (existing) {
-          await db
-            .update(forecast_stok)
-            .set({
-              stok_sekarang: stokSekarang,
-              ads: Math.round(ads30 * 100),
-              estimasi_habis_hari: stockCoverHari > 365 ? 999 : stockCoverHari,
-              tanggal_habis: tanggalHabis,
-              status: status,
-              created_at: todayStr,
-            })
-            .where(eq(forecast_stok.id, existing.id));
-        } else {
-          await db.insert(forecast_stok).values({
-            id_barang: b.id,
-            id_cabang: cs.id,
-            stok_sekarang: stokSekarang,
-            ads: Math.round(ads30 * 100),
-            estimasi_habis_hari: stockCoverHari > 365 ? 999 : stockCoverHari,
-            tanggal_habis: tanggalHabis,
-            status: status,
-            created_at: todayStr,
-          });
-        }
-
-        const velExisting = velocityMap.get(key);
-        const velData = { ads_30: Math.round(ads30 * 100), last_calculated: todayStr };
-
-        if (velExisting) {
-          await db.update(sales_velocity).set(velData).where(eq(sales_velocity.id, velExisting.id));
-        } else {
-          await db.insert(sales_velocity).values({ id_barang: b.id, id_cabang: cs.id, ...velData });
-        }
-
-        processed++;
+    for (const s of salesList) {
+      if (s.id_barang && s.id_cabang && validBarangIds.has(s.id_barang) && validCabangIds.has(s.id_cabang)) {
+        pairMap.set(`${s.id_barang}-${s.id_cabang}`, { id_barang: s.id_barang, id_cabang: s.id_cabang });
       }
     }
 
+    const forecastRows: (typeof forecast_stok.$inferInsert)[] = [];
+    const velocityRows: (typeof sales_velocity.$inferInsert)[] = [];
+
+    for (const pair of pairMap.values()) {
+      const key = `${pair.id_barang}-${pair.id_cabang}`;
+      const stokSekarang = stokMap.get(key) ?? 0;
+      const totalQty30 = salesMap.get(key) ?? 0;
+      const ads30 = totalQty30 / 30;
+
+      const setting = settingMap.get(key);
+      const leadTime = setting?.lead_time_days ?? 2;
+      const safetyDays = setting?.safety_stock ?? 3;
+
+      const stockCoverHari = ads30 > 0 ? Math.floor(stokSekarang / ads30) : (stokSekarang <= 0 ? 0 : 999);
+
+      let status = "AMAN";
+      if (stokSekarang <= 0 || stockCoverHari <= leadTime) status = "KRITIS";
+      else if (stockCoverHari <= safetyDays) status = "PERHATIAN";
+
+      const habisDate = new Date(today);
+      habisDate.setDate(today.getDate() + Math.min(stockCoverHari, 365));
+      const tanggalHabis = ads30 > 0 ? habisDate.toISOString().split("T")[0] : null;
+
+      forecastRows.push({
+        id_barang: pair.id_barang,
+        id_cabang: pair.id_cabang,
+        stok_sekarang: stokSekarang,
+        ads: Math.round(ads30 * 100),
+        estimasi_habis_hari: stockCoverHari > 365 ? 999 : stockCoverHari,
+        tanggal_habis: tanggalHabis,
+        status: status,
+        created_at: todayStr,
+      });
+
+      velocityRows.push({
+        id_barang: pair.id_barang,
+        id_cabang: pair.id_cabang,
+        ads_7: 0,
+        ads_30: Math.round(ads30 * 100),
+        ads_90: 0,
+        last_calculated: todayStr,
+        created_at: todayStr,
+        updated_at: todayStr,
+      });
+    }
+
+    // 5. Batch insert inside an atomic transaction in chunks of 500
+    await db.transaction(async (tx) => {
+      await tx.delete(forecast_stok);
+      await tx.delete(sales_velocity);
+
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < forecastRows.length; i += BATCH_SIZE) {
+        await tx.insert(forecast_stok).values(forecastRows.slice(i, i + BATCH_SIZE));
+      }
+
+      for (let i = 0; i < velocityRows.length; i += BATCH_SIZE) {
+        await tx.insert(sales_velocity).values(velocityRows.slice(i, i + BATCH_SIZE));
+      }
+    });
+
     return c.json({
       success: true,
-      message: `Berhasil menghitung ulang ${processed} kombinasi barang x cabang.`,
-      processed,
+      message: `Berhasil menghitung ulang proyeksi stok untuk ${forecastRows.length} item aktif di seluruh cabang.`,
+      processed: forecastRows.length,
     });
   } catch (error: any) {
     return c.json({ success: false, message: "Gagal menghitung ulang forecast: " + error.message }, 500);
@@ -707,6 +712,7 @@ distribusiRoutes.put("/pengiriman", async (c) => {
 
         // 1. Deduct stock from source branch when transitioning to "Dalam Perjalanan" (DK-1 Fix)
         if (status === "Dalam Perjalanan" && shipmentRecord.status !== "Dalam Perjalanan") {
+          const nowLedger = new Date().toISOString().replace("T", " ").substring(0, 19);
           for (const item of shipmentDetails) {
             const [stockSource] = await tx
               .select()
@@ -718,10 +724,29 @@ distribusiRoutes.put("/pengiriman", async (c) => {
               throw new Error(`Stok kurang di cabang sumber untuk barang ID ${item.id_barang}`);
             }
 
+            const srcSaldoAwal = stockSource.stok_akhir || 0;
+            const srcSaldoAkhir = srcSaldoAwal - item.jumlah_dikirim;
+
             await tx
               .update(stok_barang)
-              .set({ stok_akhir: (stockSource.stok_akhir || 0) - item.jumlah_dikirim })
+              .set({ stok_akhir: srcSaldoAkhir })
               .where(eq(stok_barang.id, stockSource.id));
+
+            await tx.insert(kartu_stok).values({
+              id_barang: item.id_barang,
+              id_cabang: shipmentRecord.id_cabang_sumber,
+              tanggal_transaksi: nowLedger,
+              tipe_transaksi: "MUTASI_TRANSFER_KELUAR",
+              nomor_referensi: shipmentRecord.kode_pengiriman || `SJ-${id}`,
+              saldo_awal: srcSaldoAwal,
+              masuk: 0,
+              keluar: item.jumlah_dikirim,
+              saldo_akhir: srcSaldoAkhir,
+              hpp_satuan: 0,
+              total_nilai: 0,
+              keterangan: `Pengiriman ke Cabang (${shipmentRecord.id_cabang_tujuan}) - Dispatch Dalam Perjalanan`,
+              id_user: activeUser.id,
+            });
           }
         }
 
@@ -733,6 +758,8 @@ distribusiRoutes.put("/pengiriman", async (c) => {
             jumlah_dikirim: d.jumlah_dikirim,
             jumlah_diterima: d.jumlah_dikirim // default to full
           }));
+
+          const nowLedger = new Date().toISOString().replace("T", " ").substring(0, 19);
 
           for (const item of checkItems) {
             const detailId = parseInt(item.id_detail_kirim);
@@ -754,10 +781,29 @@ distribusiRoutes.put("/pengiriman", async (c) => {
                 .limit(1);
 
               if (stockSource) {
+                const srcSaldoAwal = stockSource.stok_akhir || 0;
+                const srcSaldoAkhir = srcSaldoAwal - qtySent;
+
                 await tx
                   .update(stok_barang)
-                  .set({ stok_akhir: (stockSource.stok_akhir || 0) - qtySent })
+                  .set({ stok_akhir: srcSaldoAkhir })
                   .where(eq(stok_barang.id, stockSource.id));
+
+                await tx.insert(kartu_stok).values({
+                  id_barang: item.id_barang,
+                  id_cabang: shipmentRecord.id_cabang_sumber,
+                  tanggal_transaksi: nowLedger,
+                  tipe_transaksi: "MUTASI_TRANSFER_KELUAR",
+                  nomor_referensi: shipmentRecord.kode_pengiriman || `SJ-${id}`,
+                  saldo_awal: srcSaldoAwal,
+                  masuk: 0,
+                  keluar: qtySent,
+                  saldo_akhir: srcSaldoAkhir,
+                  hpp_satuan: 0,
+                  total_nilai: 0,
+                  keterangan: `Pengiriman ke Cabang (${shipmentRecord.id_cabang_tujuan}) - Langsung Diterima`,
+                  id_user: activeUser.id,
+                });
               }
             }
 
@@ -768,19 +814,38 @@ distribusiRoutes.put("/pengiriman", async (c) => {
               .where(and(eq(stok_barang.id_barang, item.id_barang), eq(stok_barang.id_cabang, shipmentRecord.id_cabang_tujuan)))
               .limit(1);
 
+            const destSaldoAwal = stockDest ? (stockDest.stok_akhir || 0) : 0;
+            const destSaldoAkhir = destSaldoAwal + qtyRec;
+
             if (stockDest) {
               await tx
                 .update(stok_barang)
-                .set({ stok_akhir: (stockDest.stok_akhir || 0) + qtyRec })
+                .set({ stok_akhir: destSaldoAkhir })
                 .where(eq(stok_barang.id, stockDest.id));
             } else {
               await tx.insert(stok_barang).values({
                 id_barang: item.id_barang,
                 id_cabang: shipmentRecord.id_cabang_tujuan,
-                stok_akhir: qtyRec,
+                stok_akhir: destSaldoAkhir,
                 penjualan: 0,
               });
             }
+
+            await tx.insert(kartu_stok).values({
+              id_barang: item.id_barang,
+              id_cabang: shipmentRecord.id_cabang_tujuan,
+              tanggal_transaksi: nowLedger,
+              tipe_transaksi: "MUTASI_TRANSFER_MASUK",
+              nomor_referensi: shipmentRecord.kode_pengiriman || `SJ-${id}`,
+              saldo_awal: destSaldoAwal,
+              masuk: qtyRec,
+              keluar: 0,
+              saldo_akhir: destSaldoAkhir,
+              hpp_satuan: 0,
+              total_nilai: 0,
+              keterangan: `Penerimaan Mutasi dari Cabang (${shipmentRecord.id_cabang_sumber})`,
+              id_user: activeUser.id,
+            });
 
             // Record discrepancy if any
             if (qtyRec !== qtySent) {
@@ -1198,6 +1263,11 @@ distribusiRoutes.post("/selisih", async (c) => {
 
     if (!shipmentRecord) {
       return c.json({ success: false, message: "Shipment tidak ditemukan" }, 404);
+    }
+
+    // Idempotency check: prevent duplicate stock additions if already processed
+    if (shipmentRecord.status === "Diterima Lengkap" || shipmentRecord.status === "Ada Selisih") {
+      return c.json({ success: false, message: "Pengiriman ini sudah selesai diproses sebelumnya." }, 409);
     }
 
     let hasDiscrepancy = false;
