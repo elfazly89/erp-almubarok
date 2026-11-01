@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import TablePagination from "@/components/ui/TablePagination";
 
 interface Supplier {
   id_supplier: number;
@@ -42,9 +43,14 @@ export default function SupplierPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [edit, setEdit] = useState<Supplier | null>(null);
-  const [search, setSearch] = useState("");
   const [filterPajak, setFilterPajak] = useState("");
   const [filterHari, setFilterHari] = useState("");
   const [filterPeriode, setFilterPeriode] = useState("");
@@ -495,15 +501,62 @@ export default function SupplierPage() {
     );
   };
 
-  const fetchData = useCallback(async () => {
-    const res = await fetch("/api/supplier");
-    setList(await res.json());
-    setLoading(false);
-  }, []);
+  const fetchData = useCallback(
+    async (
+      targetPage = page,
+      targetLimit = limit,
+      targetSearch = debouncedSearch,
+      targetPajak = filterPajak,
+      targetHari = filterHari,
+      targetPeriode = filterPeriode
+    ) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: targetPage.toString(),
+          limit: targetLimit.toString(),
+        });
+        if (targetSearch.trim()) params.append("search", targetSearch.trim());
+        if (targetPajak) params.append("status_pajak", targetPajak);
+        if (targetHari) params.append("hari_kunjungan", targetHari);
+        if (targetPeriode) params.append("periode_kunjungan", targetPeriode);
+
+        const res = await fetch(`/api/supplier?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.pagination) {
+            setList(json.data || []);
+            setTotalItems(json.pagination.total);
+            setTotalPages(json.pagination.totalPages);
+            setPage(json.pagination.page);
+          } else {
+            const arr = Array.isArray(json) ? json : [];
+            setList(arr);
+            setTotalItems(arr.length);
+            setTotalPages(1);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal memuat supplier:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [page, limit, debouncedSearch, filterPajak, filterHari, filterPeriode]
+  );
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchData(page, limit, debouncedSearch, filterPajak, filterHari, filterPeriode);
+  }, [page, limit, debouncedSearch, filterPajak, filterHari, filterPeriode, fetchData]);
+
+  // Debounced search (350ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const openModal = (supplier?: Supplier) => {
     setEdit(supplier || null);
@@ -566,22 +619,8 @@ export default function SupplierPage() {
     fetchData();
   };
 
-  const filteredList = list.filter((item) => {
-    const s = search.toLowerCase();
-    const matchSearch =
-      item.nama_supplier.toLowerCase().includes(s) ||
-      (item.alamat && item.alamat.toLowerCase().includes(s)) ||
-      (item.telepon && item.telepon.includes(s)) ||
-      (item.email && item.email.toLowerCase().includes(s));
-
-    const matchPajak = filterPajak === "" || item.status_pajak === filterPajak;
-    const matchHari = filterHari === "" || item.hari_kunjungan === filterHari;
-    const matchPeriode = filterPeriode === "" || item.periode_kunjungan === filterPeriode;
-
-    return matchSearch && matchPajak && matchHari && matchPeriode;
-  });
-
-  const sortedList = [...filteredList].sort((a, b) => {
+  const safeList = Array.isArray(list) ? list : [];
+  const sortedList = [...safeList].sort((a, b) => {
     let aVal: any = a[sortField as keyof Supplier] ?? "";
     let bVal: any = b[sortField as keyof Supplier] ?? "";
 
@@ -612,6 +651,7 @@ export default function SupplierPage() {
           <h1 className="text-xl font-bold text-on-surface flex items-center gap-2">
             <Truck className="w-6 h-6 text-primary" /> Daftar Supplier
           </h1>
+          <p className="text-on-surface-variant text-xs mt-0.5">{totalItems.toLocaleString("id-ID")} supplier terdaftar</p>
         </div>
         <div className="flex items-center gap-2">
           {can_create && (
@@ -649,6 +689,12 @@ export default function SupplierPage() {
               placeholder="Cari nama, alamat, telepon..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setDebouncedSearch(search);
+                  setPage(1);
+                }
+              }}
               className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
@@ -656,7 +702,10 @@ export default function SupplierPage() {
             {/* Filter Status Pajak */}
             <select
               value={filterPajak}
-              onChange={(e) => setFilterPajak(e.target.value)}
+              onChange={(e) => {
+                setFilterPajak(e.target.value);
+                setPage(1);
+              }}
               className="bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
             >
               <option value="">Semua Pajak</option>
@@ -667,7 +716,10 @@ export default function SupplierPage() {
             {/* Filter Hari Kunjungan */}
             <select
               value={filterHari}
-              onChange={(e) => setFilterHari(e.target.value)}
+              onChange={(e) => {
+                setFilterHari(e.target.value);
+                setPage(1);
+              }}
               className="bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
             >
               <option value="">Semua Hari Kunjungan</option>
@@ -683,7 +735,10 @@ export default function SupplierPage() {
             {/* Filter Periode Kunjungan */}
             <select
               value={filterPeriode}
-              onChange={(e) => setFilterPeriode(e.target.value)}
+              onChange={(e) => {
+                setFilterPeriode(e.target.value);
+                setPage(1);
+              }}
               className="bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
             >
               <option value="">Semua Periode</option>
@@ -693,12 +748,15 @@ export default function SupplierPage() {
             </select>
 
             {/* Reset Filters button if any filters active */}
-            {(filterPajak || filterHari || filterPeriode) && (
+            {(filterPajak || filterHari || filterPeriode || search) && (
               <button
                 onClick={() => {
+                  setSearch("");
+                  setDebouncedSearch("");
                   setFilterPajak("");
                   setFilterHari("");
                   setFilterPeriode("");
+                  setPage(1);
                 }}
                 className="text-primary hover:text-primary-container text-xs font-semibold flex items-center gap-1 transition-colors px-2 py-1 rounded-md hover:bg-primary/5 cursor-pointer"
               >
@@ -802,6 +860,19 @@ export default function SupplierPage() {
             </table>
           </div>
         )}
+
+        <TablePagination
+          page={page}
+          limit={limit}
+          total={totalItems}
+          totalPages={totalPages}
+          onPageChange={(p) => setPage(p)}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setPage(1);
+          }}
+          isLoading={loading}
+        />
       </div>
 
       {showModal && (

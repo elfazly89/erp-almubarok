@@ -11,6 +11,7 @@ import { getStatusColor, formatDate } from "@/lib/utils";
 import { compressAndCropToPassport } from "@/lib/image";
 import * as XLSX from "xlsx";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import TablePagination from "@/components/ui/TablePagination";
 
 interface User {
   id: number;
@@ -38,7 +39,12 @@ export default function UsersPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [totalPages, setTotalPages] = useState(1);
+  const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("");
   const [selectedJabatan, setSelectedJabatan] = useState("");
   const [selectedCabang, setSelectedCabang] = useState("");
@@ -386,8 +392,8 @@ export default function UsersPage() {
     }
   };
 
-  const handleExportSubmit = () => {
-    if (users.length === 0) {
+  const handleExportSubmit = async () => {
+    if (total === 0 && users.length === 0) {
       alert("Tidak ada data abdi untuk diekspor.");
       return;
     }
@@ -424,55 +430,82 @@ export default function UsersPage() {
       return;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-
-    if (exportFormat === "xlsx") {
-      // Real Excel Spreadsheet Generation using SheetJS
-      const sheetData = [
-        selectedHeaders,
-        ...users.map((item) => fieldKeys.map((key) => item[key as keyof User] ?? "")),
-      ];
-
-      const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Daftar Abdi");
-
-      // Beautify column widths
-      const colWidths = fieldKeys.map((_, colIdx) => {
-        let maxLen = selectedHeaders[colIdx].length;
-        users.forEach((item) => {
-          const val = String(item[fieldKeys[colIdx] as keyof User] ?? "");
-          if (val.length > maxLen) maxLen = val.length;
+    setExporting(true);
+    try {
+      let exportData = users;
+      // Ambil seluruh data sesuai filter jika dataset terpaginasi
+      if (total > users.length) {
+        const params = new URLSearchParams({
+          page: "1",
+          limit: "100000",
+          search: debouncedSearch,
+          status,
+          id_jabatan: selectedJabatan,
+          id_cabang: selectedCabang,
+          tahun_masuk: selectedTahunMasuk,
+          sortBy: sortField,
+          sortOrder: sortOrder,
         });
-        return { wch: Math.min(maxLen + 4, 40) };
-      });
-      worksheet["!cols"] = colWidths;
+        const res = await fetch(`/api/hrd/users?${params}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && json.data.length > 0) {
+            exportData = json.data;
+          }
+        }
+      }
 
-      XLSX.writeFile(workbook, `daftar_abdi_${today}.xlsx`);
-    } else {
-      // CSV Format
-      const rows = users.map((item) => {
-        return fieldKeys
-          .map((key) => {
-            const value = item[key as keyof User] ?? "";
-            return `"${String(value).replace(/"/g, '""')}"`;
-          })
-          .join(separator);
-      });
+      const today = new Date().toISOString().slice(0, 10);
 
-      const csvContent = "\uFEFF" + [selectedHeaders.join(separator), ...rows].join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+      if (exportFormat === "xlsx") {
+        const sheetData = [
+          selectedHeaders,
+          ...exportData.map((item) => fieldKeys.map((key) => item[key as keyof User] ?? "")),
+        ];
 
-      link.href = url;
-      link.setAttribute("download", `daftar_abdi_${today}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Daftar Abdi");
+
+        const colWidths = fieldKeys.map((_, colIdx) => {
+          let maxLen = selectedHeaders[colIdx].length;
+          exportData.forEach((item) => {
+            const val = String(item[fieldKeys[colIdx] as keyof User] ?? "");
+            if (val.length > maxLen) maxLen = val.length;
+          });
+          return { wch: Math.min(maxLen + 4, 40) };
+        });
+        worksheet["!cols"] = colWidths;
+
+        XLSX.writeFile(workbook, `daftar_abdi_${today}.xlsx`);
+      } else {
+        const rows = exportData.map((item) => {
+          return fieldKeys
+            .map((key) => {
+              const value = item[key as keyof User] ?? "";
+              return `"${String(value).replace(/"/g, '""')}"`;
+            })
+            .join(separator);
+        });
+
+        const csvContent = "\uFEFF" + [selectedHeaders.join(separator), ...rows].join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.setAttribute("download", `daftar_abdi_${today}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      setShowExportModal(false);
+    } catch (err: any) {
+      alert("Gagal mengekspor data: " + err.message);
+    } finally {
+      setExporting(false);
     }
-
-    setShowExportModal(false);
   };
 
   const openImportWizard = () => {
@@ -501,26 +534,49 @@ export default function UsersPage() {
     );
   };
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams({
-      limit: "999999",
-      search,
-      status,
-      id_jabatan: selectedJabatan,
-      id_cabang: selectedCabang,
-      tahun_masuk: selectedTahunMasuk,
-      sortBy: sortField,
-      sortOrder: sortOrder,
-    });
-    const res = await fetch(`/api/hrd/users?${params}`);
-    const data = await res.json();
-    setUsers(data.data || []);
-    setTotal(data.total || 0);
-    setLoading(false);
-  }, [search, status, selectedJabatan, selectedCabang, selectedTahunMasuk, sortField, sortOrder]);
+  // Debounce input pencarian 350ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+  // Reset page saat filter jabatan, cabang, status, tahun berganti
+  useEffect(() => {
+    setPage(1);
+  }, [status, selectedJabatan, selectedCabang, selectedTahunMasuk]);
+
+  const fetchUsers = useCallback(async (targetPage = page, targetLimit = limit) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: targetPage.toString(),
+        limit: targetLimit.toString(),
+        search: debouncedSearch,
+        status,
+        id_jabatan: selectedJabatan,
+        id_cabang: selectedCabang,
+        tahun_masuk: selectedTahunMasuk,
+        sortBy: sortField,
+        sortOrder: sortOrder,
+      });
+      const res = await fetch(`/api/hrd/users?${params}`);
+      const data = await res.json();
+      setUsers(data.data || []);
+      setTotal(Number(data.total || 0));
+      setTotalPages(Number(data.totalPages || 1));
+    } catch (err) {
+      console.error("Gagal memuat data abdi:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, limit, debouncedSearch, status, selectedJabatan, selectedCabang, selectedTahunMasuk, sortField, sortOrder]);
+
+  useEffect(() => {
+    fetchUsers(page, limit);
+  }, [fetchUsers, page, limit]);
 
   useEffect(() => {
     fetch("/api/hrd/jabatan").then(r => r.json()).then(setJabatanList);
@@ -631,11 +687,30 @@ export default function UsersPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface-variant/60" />
           <input
             type="text"
-            placeholder="Cari nama, kode user, no HP..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/50 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-primary/80"
+            placeholder="Cari nama, kode user, no HP, NIK, jabatan, cabang..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                setDebouncedSearch(searchInput);
+                setPage(1);
+              }
+            }}
+            className="w-full bg-surface-container-low border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/50 rounded-lg pl-8 pr-8 py-1.5 text-xs focus:outline-none focus:border-primary/80"
           />
+          {searchInput && (
+            <button
+              onClick={() => {
+                setSearchInput("");
+                setDebouncedSearch("");
+                setPage(1);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/60 hover:text-on-surface p-0.5 rounded cursor-pointer"
+              title="Bersihkan pencarian"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
         <select
           value={selectedJabatan}
@@ -678,7 +753,7 @@ export default function UsersPage() {
           ))}
         </select>
         <button
-          onClick={fetchUsers}
+          onClick={() => fetchUsers(page, limit)}
           className="flex items-center justify-center gap-2 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-on-surface px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
           title="Segarkan data"
         >
@@ -827,6 +902,21 @@ export default function UsersPage() {
             </table>
           </div>
         )}
+
+        {/* TablePagination Component */}
+        <TablePagination
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          isLoading={loading}
+          onPageChange={(newPage) => setPage(newPage)}
+          onLimitChange={(newLimit) => {
+            setLimit(newLimit);
+            setPage(1);
+          }}
+          pageSizeOptions={[25, 50, 100, 250]}
+        />
       </div>
 
       {/* Modal */}
@@ -1320,9 +1410,18 @@ export default function UsersPage() {
               </button>
               <button
                 onClick={handleExportSubmit}
-                className="bg-primary hover:bg-primary/95 text-on-primary px-6 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-md shadow-primary/20 cursor-pointer"
+                disabled={exporting}
+                className="bg-primary hover:bg-primary/95 text-on-primary px-6 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-md shadow-primary/20 cursor-pointer disabled:opacity-50"
               >
-                <Download className="w-4 h-4" /> Ekspor Sekarang
+                {exporting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Mengekspor...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" /> Ekspor Sekarang
+                  </>
+                )}
               </button>
             </div>
 

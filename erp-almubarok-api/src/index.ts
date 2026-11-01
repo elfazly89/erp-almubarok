@@ -26,6 +26,7 @@ import { mobileRoutes } from "./routes/mobile";
 import { userRoutes } from "./routes/user";
 import { kasRoutes } from "./routes/kas";
 import { supplyChainRoutes } from "./routes/supply-chain";
+import { startDailyProductLevelScheduler } from "./services/product-level.service";
 
 const app = new Hono().basePath("/api");
 
@@ -83,4 +84,5 @@ serve({
   port: 3001
 }, (info) => {
   console.log(`🚀 ERP Al Mubarok Hono API running on http://localhost:${info.port}/api`);
+  startDailyProductLevelScheduler();
 });

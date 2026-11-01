@@ -21,6 +21,7 @@ import {
 } from "../lib/db/schema";
 import { eq, and, or, like, ne, sql, desc, asc, lte, gte, gt } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
+import { recalculateProductLevels } from "../services/product-level.service";
 
 export const masterRoutes = new Hono<{
   Variables: {
@@ -131,7 +132,79 @@ masterRoutes.delete("/kategori/:id", async (c) => {
 // 2. SUPPLIER
 // ==========================================
 masterRoutes.get("/supplier", async (c) => {
-  const data = await db.select().from(supplier).orderBy(supplier.nama_supplier);
+  const q = c.req.query("q") || c.req.query("search");
+  const statusPajak = c.req.query("status_pajak");
+  const hariKunjungan = c.req.query("hari_kunjungan");
+  const periodeKunjungan = c.req.query("periode_kunjungan");
+  const pageParam = c.req.query("page");
+  const limitParam = c.req.query("limit");
+  const allParam = c.req.query("all");
+
+  const conditions = [];
+
+  if (q && q.trim()) {
+    const term = `%${q.trim().toLowerCase()}%`;
+    conditions.push(
+      or(
+        like(sql`lower(${supplier.nama_supplier})`, term),
+        like(sql`lower(${supplier.telepon})`, term),
+        like(sql`lower(${supplier.alamat})`, term),
+        like(sql`lower(${supplier.bank})`, term)
+      )
+    );
+  }
+
+  if (statusPajak && statusPajak !== "ALL") {
+    conditions.push(eq(supplier.status_pajak, statusPajak));
+  }
+
+  if (hariKunjungan && hariKunjungan !== "ALL") {
+    conditions.push(eq(supplier.hari_kunjungan, hariKunjungan));
+  }
+
+  if (periodeKunjungan && periodeKunjungan !== "ALL") {
+    conditions.push(eq(supplier.periode_kunjungan, periodeKunjungan));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const isPaginationRequested = Boolean(pageParam || limitParam) && allParam !== "true";
+
+  if (isPaginationRequested) {
+    const page = Math.max(1, parseInt(pageParam || "1"));
+    const limit = Math.max(1, Math.min(250, parseInt(limitParam || "50")));
+    const offset = (page - 1) * limit;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(supplier)
+      .where(whereClause);
+    const total = Number(countResult?.count || 0);
+
+    const data = await db
+      .select()
+      .from(supplier)
+      .where(whereClause)
+      .orderBy(supplier.nama_supplier)
+      .limit(limit)
+      .offset(offset);
+
+    return c.json({
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  }
+
+  const data = await db
+    .select()
+    .from(supplier)
+    .where(whereClause)
+    .orderBy(supplier.nama_supplier);
+
   return c.json(data);
 });
 
@@ -192,12 +265,134 @@ masterRoutes.delete("/supplier/:id", async (c) => {
 masterRoutes.get("/barang", async (c) => {
   const q = c.req.query("q") || c.req.query("search");
   const barcode = c.req.query("barcode");
+  const level = c.req.query("level");
+  const laporPajakQuery = c.req.query("lapor_pajak");
+  const pageParam = c.req.query("page");
+  const limitParam = c.req.query("limit");
+  const allParam = c.req.query("all");
+
   const user = c.get("user");
   const idCabang = user.id_cabang || 1;
+
+  const conditions = [];
+
+  if (barcode) {
+    conditions.push(
+      or(
+        eq(barang.barcode, barcode),
+        eq(barang.kode_barang, barcode),
+        eq(barang.barcode_satuan_2, barcode),
+        eq(barang.barcode_satuan_3, barcode)
+      )
+    );
+  }
+
+  if (q && q.trim()) {
+    const term = `%${q.trim()}%`;
+    conditions.push(
+      or(
+        like(sql`lower(${barang.nama_barang})`, term.toLowerCase()),
+        like(sql`lower(${barang.kode_barang})`, term.toLowerCase()),
+        like(barang.barcode, term),
+        like(barang.barcode_satuan_2, term),
+        like(barang.barcode_satuan_3, term)
+      )
+    );
+  }
+
+  if (level && ["FAST", "MEDIUM", "SLOW", "DEAD"].includes(level.toUpperCase())) {
+    conditions.push(eq(barang.level_barang, level.toUpperCase()));
+  }
+
+  if (laporPajakQuery === "true") {
+    conditions.push(eq(barang.lapor_pajak, true));
+  } else if (laporPajakQuery === "false") {
+    conditions.push(eq(barang.lapor_pajak, false));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const isPaginationRequested = Boolean(pageParam || limitParam) && allParam !== "true";
+
+  if (isPaginationRequested) {
+    const page = Math.max(1, parseInt(pageParam || "1"));
+    const limit = Math.max(1, Math.min(250, parseInt(limitParam || "50")));
+    const offset = (page - 1) * limit;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(barang)
+      .where(whereClause);
+    const total = Number(countResult?.count || 0);
+
+    const data = await db
+      .select({
+        id_barang: barang.id_barang,
+        kode_barang: barang.kode_barang,
+        barcode: barang.barcode,
+        nama_barang: barang.nama_barang,
+        id_kategori: barang.id_kategori,
+        nama_kategori: kategori_barang.nama_kategori,
+        id_supplier: barang.id_supplier,
+        nama_supplier: supplier.nama_supplier,
+        satuan_1: barang.satuan_1,
+        satuan_2: barang.satuan_2,
+        satuan_3: barang.satuan_3,
+        isi_1: barang.isi_1,
+        isi_2: barang.isi_2,
+        isi_3: barang.isi_3,
+        harga_beli: barang.harga_beli,
+        harga_rata: barang.harga_rata,
+        harga_jual_1_1: barang.harga_jual_1_1,
+        harga_jual_1_2: barang.harga_jual_1_2,
+        harga_jual_1_3: barang.harga_jual_1_3,
+        harga_jual_2_1: barang.harga_jual_2_1,
+        harga_jual_2_2: barang.harga_jual_2_2,
+        harga_jual_2_3: barang.harga_jual_2_3,
+        harga_jual_3_1: barang.harga_jual_3_1,
+        harga_jual_3_2: barang.harga_jual_3_2,
+        harga_jual_3_3: barang.harga_jual_3_3,
+        jual_rugi: barang.jual_rugi,
+        status: barang.status,
+        status_pajak: barang.status_pajak,
+        lapor_pajak: barang.lapor_pajak,
+        barcode_satuan_2: barang.barcode_satuan_2,
+        barcode_satuan_3: barang.barcode_satuan_3,
+        tipe_barang: barang.tipe_barang,
+        lacak_kadaluarsa: barang.lacak_kadaluarsa,
+        keterangan_1: barang.keterangan_1,
+        keterangan_2: barang.keterangan_2,
+        level_barang: barang.level_barang,
+        level_mode: barang.level_mode,
+        terakhir_terjual: barang.terakhir_terjual,
+        created_at: barang.created_at,
+        stok_akhir: stok_barang.stok_akhir,
+        level_cabang: stok_barang.level_cabang,
+        terakhir_terjual_cabang: stok_barang.terakhir_terjual_cabang,
+      })
+      .from(barang)
+      .leftJoin(kategori_barang, eq(barang.id_kategori, kategori_barang.id_kategori))
+      .leftJoin(supplier, eq(barang.id_supplier, supplier.id_supplier))
+      .leftJoin(stok_barang, and(eq(barang.id_barang, stok_barang.id_barang), eq(stok_barang.id_cabang, idCabang)))
+      .where(whereClause)
+      .orderBy(barang.nama_barang)
+      .limit(limit)
+      .offset(offset);
+
+    return c.json({
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  }
 
   const query = db
     .select({
       id_barang: barang.id_barang,
+      kode_barang: barang.kode_barang,
       barcode: barang.barcode,
       nama_barang: barang.nama_barang,
       id_kategori: barang.id_kategori,
@@ -224,44 +419,44 @@ masterRoutes.get("/barang", async (c) => {
       jual_rugi: barang.jual_rugi,
       status: barang.status,
       status_pajak: barang.status_pajak,
+      lapor_pajak: barang.lapor_pajak,
       barcode_satuan_2: barang.barcode_satuan_2,
       barcode_satuan_3: barang.barcode_satuan_3,
       tipe_barang: barang.tipe_barang,
       lacak_kadaluarsa: barang.lacak_kadaluarsa,
       keterangan_1: barang.keterangan_1,
       keterangan_2: barang.keterangan_2,
+      level_barang: barang.level_barang,
+      level_mode: barang.level_mode,
+      terakhir_terjual: barang.terakhir_terjual,
+      created_at: barang.created_at,
       stok_akhir: stok_barang.stok_akhir,
+      level_cabang: stok_barang.level_cabang,
+      terakhir_terjual_cabang: stok_barang.terakhir_terjual_cabang,
     })
     .from(barang)
     .leftJoin(kategori_barang, eq(barang.id_kategori, kategori_barang.id_kategori))
     .leftJoin(supplier, eq(barang.id_supplier, supplier.id_supplier))
     .leftJoin(stok_barang, and(eq(barang.id_barang, stok_barang.id_barang), eq(stok_barang.id_cabang, idCabang)));
 
-  if (barcode) {
-    const data = await query.where(
-      or(
-        eq(barang.barcode, barcode),
-        eq(barang.barcode_satuan_2, barcode),
-        eq(barang.barcode_satuan_3, barcode)
-      )
-    );
-    return c.json(data);
-  }
-
-  if (q) {
-    const data = await query.where(
-      or(
-        like(barang.nama_barang, `%${q}%`),
-        like(barang.barcode, `%${q}%`),
-        like(barang.barcode_satuan_2, `%${q}%`),
-        like(barang.barcode_satuan_3, `%${q}%`)
-      )
-    );
+  if (conditions.length > 0) {
+    const data = await query.where(and(...conditions)).orderBy(barang.nama_barang);
     return c.json(data);
   }
 
   const data = await query.orderBy(barang.nama_barang);
   return c.json(data);
+});
+
+// Hitung Ulang Level Barang (FSN Classification)
+masterRoutes.post("/barang/recalculate-level", async (c) => {
+  try {
+    const result = await recalculateProductLevels();
+    return c.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error("Error recalculating product levels:", error);
+    return c.json({ error: error.message || "Gagal menghitung ulang level barang" }, 500);
+  }
 });
 
 masterRoutes.post("/barang", async (c) => {
@@ -283,6 +478,7 @@ masterRoutes.post("/barang", async (c) => {
   const [newBarang] = await db
     .insert(barang)
     .values({
+      kode_barang: body.kode_barang ? body.kode_barang.trim() : null,
       barcode: body.barcode.trim(),
       nama_barang: body.nama_barang.trim(),
       id_kategori: body.id_kategori ? parseInt(body.id_kategori) : null,
@@ -307,16 +503,297 @@ masterRoutes.post("/barang", async (c) => {
       jual_rugi: body.jual_rugi ? parseInt(body.jual_rugi) : 0,
       status: body.status || "Aktif",
       status_pajak: body.status_pajak || null,
+      lapor_pajak: body.lapor_pajak !== undefined ? Boolean(body.lapor_pajak) : true,
       barcode_satuan_2: body.barcode_satuan_2 ? body.barcode_satuan_2.trim() : null,
       barcode_satuan_3: body.barcode_satuan_3 ? body.barcode_satuan_3.trim() : null,
       tipe_barang: body.tipe_barang || "STOK",
       lacak_kadaluarsa: Boolean(body.lacak_kadaluarsa),
       keterangan_1: body.keterangan_1 || null,
       keterangan_2: body.keterangan_2 || null,
+      level_barang: body.level_barang || "MEDIUM",
+      level_mode: body.level_mode || "AUTO",
     })
     .returning();
 
   return c.json(newBarang, 201);
+});
+
+// Import Barang Massal dari Excel / JSON
+masterRoutes.post("/barang/import", async (c) => {
+  const body = await c.req.json();
+  if (!Array.isArray(body) || body.length === 0) {
+    return c.json({ error: "Payload harus berupa array data barang." }, 400);
+  }
+
+  // 1. Preload category cache: lower(nama_kategori) -> id_kategori
+  const categoryCache = new Map<string, number>();
+  const allCategories = await db.select().from(kategori_barang);
+  allCategories.forEach((k) => {
+    categoryCache.set(k.nama_kategori.toLowerCase().trim(), k.id_kategori);
+  });
+
+  // 2. Preload supplier cache: lower(nama_supplier) -> id_supplier
+  const supplierCache = new Map<string, number>();
+  const allSuppliers = await db.select().from(supplier);
+  allSuppliers.forEach((s) => {
+    supplierCache.set(s.nama_supplier.toLowerCase().trim(), s.id_supplier);
+  });
+
+  // 3. Preload existing barang
+  const existingList = await db
+    .select({
+      id_barang: barang.id_barang,
+      kode_barang: barang.kode_barang,
+      barcode: barang.barcode,
+      satuan_1: barang.satuan_1,
+      satuan_2: barang.satuan_2,
+      satuan_3: barang.satuan_3,
+      isi_2: barang.isi_2,
+      isi_3: barang.isi_3,
+      harga_beli: barang.harga_beli,
+      harga_rata: barang.harga_rata,
+      harga_jual_1_1: barang.harga_jual_1_1,
+      harga_jual_1_2: barang.harga_jual_1_2,
+      harga_jual_1_3: barang.harga_jual_1_3,
+      harga_jual_2_1: barang.harga_jual_2_1,
+      harga_jual_2_2: barang.harga_jual_2_2,
+      harga_jual_2_3: barang.harga_jual_2_3,
+      harga_jual_3_1: barang.harga_jual_3_1,
+      harga_jual_3_2: barang.harga_jual_3_2,
+      harga_jual_3_3: barang.harga_jual_3_3,
+      id_kategori: barang.id_kategori,
+      id_supplier: barang.id_supplier,
+      keterangan_1: barang.keterangan_1,
+      keterangan_2: barang.keterangan_2,
+    })
+    .from(barang);
+
+  const barcodeMap = new Map<string, any>();
+  const kodeMap = new Map<string, any>();
+  existingList.forEach((b) => {
+    if (b.barcode) barcodeMap.set(b.barcode.trim(), b);
+    if (b.kode_barang) kodeMap.set(b.kode_barang.trim(), b);
+  });
+
+  let insertedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+  const errors: { row: number; reason: string }[] = [];
+
+  for (let idx = 0; idx < body.length; idx++) {
+    const row = body[idx];
+    const rowNum = row.rowNum || idx + 1;
+
+    // Validasi: Nama Barang Wajib Terisi
+    const namaBarang = (row.nama_barang || row.NMBRG || "").toString().trim();
+    if (!namaBarang) {
+      skippedCount++;
+      errors.push({ row: rowNum, reason: "Nama Barang (NMBRG) kosong, baris dilewati." });
+      continue;
+    }
+
+    const kdBrg = (row.kode_barang || row.KDBRG || "").toString().trim();
+    let barcodeVal = (row.barcode || row.BARCODE || "").toString().trim();
+
+    // Fallback: Jika BARCODE kosong, otomatis gunakan KDBRG
+    if (!barcodeVal && kdBrg) {
+      barcodeVal = kdBrg;
+    }
+
+    if (!barcodeVal) {
+      skippedCount++;
+      errors.push({ row: rowNum, reason: "Kode Barang dan Barcode keduanya kosong." });
+      continue;
+    }
+
+    // Auto-create / lookup Kategori (DEPARTEMENT)
+    let idKategori: number | null = null;
+    const deptName = (row.departement || row.DEPARTEMENT || "").toString().trim();
+    if (deptName) {
+      const lowerDept = deptName.toLowerCase();
+      if (categoryCache.has(lowerDept)) {
+        idKategori = categoryCache.get(lowerDept)!;
+      } else {
+        const nextKode = `KT-${String(categoryCache.size + 1).padStart(3, "0")}`;
+        try {
+          const [newCat] = await db
+            .insert(kategori_barang)
+            .values({
+              kode_kategori: nextKode,
+              nama_kategori: deptName,
+            })
+            .returning();
+          idKategori = newCat.id_kategori;
+          categoryCache.set(lowerDept, idKategori);
+        } catch {
+          const fallbackKode = `KT-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 90 + 10)}`;
+          const [newCat] = await db
+            .insert(kategori_barang)
+            .values({
+              kode_kategori: fallbackKode,
+              nama_kategori: deptName,
+            })
+            .returning();
+          idKategori = newCat.id_kategori;
+          categoryCache.set(lowerDept, idKategori);
+        }
+      }
+    }
+
+    // Auto-create / lookup Supplier (SUPPLIER)
+    let idSupplier: number | null = null;
+    const suppName = (row.supplier || row.SUPPLIER || "").toString().trim();
+    if (suppName) {
+      const lowerSupp = suppName.toLowerCase();
+      if (supplierCache.has(lowerSupp)) {
+        idSupplier = supplierCache.get(lowerSupp)!;
+      } else {
+        const [newSupp] = await db
+          .insert(supplier)
+          .values({
+            nama_supplier: suppName,
+          })
+          .returning();
+        idSupplier = newSupp.id_supplier;
+        supplierCache.set(lowerSupp, idSupplier);
+      }
+    }
+
+    // Satuan & Kemasan
+    const sat1 = (row.satuan_1 || row["SAT 1"] || "PCS").toString().trim() || "PCS";
+    const sat2 = (row.satuan_2 || row["SAT 2"] || "").toString().trim() || null;
+    const sat3 = (row.satuan_3 || row["SAT 3"] || "").toString().trim() || null;
+    const isi2Raw = parseInt(row.isi_2 || row["ISI 2"] || "0");
+    const isi3Raw = parseInt(row.isi_3 || row["ISI 3"] || "0");
+    const isi2 = !isNaN(isi2Raw) && isi2Raw > 0 ? isi2Raw : null;
+    const isi3 = !isNaN(isi3Raw) && isi3Raw > 0 ? isi3Raw : null;
+
+    // Harga Beli & HPP (HBT)
+    const hrgBeliRaw = parseInt(row.harga_beli || row.HRGBELI || "0");
+    const hrgBeli = !isNaN(hrgBeliRaw) && hrgBeliRaw >= 0 ? hrgBeliRaw : 0;
+    const hbtRaw = parseInt(row.hbt || row.HBT || "0");
+    const hrgRata = !isNaN(hbtRaw) && hbtRaw > 0 ? hbtRaw : hrgBeli;
+
+    // Inisialisasi Harga Jual (dikalikan pengali kemasan)
+    const hj1 = hrgBeli;
+    const hj2 = hrgBeli * (isi2 || 1);
+    const hj3 = hrgBeli * (isi3 || 1);
+
+    // Keterangan: KELOMPOK -> keterangan_1, LEVEL -> keterangan_2
+    const kelompok = (row.kelompok || row.KELOMPOK || "").toString().trim() || null;
+    const level = (row.level || row.LEVEL || "").toString().trim() || null;
+
+    // Deteksi Barang Eksisting
+    const existing =
+      (kdBrg && kodeMap.get(kdBrg)) ||
+      (barcodeVal && barcodeMap.get(barcodeVal)) ||
+      null;
+
+    if (existing) {
+      // UPDATE: Pertahankan harga jual jika sudah ada > 0
+      const keepHj11 = existing.harga_jual_1_1 && existing.harga_jual_1_1 > 0 ? existing.harga_jual_1_1 : hj1;
+      const keepHj12 = existing.harga_jual_1_2 && existing.harga_jual_1_2 > 0 ? existing.harga_jual_1_2 : hj1;
+      const keepHj13 = existing.harga_jual_1_3 && existing.harga_jual_1_3 > 0 ? existing.harga_jual_1_3 : hj1;
+
+      const keepHj21 = existing.harga_jual_2_1 && existing.harga_jual_2_1 > 0 ? existing.harga_jual_2_1 : hj2;
+      const keepHj22 = existing.harga_jual_2_2 && existing.harga_jual_2_2 > 0 ? existing.harga_jual_2_2 : hj2;
+      const keepHj23 = existing.harga_jual_2_3 && existing.harga_jual_2_3 > 0 ? existing.harga_jual_2_3 : hj2;
+
+      const keepHj31 = existing.harga_jual_3_1 && existing.harga_jual_3_1 > 0 ? existing.harga_jual_3_1 : hj3;
+      const keepHj32 = existing.harga_jual_3_2 && existing.harga_jual_3_2 > 0 ? existing.harga_jual_3_2 : hj3;
+      const keepHj33 = existing.harga_jual_3_3 && existing.harga_jual_3_3 > 0 ? existing.harga_jual_3_3 : hj3;
+
+      await db
+        .update(barang)
+        .set({
+          kode_barang: kdBrg || existing.kode_barang || null,
+          barcode: barcodeVal,
+          nama_barang: namaBarang,
+          id_kategori: idKategori || existing.id_kategori,
+          id_supplier: idSupplier || existing.id_supplier,
+          satuan_1: sat1 || existing.satuan_1,
+          satuan_2: sat2 || existing.satuan_2,
+          satuan_3: sat3 || existing.satuan_3,
+          isi_1: 1,
+          isi_2: isi2 !== null ? isi2 : existing.isi_2,
+          isi_3: isi3 !== null ? isi3 : existing.isi_3,
+          harga_beli: hrgBeli || existing.harga_beli,
+          harga_rata: hrgRata || existing.harga_rata,
+          harga_jual_1_1: keepHj11,
+          harga_jual_1_2: keepHj12,
+          harga_jual_1_3: keepHj13,
+          harga_jual_2_1: keepHj21,
+          harga_jual_2_2: keepHj22,
+          harga_jual_2_3: keepHj23,
+          harga_jual_3_1: keepHj31,
+          harga_jual_3_2: keepHj32,
+          harga_jual_3_3: keepHj33,
+          keterangan_1: kelompok || existing.keterangan_1,
+          keterangan_2: level || existing.keterangan_2,
+        })
+        .where(eq(barang.id_barang, existing.id_barang));
+
+      // Refresh memory cache
+      const updatedItem = {
+        ...existing,
+        kode_barang: kdBrg || existing.kode_barang,
+        barcode: barcodeVal,
+        nama_barang: namaBarang,
+      };
+      barcodeMap.set(barcodeVal, updatedItem);
+      if (kdBrg) kodeMap.set(kdBrg, updatedItem);
+
+      updatedCount++;
+    } else {
+      // INSERT Baru
+      const [inserted] = await db
+        .insert(barang)
+        .values({
+          kode_barang: kdBrg || null,
+          barcode: barcodeVal,
+          nama_barang: namaBarang,
+          id_kategori: idKategori,
+          id_supplier: idSupplier,
+          satuan_1: sat1,
+          satuan_2: sat2,
+          satuan_3: sat3,
+          isi_1: 1,
+          isi_2: isi2,
+          isi_3: isi3,
+          harga_beli: hrgBeli,
+          harga_rata: hrgRata,
+          harga_jual_1_1: hj1,
+          harga_jual_1_2: hj1,
+          harga_jual_1_3: hj1,
+          harga_jual_2_1: hj2,
+          harga_jual_2_2: hj2,
+          harga_jual_2_3: hj2,
+          harga_jual_3_1: hj3,
+          harga_jual_3_2: hj3,
+          harga_jual_3_3: hj3,
+          status: "Aktif",
+          tipe_barang: "STOK",
+          keterangan_1: kelompok,
+          keterangan_2: level,
+        })
+        .returning();
+
+      // Tambahkan ke in-memory cache
+      if (inserted.barcode) barcodeMap.set(inserted.barcode.trim(), inserted);
+      if (inserted.kode_barang) kodeMap.set(inserted.kode_barang.trim(), inserted);
+
+      insertedCount++;
+    }
+  }
+
+  return c.json({
+    success: true,
+    total: body.length,
+    inserted: insertedCount,
+    updated: updatedCount,
+    skipped: skippedCount,
+    errors,
+  });
 });
 
 masterRoutes.put("/barang/:id", async (c) => {
@@ -344,6 +821,7 @@ masterRoutes.put("/barang/:id", async (c) => {
   await db
     .update(barang)
     .set({
+      kode_barang: body.kode_barang !== undefined ? (body.kode_barang ? body.kode_barang.trim() : null) : undefined,
       barcode: body.barcode.trim(),
       nama_barang: body.nama_barang.trim(),
       id_kategori: body.id_kategori ? parseInt(body.id_kategori) : null,
@@ -368,12 +846,15 @@ masterRoutes.put("/barang/:id", async (c) => {
       jual_rugi: body.jual_rugi !== undefined ? parseInt(body.jual_rugi) : 0,
       status: body.status || "Aktif",
       status_pajak: body.status_pajak || null,
+      lapor_pajak: body.lapor_pajak !== undefined ? Boolean(body.lapor_pajak) : undefined,
       barcode_satuan_2: body.barcode_satuan_2 !== undefined ? (body.barcode_satuan_2 ? body.barcode_satuan_2.trim() : null) : undefined,
       barcode_satuan_3: body.barcode_satuan_3 !== undefined ? (body.barcode_satuan_3 ? body.barcode_satuan_3.trim() : null) : undefined,
       tipe_barang: body.tipe_barang || "STOK",
       lacak_kadaluarsa: body.lacak_kadaluarsa !== undefined ? Boolean(body.lacak_kadaluarsa) : undefined,
       keterangan_1: body.keterangan_1 || null,
       keterangan_2: body.keterangan_2 || null,
+      level_barang: body.level_barang !== undefined ? body.level_barang : undefined,
+      level_mode: body.level_mode !== undefined ? body.level_mode : undefined,
     })
     .where(eq(barang.id_barang, parseInt(id)));
 
@@ -721,7 +1202,69 @@ masterRoutes.delete("/cabang/:id", async (c) => {
 // 5. PELANGGAN
 // ==========================================
 masterRoutes.get("/pelanggan", async (c) => {
-  const data = await db.select().from(pelanggan).orderBy(pelanggan.nama_lengkap);
+  const q = c.req.query("q") || c.req.query("search");
+  const levelHarga = c.req.query("level_harga");
+  const pageParam = c.req.query("page");
+  const limitParam = c.req.query("limit");
+  const allParam = c.req.query("all");
+
+  const conditions = [];
+
+  if (q && q.trim()) {
+    const term = `%${q.trim().toLowerCase()}%`;
+    conditions.push(
+      or(
+        like(sql`lower(${pelanggan.nama_lengkap})`, term),
+        like(sql`lower(${pelanggan.kode_pelanggan})`, term),
+        like(sql`lower(${pelanggan.telepon})`, term),
+        like(sql`lower(${pelanggan.alamat})`, term)
+      )
+    );
+  }
+
+  if (levelHarga && levelHarga !== "ALL") {
+    conditions.push(eq(pelanggan.level_harga, parseInt(levelHarga)));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const isPaginationRequested = Boolean(pageParam || limitParam) && allParam !== "true";
+
+  if (isPaginationRequested) {
+    const page = Math.max(1, parseInt(pageParam || "1"));
+    const limit = Math.max(1, Math.min(250, parseInt(limitParam || "50")));
+    const offset = (page - 1) * limit;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(pelanggan)
+      .where(whereClause);
+    const total = Number(countResult?.count || 0);
+
+    const data = await db
+      .select()
+      .from(pelanggan)
+      .where(whereClause)
+      .orderBy(pelanggan.nama_lengkap)
+      .limit(limit)
+      .offset(offset);
+
+    return c.json({
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  }
+
+  const data = await db
+    .select()
+    .from(pelanggan)
+    .where(whereClause)
+    .orderBy(pelanggan.nama_lengkap);
+
   return c.json(data);
 });
 
@@ -773,6 +1316,10 @@ masterRoutes.get("/stok", async (c) => {
   const user = c.get("user");
   const paramCabang = c.req.query("id_cabang");
   const paramBarang = c.req.query("id_barang");
+  const search = c.req.query("search") || c.req.query("q");
+  const pageParam = c.req.query("page");
+  const limitParam = c.req.query("limit");
+  const allParam = c.req.query("all");
 
   // Security check: Super User (1), IT (2), Bendahara (4), Admin (5), Manager (8), SPV (11) can query other branches
   const allowedRoles = [1, 2, 4, 5, 8, 11];
@@ -820,10 +1367,91 @@ masterRoutes.get("/stok", async (c) => {
     return c.json(item || { stok_akhir: 0 });
   }
 
+  const conditions = [];
+  if (!isAllBranches && idCabang) {
+    conditions.push(eq(stok_barang.id_cabang, idCabang));
+  }
+
+  if (search && search.trim()) {
+    const term = `%${search.trim().toLowerCase()}%`;
+    conditions.push(
+      or(
+        like(sql`lower(${barang.nama_barang})`, term),
+        like(sql`lower(${barang.kode_barang})`, term),
+        like(barang.barcode, term)
+      )
+    );
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const isPaginationRequested = Boolean(pageParam || limitParam) && allParam !== "true";
+
+  if (isPaginationRequested) {
+    const page = Math.max(1, parseInt(pageParam || "1"));
+    const limit = Math.max(1, Math.min(250, parseInt(limitParam || "50")));
+    const offset = (page - 1) * limit;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(stok_barang)
+      .innerJoin(barang, eq(stok_barang.id_barang, barang.id_barang))
+      .where(whereClause);
+    const total = Number(countResult?.count || 0);
+
+    const data = await db
+      .select({
+        id: stok_barang.id,
+        id_barang: stok_barang.id_barang,
+        kode_barang: barang.kode_barang,
+        barcode: barang.barcode,
+        nama_barang: barang.nama_barang,
+        id_kategori: barang.id_kategori,
+        nama_kategori: kategori_barang.nama_kategori,
+        id_supplier: barang.id_supplier,
+        nama_supplier: supplier.nama_supplier,
+        id_cabang: stok_barang.id_cabang,
+        nama_cabang: cabang.nama_cabang,
+        stok_akhir: stok_barang.stok_akhir,
+        penjualan: stok_barang.penjualan,
+        posisi_rak: stok_barang.posisi_rak,
+        minimal_stok: stok_barang.minimal_stok,
+        maksimal_stok: stok_barang.maksimal_stok,
+        harga_beli: barang.harga_beli,
+        harga_rata: barang.harga_rata,
+        harga_jual_1_1: barang.harga_jual_1_1,
+        satuan_1: barang.satuan_1,
+        satuan_2: barang.satuan_2,
+        satuan_3: barang.satuan_3,
+        isi_1: barang.isi_1,
+        isi_2: barang.isi_2,
+        isi_3: barang.isi_3,
+      })
+      .from(stok_barang)
+      .innerJoin(barang, eq(stok_barang.id_barang, barang.id_barang))
+      .leftJoin(kategori_barang, eq(barang.id_kategori, kategori_barang.id_kategori))
+      .leftJoin(supplier, eq(barang.id_supplier, supplier.id_supplier))
+      .innerJoin(cabang, eq(stok_barang.id_cabang, cabang.id_cabang))
+      .where(whereClause)
+      .orderBy(isAllBranches ? cabang.nama_cabang : barang.nama_barang, barang.nama_barang)
+      .limit(limit)
+      .offset(offset);
+
+    return c.json({
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  }
+
   const query = db
     .select({
       id: stok_barang.id,
       id_barang: stok_barang.id_barang,
+      kode_barang: barang.kode_barang,
       barcode: barang.barcode,
       nama_barang: barang.nama_barang,
       id_kategori: barang.id_kategori,
@@ -854,8 +1482,8 @@ masterRoutes.get("/stok", async (c) => {
     .innerJoin(cabang, eq(stok_barang.id_cabang, cabang.id_cabang));
 
   const data = isAllBranches
-    ? await query.orderBy(cabang.nama_cabang, barang.nama_barang)
-    : await query.where(eq(stok_barang.id_cabang, idCabang!)).orderBy(barang.nama_barang);
+    ? await query.where(whereClause).orderBy(cabang.nama_cabang, barang.nama_barang)
+    : await query.where(whereClause).orderBy(barang.nama_barang);
 
   return c.json(data);
 });
@@ -877,6 +1505,11 @@ masterRoutes.get("/barang/:id/stok-cabang", async (c) => {
         satuan_1: barang.satuan_1,
         harga_rata: barang.harga_rata,
         harga_beli: barang.harga_beli,
+        level_barang: barang.level_barang,
+        level_mode: barang.level_mode,
+        terakhir_terjual: barang.terakhir_terjual,
+        status_pajak: barang.status_pajak,
+        lapor_pajak: barang.lapor_pajak,
       })
       .from(barang)
       .where(eq(barang.id_barang, id))
@@ -948,6 +1581,8 @@ masterRoutes.get("/barang/:id/stok-cabang", async (c) => {
         maksimal_stok: max,
         status_stok: statusStok,
         nilai_aset: nilaiAset,
+        level_cabang: s ? (s.level_cabang || "MEDIUM") : "MEDIUM",
+        terakhir_terjual_cabang: s ? s.terakhir_terjual_cabang || null : null,
       };
     });
 
@@ -1005,6 +1640,169 @@ masterRoutes.post("/stok", async (c) => {
       .returning();
     return c.json(newStok, 201);
   }
+});
+
+// Import Stok Barang dari Excel (.xlsx / .csv)
+masterRoutes.post("/stok/import", async (c) => {
+  const user = c.get("user");
+  const body = await c.req.json();
+  const idCabang = parseInt(body.id_cabang || c.req.query("id_cabang") || user.id_cabang);
+  const items = Array.isArray(body) ? body : (body.items || body.data || []);
+
+  if (!idCabang) {
+    return c.json({ error: "Cabang tujuan wajib ditentukan." }, 400);
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return c.json({ error: "Payload data stok tidak boleh kosong." }, 400);
+  }
+
+  // 1. Validasi cabang
+  const [branch] = await db.select().from(cabang).where(eq(cabang.id_cabang, idCabang)).limit(1);
+  if (!branch) {
+    return c.json({ error: "Cabang tidak ditemukan." }, 404);
+  }
+
+  // 2. Preload master barang
+  const allBarang = await db
+    .select({
+      id_barang: barang.id_barang,
+      kode_barang: barang.kode_barang,
+      barcode: barang.barcode,
+      nama_barang: barang.nama_barang,
+      harga_beli: barang.harga_beli,
+      harga_rata: barang.harga_rata,
+      satuan_1: barang.satuan_1,
+    })
+    .from(barang);
+
+  const barcodeMap = new Map<string, any>();
+  const kodeMap = new Map<string, any>();
+  allBarang.forEach((b) => {
+    if (b.barcode) barcodeMap.set(b.barcode.trim().toLowerCase(), b);
+    if (b.kode_barang) kodeMap.set(b.kode_barang.trim().toLowerCase(), b);
+  });
+
+  // 3. Preload current stock in target branch
+  const currentBranchStocks = await db
+    .select()
+    .from(stok_barang)
+    .where(eq(stok_barang.id_cabang, idCabang));
+
+  const stockByBarangId = new Map<number, any>();
+  currentBranchStocks.forEach((s) => {
+    stockByBarangId.set(s.id_barang, s);
+  });
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+  const batchRefNo = `IMP-STK-${Date.now().toString().slice(-6)}`;
+
+  // Ambil ID user penanggung jawab
+  const [defaultUser] = await db.select({ id: users.id }).from(users).limit(1);
+  const executorUserId = user?.id || defaultUser?.id || 4;
+
+  let updatedCount = 0;
+  let skippedCount = 0;
+  const errors: { row: number; reason: string }[] = [];
+
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i];
+      const rowNum = row.rowNum || i + 1;
+
+      const kdBrg = (row.kode_barang || row.KDBRG || "").toString().trim();
+      const barcodeVal = (row.barcode || row.BARCODE || "").toString().trim();
+      const stockRaw = row.stock !== undefined ? row.stock : (row.STOCK !== undefined ? row.STOCK : "0");
+      const stockNew = parseInt(String(stockRaw).replace(/,/g, ""));
+
+      if (isNaN(stockNew) || stockNew < 0) {
+        skippedCount++;
+        errors.push({ row: rowNum, reason: `Nilai STOCK '${stockRaw}' tidak valid atau bernilai negatif.` });
+        continue;
+      }
+
+      // Match item to master catalog
+      const matchedItem =
+        (kdBrg && kodeMap.get(kdBrg.toLowerCase())) ||
+        (barcodeVal && barcodeMap.get(barcodeVal.toLowerCase())) ||
+        null;
+
+      if (!matchedItem) {
+        skippedCount++;
+        errors.push({
+          row: rowNum,
+          reason: `Barang '${row.nama_barang || kdBrg || barcodeVal}' belum terdaftar di katalog master barang.`,
+        });
+        continue;
+      }
+
+      const idBarang = matchedItem.id_barang;
+      const currentStockRecord = stockByBarangId.get(idBarang);
+      const saldoAwal = currentStockRecord ? (currentStockRecord.stok_akhir ?? 0) : 0;
+      const diff = stockNew - saldoAwal;
+      const hpp = matchedItem.harga_rata || matchedItem.harga_beli || 0;
+
+      if (currentStockRecord) {
+        // Update kuantitas stok_barang
+        await tx
+          .update(stok_barang)
+          .set({
+            stok_akhir: stockNew,
+          })
+          .where(eq(stok_barang.id, currentStockRecord.id));
+      } else {
+        // Insert record stok_barang baru untuk cabang ini
+        const [newRecord] = await tx
+          .insert(stok_barang)
+          .values({
+            id_barang: idBarang,
+            id_cabang: idCabang,
+            stok_akhir: stockNew,
+            penjualan: 0,
+            minimal_stok: 0,
+            maksimal_stok: 0,
+          })
+          .returning();
+        stockByBarangId.set(idBarang, newRecord);
+      }
+
+      // Catat mutasi selisih ke kartu_stok
+      if (diff !== 0 || !currentStockRecord) {
+        const masukQty = diff > 0 ? diff : 0;
+        const keluarQty = diff < 0 ? Math.abs(diff) : 0;
+        const totalNilai = Math.abs(diff) * hpp;
+
+        await tx.insert(kartu_stok).values({
+          id_barang: idBarang,
+          id_cabang: idCabang,
+          tanggal_transaksi: todayStr,
+          tipe_transaksi: "IMPORT_STOK",
+          nomor_referensi: `${batchRefNo}-${rowNum}`,
+          saldo_awal: saldoAwal,
+          masuk: masukQty,
+          keluar: keluarQty,
+          saldo_akhir: stockNew,
+          hpp_satuan: hpp,
+          total_nilai: totalNilai,
+          keterangan: `Import stok fisik Excel (Saldo: ${saldoAwal} -> ${stockNew})`,
+          id_user: executorUserId,
+          created_at: nowStr,
+        });
+      }
+
+      updatedCount++;
+    }
+  });
+
+  return c.json({
+    success: true,
+    nama_cabang: branch.nama_cabang,
+    total: items.length,
+    updated: updatedCount,
+    skipped: skippedCount,
+    errors,
+  });
 });
 
 masterRoutes.put("/stok/:id", async (c) => {

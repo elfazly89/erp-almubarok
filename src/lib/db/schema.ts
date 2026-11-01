@@ -245,6 +245,7 @@ export const supplier = sqliteTable("supplier", {
 // ─── BARANG ──────────────────────────────────────────────────────────────────
 export const barang = sqliteTable("barang", {
   id_barang: integer("id_barang").primaryKey({ autoIncrement: true }),
+  kode_barang: text("kode_barang"),
   barcode: text("barcode").notNull(),
   nama_barang: text("nama_barang").notNull(),
   id_kategori: integer("id_kategori").references(() => kategori_barang.id_kategori),
@@ -269,8 +270,13 @@ export const barang = sqliteTable("barang", {
   jual_rugi: integer("jual_rugi").default(0),
   status: text("status").default("Aktif"),
   status_pajak: text("status_pajak"),
+  lapor_pajak: integer("lapor_pajak", { mode: "boolean" }).default(true),
   keterangan_1: text("keterangan_1"),
   keterangan_2: text("keterangan_2"),
+  level_barang: text("level_barang").default("MEDIUM"),
+  level_mode: text("level_mode").default("AUTO"),
+  terakhir_terjual: text("terakhir_terjual"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
 
 // ─── STOK BARANG ─────────────────────────────────────────────────────────────
@@ -285,6 +291,8 @@ export const stok_barang = sqliteTable("stok_barang", {
   posisi_rak: text("posisi_rak"),
   minimal_stok: integer("minimal_stok").default(0),
   maksimal_stok: integer("maksimal_stok").default(0),
+  level_cabang: text("level_cabang").default("MEDIUM"),
+  terakhir_terjual_cabang: text("terakhir_terjual_cabang"),
 });
 
 // ─── PELANGGAN ───────────────────────────────────────────────────────────────

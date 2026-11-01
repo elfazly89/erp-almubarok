@@ -28,6 +28,7 @@ import {
 import Link from "next/link";
 import * as XLSX from "xlsx";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
+import TablePagination from "@/components/ui/TablePagination";
 
 interface Customer {
   id_pelanggan: number;
@@ -44,7 +45,13 @@ export default function PelangganPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const [list, setList] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filterLevel, setFilterLevel] = useState("ALL");
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -90,22 +97,58 @@ export default function PelangganPage() {
     total_poin: true,
   });
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/pelanggan?q=${search}`);
-      const data = await res.json();
-      setList(data);
-    } catch (err) {
-      console.error("Gagal memuat data pelanggan", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [search]);
+  const loadData = useCallback(
+    async (
+      targetPage = page,
+      targetLimit = limit,
+      targetSearch = debouncedSearch,
+      targetLevel = filterLevel
+    ) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: targetPage.toString(),
+          limit: targetLimit.toString(),
+        });
+        if (targetSearch.trim()) params.append("search", targetSearch.trim());
+        if (targetLevel !== "ALL") params.append("level_harga", targetLevel);
+
+        const res = await fetch(`/api/pelanggan?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.pagination) {
+            setList(json.data || []);
+            setTotalItems(json.pagination.total);
+            setTotalPages(json.pagination.totalPages);
+            setPage(json.pagination.page);
+          } else {
+            const arr = Array.isArray(json) ? json : [];
+            setList(arr);
+            setTotalItems(arr.length);
+            setTotalPages(1);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal memuat data pelanggan", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [page, limit, debouncedSearch, filterLevel]
+  );
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData(page, limit, debouncedSearch, filterLevel);
+  }, [page, limit, debouncedSearch, filterLevel, loadData]);
+
+  // Debounced search (350ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Import utility functions
   const parseCSV = (text: string, delimiter: string = ",") => {
@@ -664,15 +707,34 @@ export default function PelangganPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                setDebouncedSearch(search);
+                setPage(1);
+              }
+            }}
             placeholder="Cari pelanggan berdasarkan kode, nama lengkap, atau telepon..."
             className="w-full bg-surface border border-outline-variant/30 text-on-surface placeholder-on-surface-variant/60 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary shadow-sm"
           />
         </div>
+        <select
+          value={filterLevel}
+          onChange={(e) => {
+            setFilterLevel(e.target.value);
+            setPage(1);
+          }}
+          className="bg-surface border border-outline-variant/30 text-on-surface rounded-xl px-3 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary shadow-sm cursor-pointer"
+        >
+          <option value="ALL">Semua Level Harga</option>
+          <option value="1">Level 1 (Retail)</option>
+          <option value="2">Level 2 (Grosir)</option>
+          <option value="3">Level 3 (Khusus)</option>
+        </select>
         <button
-          onClick={loadData}
+          onClick={() => loadData()}
           className="flex items-center justify-center bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant/20 px-4 py-3 rounded-xl text-xs font-semibold shadow-sm transition-colors cursor-pointer"
         >
-          <RefreshCw className="w-4 h-4 mr-2" /> Segarkan
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Segarkan
         </button>
       </div>
 
@@ -684,7 +746,7 @@ export default function PelangganPage() {
           </div>
           <div>
             <span className="text-[10px] uppercase font-bold tracking-wider text-on-surface-variant block">Total Pelanggan</span>
-            <strong className="text-xl font-bold font-mono text-on-surface">{list.length} Orang</strong>
+            <strong className="text-xl font-bold font-mono text-on-surface">{totalItems.toLocaleString("id-ID")} Orang</strong>
           </div>
         </div>
         <div className="bg-surface border border-outline-variant/20 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
@@ -814,6 +876,19 @@ export default function PelangganPage() {
             </table>
           </div>
         )}
+
+        <TablePagination
+          page={page}
+          limit={limit}
+          total={totalItems}
+          totalPages={totalPages}
+          onPageChange={(p) => setPage(p)}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setPage(1);
+          }}
+          isLoading={loading}
+        />
       </div>
 
       {/* POPUP MODAL (CREATE / EDIT / ADJUST POIN) */}

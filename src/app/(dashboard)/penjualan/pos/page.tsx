@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
+  Receipt
 } from "lucide-react";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import jsQR from "jsqr";
@@ -111,6 +112,28 @@ export default function PosPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cashierName, setCashierName] = useState("Kasir Toko");
   const [branchName, setBranchName] = useState("Cabang");
+  const [branchDetail, setBranchDetail] = useState<any>(null);
+  const [notaConfig, setNotaConfig] = useState<any>({
+    nota_nama_toko: "ERP Al-Mubarok",
+    nota_slogan: "Pusat Belanja Berkah & Terpercaya",
+    nota_show_alamat_cabang: "true",
+    nota_show_telepon_cabang: "true",
+    nota_paper_width: "58mm",
+    nota_show_kasir: "true",
+    nota_show_pelanggan: "true",
+    nota_show_barcode: "true",
+    nota_show_diskon: "true",
+    nota_show_infaq: "true",
+    nota_show_poin: "true",
+    nota_show_hemat: "true",
+    nota_footer_kebijakan: "Barang yang sudah dibeli tidak dapat ditukar/dikembalikan",
+    nota_footer_doa: "Jazaakumullah Khairan Katsiran",
+    nota_footer_pesan: "Simpan nota ini sebagai bukti transaksi resmi",
+    nota_footer_medsos: "",
+    nota_feed_lines: "2",
+    nota_auto_print: "false",
+    nota_rangkap_cetak: "1",
+  });
 
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -198,7 +221,31 @@ export default function PosPage() {
           const userData = await resUser.json();
           setCashierName(userData.nama_user || "Kasir Toko");
           setBranchName(userData.nama_cabang || "Cabang");
+
+          if (userData.id_cabang) {
+            fetch(`/api/master/cabang`)
+              .then((r) => r.json())
+              .then((cbData) => {
+                const list = Array.isArray(cbData) ? cbData : cbData.data || [];
+                const found = list.find((c: any) => c.id_cabang === userData.id_cabang);
+                if (found) setBranchDetail(found);
+              })
+              .catch(() => {});
+          }
         }
+      }
+
+      // Fetch Nota receipt settings
+      try {
+        const resNota = await fetch("/api/pengaturan/nota");
+        if (resNota.ok) {
+          const notaData = await resNota.json();
+          if (notaData.success && notaData.data) {
+            setNotaConfig(notaData.data);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal memuat pengaturan nota", err);
       }
 
       // Fetch active shift
@@ -615,6 +662,12 @@ export default function PosPage() {
         });
         setShowCheckoutSuccess(true);
         showToast("Transaksi berhasil diselesaikan!", "success");
+
+        if (notaConfig.nota_auto_print === "true") {
+          setTimeout(() => {
+            window.print();
+          }, 350);
+        }
         
         // Reset POS state
         setCart([]);
@@ -1071,103 +1124,187 @@ export default function PosPage() {
       {/* MODAL PRINT NOTA (TRANSAKSI BERHASIL) */}
       {showCheckoutSuccess && completedInvoice && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto animate-in fade-in duration-200">
-          <div id="print-invoice-modal" className="bg-surface border border-outline-variant/35 rounded-2xl w-full max-w-sm my-8 overflow-hidden shadow-xl print:border-0 print:bg-white print:max-w-full print:my-0 print:shadow-none animate-in zoom-in-95 duration-150">
-            
+          <div
+            id="print-invoice-modal"
+            className={`bg-surface border border-outline-variant/35 rounded-2xl w-full my-8 overflow-hidden shadow-xl print:border-0 print:bg-white print:max-w-full print:my-0 print:shadow-none animate-in zoom-in-95 duration-150 ${
+              notaConfig.nota_paper_width === "80mm" ? "max-w-md" : "max-w-sm"
+            }`}
+          >
             <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between print:hidden">
-              <h2 className="font-semibold text-on-surface text-sm">Transaksi Berhasil!</h2>
-              <button onClick={() => setShowCheckoutSuccess(false)} className="text-on-surface-variant hover:text-on-surface transition-colors">
+              <h2 className="font-semibold text-on-surface text-sm flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-primary" /> Transaksi Berhasil!
+              </h2>
+              <button
+                onClick={() => setShowCheckoutSuccess(false)}
+                className="text-on-surface-variant hover:text-on-surface transition-colors"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-4">
-              {/* Receipt Body */}
-              <div className="bg-white text-black p-4 rounded-xl border border-slate-200 font-mono text-[11px] space-y-3 shadow-inner print:p-0 print:border-0 print:shadow-none">
-                <div className="text-center space-y-1 pb-3 border-b border-dashed border-gray-300">
-                  <h3 className="font-bold text-sm tracking-wider uppercase">{settings.app_name}</h3>
-                  <p className="text-[10px]">{settings.company_name}</p>
-                  <p className="text-[9px]">{branchName}</p>
-                </div>
+              {/* Receipt Body (Supports 1 or 2 copies) */}
+              {[1, ...(notaConfig.nota_rangkap_cetak === "2" ? [2] : [])].map((copyNum) => (
+                <div
+                  key={copyNum}
+                  className={`bg-white text-black p-4 rounded-xl border border-slate-200 font-mono shadow-inner print:p-0 print:border-0 print:shadow-none mx-auto space-y-2.5 ${
+                    notaConfig.nota_paper_width === "80mm" ? "w-[340px] text-[11px]" : "w-[260px] text-[10px]"
+                  } ${copyNum === 2 ? "mt-4 pt-4 border-t-2 border-dashed border-gray-400 print:page-break-before-always" : ""}`}
+                >
+                  {notaConfig.nota_rangkap_cetak === "2" && (
+                    <div className="text-center font-bold text-[9px] uppercase tracking-wider text-gray-500 pb-1">
+                      {copyNum === 1 ? "[ STRUK PELANGGAN ]" : "[ ARSIP TOKO / KASIR ]"}
+                    </div>
+                  )}
 
-                <div className="space-y-0.5 border-b border-dashed border-gray-300 pb-2 text-[10px]">
-                  <div className="flex justify-between">
-                    <span>No. Nota:</span>
-                    <span className="font-bold">{completedInvoice.no_invoice}</span>
+                  {/* Header */}
+                  <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-gray-300">
+                    <h3 className="font-bold text-xs tracking-wider uppercase">
+                      {notaConfig.nota_nama_toko || settings.app_name}
+                    </h3>
+                    {notaConfig.nota_slogan && (
+                      <p className="text-[9px] text-gray-700">{notaConfig.nota_slogan}</p>
+                    )}
+                    {notaConfig.nota_show_alamat_cabang === "true" && (
+                      <p className="text-[8.5px] text-gray-600">
+                        {branchDetail?.alamat || branchName}
+                      </p>
+                    )}
+                    {notaConfig.nota_show_telepon_cabang === "true" && branchDetail?.telepon && (
+                      <p className="text-[8.5px] text-gray-600">Telp/WA: {branchDetail.telepon}</p>
+                    )}
                   </div>
-                  <div className="flex justify-between">
-                    <span>Tanggal:</span>
-                    <span>{completedInvoice.tanggal} {completedInvoice.jam}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Kasir:</span>
-                    <span>{cashierName}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Pelanggan:</span>
-                    <span>{completedInvoice.nama_pelanggan}</span>
-                  </div>
-                </div>
 
-                {/* Items */}
-                <div className="space-y-2 border-b border-dashed border-gray-300 pb-3">
-                  {completedInvoice.items.map((item: CartItem) => (
-                    <div key={`${item.id_barang}-${item.satuan}`} className="space-y-0.5">
-                      <span className="font-semibold">{item.nama_barang}</span>
-                      <div className="flex justify-between text-gray-600 text-[10px]">
-                        <span>{item.jumlah} x {formatRupiah(item.harga_jual)} / {item.satuan}</span>
-                        <span>{formatRupiah(item.subtotal)}</span>
+                  {/* Metadata */}
+                  <div className="space-y-0.5 border-b border-dashed border-gray-300 py-1.5 text-[9.5px]">
+                    <div className="flex justify-between">
+                      <span>No. Nota:</span>
+                      <span className="font-bold">{completedInvoice.no_invoice}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tanggal:</span>
+                      <span>
+                        {completedInvoice.tanggal} {completedInvoice.jam}
+                      </span>
+                    </div>
+                    {notaConfig.nota_show_kasir === "true" && (
+                      <div className="flex justify-between">
+                        <span>Kasir:</span>
+                        <span>{cashierName}</span>
                       </div>
+                    )}
+                    {notaConfig.nota_show_pelanggan === "true" && (
+                      <div className="flex justify-between">
+                        <span>Pelanggan:</span>
+                        <span>{completedInvoice.nama_pelanggan}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Items */}
+                  <div className="space-y-1.5 border-b border-dashed border-gray-300 py-2 text-[9.5px]">
+                    {completedInvoice.items.map((item: CartItem) => (
+                      <div key={`${item.id_barang}-${item.satuan}`} className="space-y-0.5">
+                        <span className="font-semibold block">{item.nama_barang}</span>
+                        <div className="flex justify-between text-gray-600">
+                          <span>
+                            {item.jumlah} x {formatRupiah(item.harga_jual)} / {item.satuan}
+                          </span>
+                          <span>{formatRupiah(item.subtotal)}</span>
+                        </div>
+                        {notaConfig.nota_show_diskon === "true" && item.diskon > 0 && (
+                          <div className="text-[8.5px] text-red-600 text-right">
+                            Diskon Item: -{formatRupiah(item.diskon)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pricing Calc */}
+                  <div className="space-y-1 text-right text-[9.5px] py-1">
+                    <div className="flex justify-between">
+                      <span>Subtotal Belanja:</span>
+                      <span>{formatRupiah(completedInvoice.subtotal)}</span>
+                    </div>
+
+                    {notaConfig.nota_show_diskon === "true" && completedInvoice.nominal_voucher > 0 && (
+                      <div className="flex justify-between text-red-600">
+                        <span>Voucher Discount:</span>
+                        <span>-{formatRupiah(completedInvoice.nominal_voucher)}</span>
+                      </div>
+                    )}
+
+                    {notaConfig.nota_show_diskon === "true" && completedInvoice.potongan_poin > 0 && (
+                      <div className="flex justify-between text-red-600">
+                        <span>Poin Discount ({completedInvoice.poin_digunakan} pts):</span>
+                        <span>-{formatRupiah(completedInvoice.potongan_poin)}</span>
+                      </div>
+                    )}
+
+                    {notaConfig.nota_show_infaq === "true" && completedInvoice.infaq > 0 && (
+                      <div className="flex justify-between text-emerald-700">
+                        <span>Infaq Shadaqah:</span>
+                        <span>+{formatRupiah(completedInvoice.infaq)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between font-bold text-xs border-t border-dashed border-gray-300 pt-1 text-black">
+                      <span>TOTAL BILL:</span>
+                      <span>{formatRupiah(completedInvoice.total_akhir)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600 pt-0.5">
+                      <span>Uang Diterima:</span>
+                      <span>{formatRupiah(completedInvoice.jumlah_bayar)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold text-gray-800">
+                      <span>Uang Kembalian:</span>
+                      <span>{formatRupiah(completedInvoice.kembalian)}</span>
+                    </div>
+                  </div>
+
+                  {/* Savings Banner */}
+                  {notaConfig.nota_show_hemat === "true" &&
+                    completedInvoice.nominal_voucher + completedInvoice.potongan_poin > 0 && (
+                      <div className="my-1 p-1 bg-gray-100 border border-gray-300 text-center font-bold text-[9px]">
+                        *** ANDA HEMAT:{" "}
+                        {formatRupiah(completedInvoice.nominal_voucher + completedInvoice.potongan_poin)} ***
+                      </div>
+                    )}
+
+                  {/* Barcode Simulation */}
+                  {notaConfig.nota_show_barcode === "true" && (
+                    <div className="text-center py-1.5 border-t border-dashed border-gray-300">
+                      <div className="font-mono tracking-widest text-sm font-bold scale-y-125 inline-block text-black">
+                        ||| | |||| | ||| || ||||
+                      </div>
+                      <p className="text-[8px] font-mono mt-0.5 text-gray-600">{completedInvoice.no_invoice}</p>
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="text-center pt-2 border-t border-dashed border-gray-300 text-[8.5px] space-y-0.5 text-gray-600">
+                    {notaConfig.nota_footer_doa && (
+                      <p className="font-bold text-black">{notaConfig.nota_footer_doa}</p>
+                    )}
+                    {notaConfig.nota_footer_kebijakan && <p>{notaConfig.nota_footer_kebijakan}</p>}
+                    {notaConfig.nota_footer_pesan && <p>{notaConfig.nota_footer_pesan}</p>}
+                    {notaConfig.nota_footer_medsos && (
+                      <p className="text-[8px] text-gray-500 pt-0.5 font-medium">{notaConfig.nota_footer_medsos}</p>
+                    )}
+                  </div>
+
+                  {/* Empty Feed Lines */}
+                  {Array.from({ length: parseInt(notaConfig.nota_feed_lines) || 1 }).map((_, i) => (
+                    <div key={i} className="h-2 text-transparent">
+                      .
                     </div>
                   ))}
                 </div>
-
-                {/* Pricing Calc */}
-                <div className="space-y-1 text-right text-[10px]">
-                  <div className="flex justify-between">
-                    <span>Subtotal Belanja:</span>
-                    <span>{formatRupiah(completedInvoice.subtotal)}</span>
-                  </div>
-                  {completedInvoice.nominal_voucher > 0 && (
-                    <div className="flex justify-between text-gray-600">
-                      <span>Voucher Discount:</span>
-                      <span>-{formatRupiah(completedInvoice.nominal_voucher)}</span>
-                    </div>
-                  )}
-                  {completedInvoice.potongan_poin > 0 && (
-                    <div className="flex justify-between text-gray-600">
-                      <span>Poin Discount ({completedInvoice.poin_digunakan} pts):</span>
-                      <span>-{formatRupiah(completedInvoice.potongan_poin)}</span>
-                    </div>
-                  )}
-                  {completedInvoice.infaq > 0 && (
-                    <div className="flex justify-between text-gray-600">
-                      <span>Infaq Shadaqah:</span>
-                      <span>+{formatRupiah(completedInvoice.infaq)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-bold text-[12px] border-t border-dashed border-gray-300 pt-1.5 text-black">
-                    <span>TOTAL BILL:</span>
-                    <span>{formatRupiah(completedInvoice.total_akhir)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-600 pt-0.5">
-                    <span>Uang Diterima:</span>
-                    <span>{formatRupiah(completedInvoice.jumlah_bayar)}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-[11px] text-black">
-                    <span>Uang Kembalian:</span>
-                    <span>{formatRupiah(completedInvoice.kembalian)}</span>
-                  </div>
-                </div>
-
-                <div className="text-center pt-3 border-t border-dashed border-gray-300 text-[9px] space-y-1">
-                  <p className="font-bold">*** TERIMA KASIH ***</p>
-                  <p>Infaq yang Anda berikan insyaAllah barokah.</p>
-                  <p>Simpan nota ini sebagai bukti transaksi resmi.</p>
-                </div>
-              </div>
+              ))}
 
               {/* Action Buttons */}
-              <div className="flex gap-3 print:hidden">
+              <div className="flex gap-3 print:hidden pt-2">
                 <button
                   onClick={() => window.print()}
                   className="flex-1 bg-secondary hover:bg-secondary/90 text-on-secondary py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-secondary/15 transition-all cursor-pointer"
@@ -1182,7 +1319,6 @@ export default function PosPage() {
                 </button>
               </div>
             </div>
-
           </div>
         </div>
       )}
@@ -1248,6 +1384,16 @@ export default function PosPage() {
           }
           #print-invoice-modal, #print-invoice-modal * {
             visibility: visible;
+          }
+          #print-invoice-modal {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: ${notaConfig.nota_paper_width === "58mm" ? "58mm" : "80mm"} !important;
+            margin: 0 !important;
+            padding: 2mm !important;
+            box-shadow: none !important;
+            border: none !important;
           }
           /* Hide other elements during print */
           .print\\:hidden, button, header, nav, aside {

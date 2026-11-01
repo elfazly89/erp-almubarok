@@ -751,35 +751,56 @@ pembelianRoutes.post("/hutang", async (c) => {
 });
 
 // ==========================================
-// 4. SARAN ORDER PEMBELIAN CERDAS (SMART REORDER)
+// 4. SARAN ORDER PEMBELIAN CERDAS & ANALISIS KEMAMPUAN JUAL (MULTI-CABANG)
 // ==========================================
 pembelianRoutes.get("/saran-order", async (c) => {
-  const targetDaysParam = c.req.query("target_days");
+  const targetBufferDaysParam = c.req.query("target_buffer_days") || c.req.query("target_days");
+  const leadTimeDaysParam = c.req.query("lead_time_days");
+  const lookbackDaysParam = c.req.query("lookback_days");
   const idSupplierParam = c.req.query("id_supplier");
+  const levelFilter = c.req.query("level_barang") || "ALL";
   const urgencyFilter = c.req.query("urgency"); // 'kritis' | 'perhatian' | 'aman' | 'all'
   const search = c.req.query("search") || "";
 
-  const targetDays = Math.max(1, parseInt(targetDaysParam || "14") || 14);
-  const supplierId = idSupplierParam ? parseInt(idSupplierParam) : null;
+  const targetBufferDays = Math.max(1, parseInt(targetBufferDaysParam || "14") || 14);
+  const leadTimeDays = Math.max(0, parseInt(leadTimeDaysParam || "3") || 3);
+  const lookbackDays = Math.max(1, parseInt(lookbackDaysParam || "30") || 30);
+  const supplierId = idSupplierParam && idSupplierParam !== "all" ? parseInt(idSupplierParam) : null;
 
   try {
     const rawData = await db.execute(sql`
-      WITH sales_summary AS (
+      WITH sales_by_branch AS (
         SELECT 
           pd.id_barang,
-          COALESCE(SUM(pd.jumlah * pd.isi_satuan), 0) as total_qty_sold,
-          ROUND(COALESCE(SUM(pd.jumlah * pd.isi_satuan) / 30.0, 0), 2) as ads_30
+          p.id_cabang,
+          COALESCE(SUM(pd.jumlah * pd.isi_satuan), 0) as qty_sold
         FROM penjualan_detail pd
         JOIN penjualan p ON pd.id_penjualan = p.id_penjualan
-        GROUP BY pd.id_barang
+        WHERE p.tanggal_invoice >= TO_CHAR(CURRENT_DATE - (${lookbackDays} * INTERVAL '1 day'), 'YYYY-MM-DD')
+        GROUP BY pd.id_barang, p.id_cabang
       ),
-      stock_summary AS (
+      sales_global AS (
+        SELECT 
+          id_barang,
+          SUM(qty_sold) as total_qty_sold
+        FROM sales_by_branch
+        GROUP BY id_barang
+      ),
+      stock_by_branch AS (
         SELECT 
           st.id_barang,
-          COALESCE(SUM(st.stok_akhir), 0) as total_stok,
-          COALESCE(SUM(st.minimal_stok), 0) as total_min_stok
+          st.id_cabang,
+          COALESCE(st.stok_akhir, 0) as stok_akhir,
+          COALESCE(st.minimal_stok, 0) as minimal_stok
         FROM stok_barang st
-        GROUP BY st.id_barang
+      ),
+      stock_global AS (
+        SELECT 
+          id_barang,
+          COALESCE(SUM(stok_akhir), 0) as total_stok,
+          COALESCE(SUM(minimal_stok), 0) as total_min_stok
+        FROM stock_by_branch
+        GROUP BY id_barang
       ),
       po_on_order AS (
         SELECT 
@@ -789,6 +810,34 @@ pembelianRoutes.get("/saran-order", async (c) => {
         JOIN pesan_beli pb ON pbd.id_pesan_beli = pb.id_pesan_beli
         WHERE pb.status IN ('PENDING', 'Diproses', 'Sebagian')
         GROUP BY pbd.id_barang
+      ),
+      branch_matrix AS (
+        SELECT 
+          c.id_cabang,
+          c.nama_cabang,
+          sb.id_barang,
+          sb.stok_akhir as stok_cabang,
+          sb.minimal_stok as min_stok_cabang,
+          COALESCE(sbb.qty_sold, 0) as qty_sold_cabang
+        FROM cabang c
+        JOIN stock_by_branch sb ON c.id_cabang = sb.id_cabang
+        LEFT JOIN sales_by_branch sbb ON sb.id_barang = sbb.id_barang AND c.id_cabang = sbb.id_cabang
+        WHERE sb.stok_akhir > 0 OR COALESCE(sbb.qty_sold, 0) > 0 OR sb.minimal_stok > 0
+      ),
+      branch_agg AS (
+        SELECT 
+          bm.id_barang,
+          json_agg(
+            json_build_object(
+              'id_cabang', bm.id_cabang,
+              'nama_cabang', bm.nama_cabang,
+              'stok_cabang', bm.stok_cabang,
+              'min_stok_cabang', bm.min_stok_cabang,
+              'qty_sold_cabang', bm.qty_sold_cabang
+            )
+          ) as cabang_details
+        FROM branch_matrix bm
+        GROUP BY bm.id_barang
       )
       SELECT 
         b.id_barang,
@@ -796,49 +845,68 @@ pembelianRoutes.get("/saran-order", async (c) => {
         b.nama_barang,
         b.id_supplier,
         s.nama_supplier,
+        b.level_barang,
         b.satuan_1,
         b.satuan_2,
         b.satuan_3,
         COALESCE(b.isi_2, 1) as isi_2,
         COALESCE(b.isi_3, 1) as isi_3,
         COALESCE(b.harga_beli, 0) as harga_beli,
-        COALESCE(ss.total_stok, 0) as total_stok,
-        COALESCE(ss.total_min_stok, 0) as total_min_stok,
-        COALESCE(sl.ads_30, 0) as ads_30,
-        COALESCE(sl.total_qty_sold, 0) as total_qty_sold,
-        COALESCE(poo.total_on_order, 0) as total_on_order
+        COALESCE(stg.total_stok, 0) as total_stok,
+        COALESCE(stg.total_min_stok, 0) as total_min_stok,
+        COALESCE(sg.total_qty_sold, 0) as total_qty_sold,
+        COALESCE(poo.total_on_order, 0) as total_on_order,
+        ba.cabang_details
       FROM barang b
       LEFT JOIN supplier s ON b.id_supplier = s.id_supplier
-      LEFT JOIN sales_summary sl ON b.id_barang = sl.id_barang
-      LEFT JOIN stock_summary ss ON b.id_barang = ss.id_barang
+      LEFT JOIN sales_global sg ON b.id_barang = sg.id_barang
+      LEFT JOIN stock_global stg ON b.id_barang = stg.id_barang
       LEFT JOIN po_on_order poo ON b.id_barang = poo.id_barang
-      ORDER BY sl.total_qty_sold DESC NULLS LAST, b.nama_barang ASC
+      LEFT JOIN branch_agg ba ON b.id_barang = ba.id_barang
+      ORDER BY sg.total_qty_sold DESC NULLS LAST, b.nama_barang ASC
     `);
 
     let items = (rawData.rows as any[]).map((row) => {
-      const ads = parseFloat(row.ads_30) || 0;
+      const totalQtySold = parseFloat(row.total_qty_sold) || 0;
+      const adsGlobal = Math.round((totalQtySold / lookbackDays) * 100) / 100;
       const totalStok = parseInt(row.total_stok) || 0;
       const totalMinStok = parseInt(row.total_min_stok) || 0;
       const totalOnOrder = parseInt(row.total_on_order) || 0;
       const hargaBeliPcs = parseInt(row.harga_beli) || 0;
+      const levelBarang = (row.level_barang || "MEDIUM").toUpperCase();
 
-      // Ketahanan stok dalam hari
-      const runoutDays = ads > 0 ? Math.round((totalStok / ads) * 10) / 10 : (totalStok > 0 ? 999 : 0);
+      // Safety Factor adaptif sesuai Level Barang
+      let safetyFactor = 1.0;
+      let warningNote = "";
+      if (levelBarang === "FAST") {
+        safetyFactor = 1.20; // +20% proteksi stok cepat habis
+      } else if (levelBarang === "SLOW") {
+        safetyFactor = 0.70; // -30% rampingkan agar tidak mengendap modal
+      } else if (levelBarang === "DEAD") {
+        safetyFactor = 0.0;  // Blokir order ulang
+        warningNote = "Produk Dead Moving (>60 hari tidak terjual). Order ulang dicegah otomatis.";
+      }
 
-      // Urgensi:
+      // Ketahanan stok global (runout days)
+      const runoutDays = adsGlobal > 0 ? Math.round((totalStok / adsGlobal) * 10) / 10 : (totalStok > 0 ? 999 : 0);
+
+      // Status Urgensi:
       // KRITIS: runout <= 3 hari atau stok <= min_stok (dan ada penjualan atau stok kosong)
       // PERHATIAN: runout <= 7 hari
       // AMAN: runout > 7 hari
       let statusUrgensi: "KRITIS" | "PERHATIAN" | "AMAN" = "AMAN";
-      if (runoutDays <= 3 || (totalMinStok > 0 && totalStok <= totalMinStok) || (totalStok <= 0 && ads > 0)) {
-        statusUrgensi = "KRITIS";
-      } else if (runoutDays <= 7) {
-        statusUrgensi = "PERHATIAN";
+      if (levelBarang !== "DEAD") {
+        if (runoutDays <= 3 || (totalMinStok > 0 && totalStok <= totalMinStok) || (totalStok <= 0 && adsGlobal > 0)) {
+          statusUrgensi = "KRITIS";
+        } else if (runoutDays <= 7) {
+          statusUrgensi = "PERHATIAN";
+        }
       }
 
-      // Formula: (Target Buffer Hari * ADS) + Stok Minimum - Stok Sekarang - On Order
-      const targetDemand = targetDays * ads;
-      const rawNeededPcs = Math.max(0, Math.ceil(targetDemand + totalMinStok - totalStok - totalOnOrder));
+      // Formula: (Target Buffer Hari + Lead Time Kirim) * ADS * Safety Factor + Stok Minimum - Stok Sekarang - On Order
+      const totalCoverDays = targetBufferDays + leadTimeDays;
+      const targetDemand = levelBarang === "DEAD" ? 0 : totalCoverDays * adsGlobal * safetyFactor;
+      const rawNeededPcs = levelBarang === "DEAD" ? 0 : Math.max(0, Math.ceil(targetDemand + totalMinStok - totalStok - totalOnOrder));
 
       // Kemasan vendor terbaik: pilih satuan_3 jika ada dan isi_3 > 1, else satuan_2 jika isi_2 > 1, else satuan_1
       let namaKemasan = row.satuan_1 || "PCS";
@@ -852,11 +920,45 @@ pembelianRoutes.get("/saran-order", async (c) => {
         isiKemasan = row.isi_2;
       }
 
-      // Ceiling packaging calculation
+      // Pembulatan kemasan vendor
       const saranQtyKemasan = rawNeededPcs > 0 ? Math.ceil(rawNeededPcs / isiKemasan) : 0;
       const finalQtyPcs = saranQtyKemasan * isiKemasan;
       const hargaBeliKemasan = hargaBeliPcs * isiKemasan;
       const estimasiSubtotal = saranQtyKemasan * hargaBeliKemasan;
+
+      // Hitung rincian alokasi per cabang
+      const rawBranchDetails: any[] = Array.isArray(row.cabang_details) ? row.cabang_details : [];
+      const cabangAllocations = rawBranchDetails.map((b: any) => {
+        const qtySoldCab = parseFloat(b.qty_sold_cabang) || 0;
+        const adsCab = Math.round((qtySoldCab / lookbackDays) * 100) / 100;
+        const stokCab = parseInt(b.stok_cabang) || 0;
+        const minStokCab = parseInt(b.min_stok_cabang) || 0;
+        const runoutCab = adsCab > 0 ? Math.round((stokCab / adsCab) * 10) / 10 : (stokCab > 0 ? 999 : 0);
+
+        let statusUrgensiCab: "KRITIS" | "PERHATIAN" | "AMAN" = "AMAN";
+        if (runoutCab <= 3 || (minStokCab > 0 && stokCab <= minStokCab) || (stokCab <= 0 && adsCab > 0)) {
+          statusUrgensiCab = "KRITIS";
+        } else if (runoutCab <= 7) {
+          statusUrgensiCab = "PERHATIAN";
+        }
+
+        const demandCab = levelBarang === "DEAD" ? 0 : totalCoverDays * adsCab * safetyFactor;
+        const defisitCab = levelBarang === "DEAD" ? 0 : Math.max(0, Math.ceil(demandCab + minStokCab - stokCab));
+        const alokasiKemasan = defisitCab > 0 ? Math.ceil(defisitCab / isiKemasan) : 0;
+
+        return {
+          id_cabang: b.id_cabang,
+          nama_cabang: b.nama_cabang,
+          stok_fisik: stokCab,
+          min_stok: minStokCab,
+          total_terjual: qtySoldCab,
+          ads_cabang: adsCab,
+          runout_days: runoutCab,
+          status_urgensi: statusUrgensiCab,
+          saran_alokasi_pcs: defisitCab,
+          saran_alokasi_kemasan: alokasiKemasan,
+        };
+      }).sort((a, b) => b.saran_alokasi_pcs - a.saran_alokasi_pcs);
 
       return {
         id_barang: row.id_barang,
@@ -864,12 +966,16 @@ pembelianRoutes.get("/saran-order", async (c) => {
         nama_barang: row.nama_barang,
         id_supplier: row.id_supplier,
         nama_supplier: row.nama_supplier || "Tanpa Supplier",
+        level_barang: levelBarang,
+        safety_factor: safetyFactor,
+        warning_note: warningNote,
         satuan_1: row.satuan_1,
         total_stok: totalStok,
         total_min_stok: totalMinStok,
         total_on_order: totalOnOrder,
-        total_qty_sold_30: parseInt(row.total_qty_sold) || 0,
-        ads: ads,
+        total_qty_sold: totalQtySold,
+        lookback_days: lookbackDays,
+        ads: adsGlobal,
         runout_days: runoutDays,
         status_urgensi: statusUrgensi,
         nama_kemasan: namaKemasan,
@@ -880,12 +986,16 @@ pembelianRoutes.get("/saran-order", async (c) => {
         harga_beli_pcs: hargaBeliPcs,
         harga_beli_kemasan: hargaBeliKemasan,
         estimasi_subtotal: estimasiSubtotal,
+        cabang_allocations: cabangAllocations,
       };
     });
 
     // Filtering
     if (supplierId) {
       items = items.filter((it) => it.id_supplier === supplierId);
+    }
+    if (levelFilter && levelFilter !== "ALL") {
+      items = items.filter((it) => it.level_barang === levelFilter.toUpperCase());
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -896,13 +1006,18 @@ pembelianRoutes.get("/saran-order", async (c) => {
         items = items.filter((it) => it.status_urgensi === "KRITIS");
       } else if (urgencyFilter.toLowerCase() === "perhatian") {
         items = items.filter((it) => it.status_urgensi === "KRITIS" || it.status_urgensi === "PERHATIAN");
+      } else if (urgencyFilter.toLowerCase() === "aman") {
+        items = items.filter((it) => it.status_urgensi === "AMAN");
       }
     }
 
     // Summary calculation
     const summary = {
-      target_days: targetDays,
+      target_buffer_days: targetBufferDays,
+      lead_time_days: leadTimeDays,
+      lookback_days: lookbackDays,
       total_sku: items.length,
+      fast_moving_count: items.filter((i) => i.level_barang === "FAST").length,
       kritis_count: items.filter((i) => i.status_urgensi === "KRITIS").length,
       perhatian_count: items.filter((i) => i.status_urgensi === "PERHATIAN").length,
       aman_count: items.filter((i) => i.status_urgensi === "AMAN").length,
@@ -918,10 +1033,11 @@ pembelianRoutes.get("/saran-order", async (c) => {
 // POST /saran-order/generate-po - Mengonversi item terpilih menjadi dokumen Purchase Order resmi
 pembelianRoutes.post("/saran-order/generate-po", async (c) => {
   const user = c.get("user");
-  const idCabang = user.id_cabang;
+  let idCabang = user.id_cabang;
 
   if (!idCabang) {
-    return c.json({ error: "Sesi tidak valid" }, 401);
+    const [dcCabang] = await db.select().from(cabang).where(eq(cabang.kode_cabang, "DC-001")).limit(1);
+    idCabang = dcCabang?.id_cabang || 3;
   }
 
   try {

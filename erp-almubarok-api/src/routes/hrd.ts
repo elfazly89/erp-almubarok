@@ -14,7 +14,7 @@ import {
   jurnal_umum,
   kasir_jadwal
 } from "../lib/db/schema";
-import { eq, and, or, like, sql, asc, desc, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, or, like, ilike, sql, asc, desc, gte, lte, inArray } from "drizzle-orm";
 import { hashPassword } from "../lib/auth/password";
 import type { JWTPayload } from "../lib/auth/jwt";
 
@@ -71,8 +71,8 @@ hrdRoutes.get("/users", async (c) => {
   const idJabatan = c.req.query("id_jabatan") || "";
   const idCabang = c.req.query("id_cabang") || "";
   const tahunMasuk = c.req.query("tahun_masuk") || "";
-  const page = parseInt(c.req.query("page") || "1");
-  const limit = parseInt(c.req.query("limit") || "20");
+  const page = Math.max(1, parseInt(c.req.query("page") || "1"));
+  const limit = Math.max(1, parseInt(c.req.query("limit") || "50"));
   const offset = (page - 1) * limit;
   const sortBy = c.req.query("sortBy") || "nama_user";
   const sortOrder = c.req.query("sortOrder") || "asc";
@@ -95,12 +95,16 @@ hrdRoutes.get("/users", async (c) => {
   }
 
   const conditions = [];
-  if (search) {
+  if (search && search.trim()) {
+    const s = `%${search.trim()}%`;
     conditions.push(
       or(
-        like(users.nama_user, `%${search}%`),
-        like(users.kode_user, `%${search}%`),
-        like(users.no_hp, `%${search}%`)
+        ilike(users.nama_user, s),
+        ilike(users.kode_user, s),
+        ilike(users.no_hp, s),
+        ilike(users.no_ktp, s),
+        ilike(jabatan.jabatan, s),
+        ilike(cabang.nama_cabang, s)
       )
     );
   }
@@ -122,7 +126,7 @@ hrdRoutes.get("/users", async (c) => {
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const [data, total] = await Promise.all([
+  const [data, totalResult] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -153,15 +157,19 @@ hrdRoutes.get("/users", async (c) => {
     db
       .select({ count: sql<number>`count(*)` })
       .from(users)
+      .leftJoin(jabatan, eq(users.id_jabatan, jabatan.id_jabatan))
+      .leftJoin(cabang, eq(users.id_cabang, cabang.id_cabang))
       .where(where),
   ]);
 
+  const total = Number(totalResult[0]?.count || 0);
+
   return c.json({
     data,
-    total: total[0].count,
+    total,
     page,
     limit,
-    totalPages: Math.ceil(total[0].count / limit),
+    totalPages: Math.ceil(total / limit) || 1,
   });
 });
 

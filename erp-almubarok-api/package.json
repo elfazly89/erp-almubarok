@@ -7,7 +7,10 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:migrate-sqlite-to-pg": "npx tsx scripts/migrate-sqlite-to-pg.ts"
+    "db:migrate-sqlite-to-pg": "npx tsx scripts/migrate-sqlite-to-pg.ts",
+    "db:migrate-performance-indexes": "npx tsx scripts/migrate-performance-indexes.ts",
+    "db:migrate-supplier-pelanggan-indexes": "npx tsx scripts/migrate-supplier-pelanggan-indexes.ts",
+    "db:migrate-users-indexes": "npx tsx scripts/migrate-users-indexes.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.0",

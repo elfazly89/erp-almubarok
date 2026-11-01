@@ -16,9 +16,12 @@ import {
   pengaturan_aplikasi,
   kartu_stok,
   barang_batch,
-  barang
+  barang,
+  users,
+  cabang,
+  daftar_akun
 } from "../lib/db/schema";
-import { eq, and, like, desc, asc, gt, sql } from "drizzle-orm";
+import { eq, and, like, desc, asc, gt, gte, lte, or, sql } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
 
 export const penjualanRoutes = new Hono<{
@@ -28,23 +31,113 @@ export const penjualanRoutes = new Hono<{
 }>();
 
 // ==========================================
-// 1. GET TRANSACTION HISTORY
+// 1. GET TRANSACTION HISTORY & SUMMARY
 // ==========================================
-penjualanRoutes.get("/", async (c) => {
+penjualanRoutes.get("/summary", async (c) => {
   const user = c.get("user");
-  const idInvoice = c.req.query("id");
-  const idCabang = user.id_cabang;
+  const userJabatan = user.id_jabatan || 0;
+  const isMultiBranch = [1, 2, 4, 8, 11].includes(userJabatan);
 
-  if (!idCabang) {
-    return c.json({ error: "Cabang tidak teridentifikasi" }, 400);
+  const queryCabang = c.req.query("id_cabang");
+  const startDate = c.req.query("startDate");
+  const endDate = c.req.query("endDate");
+  const idKasir = c.req.query("id_kasir");
+  const jenisPembayaran = c.req.query("jenis_pembayaran");
+  const search = c.req.query("search");
+
+  const conditions = [];
+
+  // Cabang filter
+  if (isMultiBranch && queryCabang && queryCabang !== "all") {
+    conditions.push(eq(penjualan.id_cabang, parseInt(queryCabang)));
+  } else if (!isMultiBranch || !queryCabang || queryCabang !== "all") {
+    if (user.id_cabang) {
+      conditions.push(eq(penjualan.id_cabang, user.id_cabang));
+    }
   }
 
-  // If a specific ID is requested, return invoice details too
+  // Date filters
+  if (startDate) conditions.push(gte(penjualan.tanggal_invoice, startDate));
+  if (endDate) conditions.push(lte(penjualan.tanggal_invoice, endDate));
+
+  // Kasir filter
+  if (idKasir && idKasir !== "all") {
+    conditions.push(eq(penjualan.id_user, parseInt(idKasir)));
+  }
+
+  // Payment method filter
+  if (jenisPembayaran && jenisPembayaran !== "all") {
+    if (jenisPembayaran === "Non-Tunai") {
+      conditions.push(sql`${penjualan.jenis_pembayaran} != 'Tunai'`);
+    } else {
+      conditions.push(eq(penjualan.jenis_pembayaran, jenisPembayaran));
+    }
+  }
+
+  // Search filter
+  if (search && search.trim()) {
+    const term = `%${search.trim().toLowerCase()}%`;
+    conditions.push(
+      or(
+        like(sql`lower(${penjualan.no_invoice})`, term),
+        like(sql`lower(${penjualan.nama_pelanggan})`, term)
+      )
+    );
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [summary] = await db
+    .select({
+      total_nota: sql<number>`count(*)`,
+      total_bruto: sql<number>`coalesce(sum(${penjualan.subtotal}), 0)`,
+      total_diskon: sql<number>`coalesce(sum(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}), 0)`,
+      total_infaq: sql<number>`coalesce(sum(${penjualan.infaq}), 0)`,
+      total_bersih: sql<number>`coalesce(sum(${penjualan.total_akhir}), 0)`,
+      omset_tunai: sql<number>`coalesce(sum(case when ${penjualan.jenis_pembayaran} = 'Tunai' then ${penjualan.total_akhir} else 0 end), 0)`,
+      omset_non_tunai: sql<number>`coalesce(sum(case when ${penjualan.jenis_pembayaran} != 'Tunai' then ${penjualan.total_akhir} else 0 end), 0)`,
+    })
+    .from(penjualan)
+    .where(whereClause);
+
+  return c.json({ success: true, data: summary || {} });
+});
+
+penjualanRoutes.get("/", async (c) => {
+  const user = c.get("user");
+  const userJabatan = user.id_jabatan || 0;
+  const isMultiBranch = [1, 2, 4, 8, 11].includes(userJabatan);
+  const idInvoice = c.req.query("id");
+
+  // If a specific ID is requested, return invoice details + kas & journal details
   if (idInvoice) {
     const [invoice] = await db
-      .select()
+      .select({
+        id_penjualan: penjualan.id_penjualan,
+        no_invoice: penjualan.no_invoice,
+        tanggal_invoice: penjualan.tanggal_invoice,
+        jam_invoice: penjualan.jam_invoice,
+        id_pelanggan: penjualan.id_pelanggan,
+        nama_pelanggan: penjualan.nama_pelanggan,
+        id_user: penjualan.id_user,
+        nama_kasir: users.nama_user,
+        id_cabang: penjualan.id_cabang,
+        nama_cabang: cabang.nama_cabang,
+        subtotal: penjualan.subtotal,
+        diskon: penjualan.diskon,
+        nominal_voucher: penjualan.nominal_voucher,
+        potongan_poin: penjualan.potongan_poin,
+        infaq: penjualan.infaq,
+        total_akhir: penjualan.total_akhir,
+        jenis_pembayaran: penjualan.jenis_pembayaran,
+        jumlah_bayar: penjualan.jumlah_bayar,
+        poin_didapat: penjualan.poin_didapat,
+        created_at: penjualan.created_at,
+      })
       .from(penjualan)
-      .where(and(eq(penjualan.id_penjualan, parseInt(idInvoice)), eq(penjualan.id_cabang, idCabang)));
+      .leftJoin(users, eq(penjualan.id_user, users.id))
+      .leftJoin(cabang, eq(penjualan.id_cabang, cabang.id_cabang))
+      .where(eq(penjualan.id_penjualan, parseInt(idInvoice)));
 
     if (!invoice) {
       return c.json({ error: "Invoice tidak ditemukan" }, 404);
@@ -55,16 +148,154 @@ penjualanRoutes.get("/", async (c) => {
       .from(penjualan_detail)
       .where(eq(penjualan_detail.id_penjualan, invoice.id_penjualan));
 
-    return c.json({ invoice, details });
+    // Get Bukti Kas Transaksi
+    const [buktiKas] = await db
+      .select({
+        nomor_transaksi: kas_transaksi.nomor_transaksi,
+        nominal: kas_transaksi.nominal,
+        tanggal: kas_transaksi.tanggal,
+        rekening_nama: rekening_kas.nama,
+      })
+      .from(kas_transaksi)
+      .leftJoin(rekening_kas, eq(kas_transaksi.id_rekening, rekening_kas.id))
+      .where(
+        and(
+          eq(kas_transaksi.referensi_type, "PENJUALAN"),
+          eq(kas_transaksi.referensi_id, invoice.id_penjualan)
+        )
+      )
+      .limit(1);
+
+    // Get Jurnal Entries for this invoice
+    const jurnalEntries = buktiKas?.nomor_transaksi
+      ? await db
+          .select({
+            id: jurnal_umum.id,
+            deskripsi: jurnal_umum.deskripsi,
+            kode_akun: daftar_akun.kode_akun,
+            nama_akun: daftar_akun.nama_akun,
+            debit: jurnal_umum.debit,
+            kredit: jurnal_umum.kredit,
+          })
+          .from(jurnal_umum)
+          .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
+          .where(eq(jurnal_umum.no_referensi_bukti, buktiKas.nomor_transaksi))
+      : [];
+
+    return c.json({
+      invoice,
+      details,
+      bukti_kas: buktiKas || null,
+      jurnal: jurnalEntries,
+    });
   }
 
-  // Otherwise list recent transactions
-  const list = await db
-    .select()
+  // List query with filters & pagination
+  const queryCabang = c.req.query("id_cabang");
+  const startDate = c.req.query("startDate");
+  const endDate = c.req.query("endDate");
+  const idKasir = c.req.query("id_kasir");
+  const jenisPembayaran = c.req.query("jenis_pembayaran");
+  const search = c.req.query("search");
+  const pageParam = parseInt(c.req.query("page") || "1");
+  const limitParam = c.req.query("limit");
+
+  const conditions = [];
+
+  // Cabang filter
+  if (isMultiBranch && queryCabang && queryCabang !== "all") {
+    conditions.push(eq(penjualan.id_cabang, parseInt(queryCabang)));
+  } else if (!isMultiBranch || !queryCabang || queryCabang !== "all") {
+    if (user.id_cabang) {
+      conditions.push(eq(penjualan.id_cabang, user.id_cabang));
+    }
+  }
+
+  // Date filters
+  if (startDate) conditions.push(gte(penjualan.tanggal_invoice, startDate));
+  if (endDate) conditions.push(lte(penjualan.tanggal_invoice, endDate));
+
+  // Kasir filter
+  if (idKasir && idKasir !== "all") {
+    conditions.push(eq(penjualan.id_user, parseInt(idKasir)));
+  }
+
+  // Payment method filter
+  if (jenisPembayaran && jenisPembayaran !== "all") {
+    if (jenisPembayaran === "Non-Tunai") {
+      conditions.push(sql`${penjualan.jenis_pembayaran} != 'Tunai'`);
+    } else {
+      conditions.push(eq(penjualan.jenis_pembayaran, jenisPembayaran));
+    }
+  }
+
+  // Search filter
+  if (search && search.trim()) {
+    const term = `%${search.trim().toLowerCase()}%`;
+    conditions.push(
+      or(
+        like(sql`lower(${penjualan.no_invoice})`, term),
+        like(sql`lower(${penjualan.nama_pelanggan})`, term)
+      )
+    );
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  // Pagination calculation
+  const isExportAll = limitParam === "all" || limitParam === "-1";
+  const limit = isExportAll ? 5000 : Math.max(1, parseInt(limitParam || "50"));
+  const offset = isExportAll ? 0 : Math.max(0, (pageParam - 1) * limit);
+
+  // Total count for pagination
+  const [countRes] = await db
+    .select({ total: sql<number>`count(*)` })
     .from(penjualan)
-    .where(eq(penjualan.id_cabang, idCabang))
+    .where(whereClause);
+  const totalItems = countRes?.total || 0;
+
+  const list = await db
+    .select({
+      id_penjualan: penjualan.id_penjualan,
+      no_invoice: penjualan.no_invoice,
+      tanggal_invoice: penjualan.tanggal_invoice,
+      jam_invoice: penjualan.jam_invoice,
+      id_pelanggan: penjualan.id_pelanggan,
+      nama_pelanggan: penjualan.nama_pelanggan,
+      id_user: penjualan.id_user,
+      nama_kasir: users.nama_user,
+      id_cabang: penjualan.id_cabang,
+      nama_cabang: cabang.nama_cabang,
+      subtotal: penjualan.subtotal,
+      diskon: penjualan.diskon,
+      nominal_voucher: penjualan.nominal_voucher,
+      potongan_poin: penjualan.potongan_poin,
+      infaq: penjualan.infaq,
+      total_akhir: penjualan.total_akhir,
+      jenis_pembayaran: penjualan.jenis_pembayaran,
+      jumlah_bayar: penjualan.jumlah_bayar,
+      poin_didapat: penjualan.poin_didapat,
+      created_at: penjualan.created_at,
+    })
+    .from(penjualan)
+    .leftJoin(users, eq(penjualan.id_user, users.id))
+    .leftJoin(cabang, eq(penjualan.id_cabang, cabang.id_cabang))
+    .where(whereClause)
     .orderBy(desc(penjualan.id_penjualan))
-    .limit(50);
+    .limit(limit)
+    .offset(offset);
+
+  if (c.req.query("page") || c.req.query("with_pagination") === "true") {
+    return c.json({
+      data: list,
+      pagination: {
+        total: totalItems,
+        page: pageParam,
+        limit,
+        totalPages: Math.ceil(totalItems / limit),
+      },
+    });
+  }
 
   return c.json(list);
 });
@@ -171,6 +402,7 @@ penjualanRoutes.post("/", async (c) => {
         .returning();
 
       const idPenjualan = newInvoice.id_penjualan;
+      let totalHppPOS = 0;
 
       // 2. Loop through items, insert details, update stocks
       for (const item of items) {
@@ -183,6 +415,8 @@ penjualanRoutes.post("/", async (c) => {
         const hargaRata = parseInt(item.harga_rata || item.harga_beli || "0") || 0;
         const diskonItem = parseInt(item.diskon) || 0;
         const subtotalItem = parseInt(item.subtotal) || 0;
+
+        totalHppPOS += hargaRata * totalPcs;
 
         if (isNaN(idBarang) || qty <= 0 || totalPcs <= 0) {
           throw new Error("Item transaksi tidak valid");
@@ -434,21 +668,28 @@ penjualanRoutes.post("/", async (c) => {
           })
           .where(eq(rekening_kas.id, targetRekId));
 
-        // C. Jurnal Akuntansi otomatis (Debit: Kas Toko/Laci, Kredit: Pendapatan Penjualan Toko dari Pengaturan)
+        // C. Jurnal Akuntansi otomatis terpadu (Standar Akuntansi Profesional)
         if (rekening?.id_akun_coa) {
           // Ambil COA dinamis dari pengaturan_aplikasi
-          const [coaSetting] = await tx
-            .select()
-            .from(pengaturan_aplikasi)
-            .where(eq(pengaturan_aplikasi.key, "coa_kategori_penjualan"))
-            .limit(1);
-          const coaPenjualan = coaSetting ? parseInt(coaSetting.value) || 7 : 7;
+          const appSettings = await tx.select().from(pengaturan_aplikasi);
+          const settingsMap: Record<string, string> = {};
+          for (const s of appSettings) {
+            settingsMap[s.key] = s.value;
+          }
 
-          // Line 1: Debit Akun Kas
+          const coaPenjualan = parseInt(settingsMap["coa_kategori_penjualan"]) || 31;
+          const coaDiskon = parseInt(settingsMap["coa_kategori_diskon"]) || 33;
+          const coaInfaq = parseInt(settingsMap["coa_kategori_infaq"]) || 57;
+          const coaHpp = parseInt(settingsMap["coa_kategori_hpp"]) || 36;
+          const coaPersediaan = parseInt(settingsMap["coa_kategori_persediaan"]) || 10;
+
+          const totalDiskon = parsedDiskon + parsedNominalVoucher + parsedPotonganPoin;
+
+          // Line 1: Debit Akun Kas Toko / Laci Kasir (Nominal yang dibayar pelanggan)
           await tx.insert(jurnal_umum).values({
             tanggal_transaksi: formattedDate,
             no_referensi_bukti: noTxKas,
-            deskripsi: `Penjualan POS: ${noInvoice}`,
+            deskripsi: `Penjualan POS (Kas Masuk): ${noInvoice}`,
             akun_id: rekening.id_akun_coa,
             cabang_id: idCabang,
             debit: parsedTotalAkhir,
@@ -456,17 +697,71 @@ penjualanRoutes.post("/", async (c) => {
             dibuat_oleh: idUser,
           });
 
-          // Line 2: Kredit Akun Pendapatan
+          // Line 2: Debit Diskon Penjualan (jika ada diskon/voucher/poin)
+          if (totalDiskon > 0) {
+            await tx.insert(jurnal_umum).values({
+              tanggal_transaksi: formattedDate,
+              no_referensi_bukti: noTxKas,
+              deskripsi: `Potongan/Diskon POS: ${noInvoice}`,
+              akun_id: coaDiskon,
+              cabang_id: idCabang,
+              debit: totalDiskon,
+              kredit: 0,
+              dibuat_oleh: idUser,
+            });
+          }
+
+          // Line 3: Kredit Akun Pendapatan Penjualan Toko (Bruto Subtotal)
           await tx.insert(jurnal_umum).values({
             tanggal_transaksi: formattedDate,
             no_referensi_bukti: noTxKas,
-            deskripsi: `Penjualan POS: ${noInvoice}`,
+            deskripsi: `Penjualan POS (Bruto): ${noInvoice}`,
             akun_id: coaPenjualan,
             cabang_id: idCabang,
             debit: 0,
-            kredit: parsedTotalAkhir,
+            kredit: parsedSubtotal,
             dibuat_oleh: idUser,
           });
+
+          // Line 4: Kredit Akun Titipan Infaq (jika ada infaq sukarela)
+          if (parsedInfaq > 0) {
+            await tx.insert(jurnal_umum).values({
+              tanggal_transaksi: formattedDate,
+              no_referensi_bukti: noTxKas,
+              deskripsi: `Titipan Infaq POS: ${noInvoice}`,
+              akun_id: coaInfaq,
+              cabang_id: idCabang,
+              debit: 0,
+              kredit: parsedInfaq,
+              dibuat_oleh: idUser,
+            });
+          }
+
+          // Line 5: Debit Beban Pokok Penjualan (HPP) (jika total HPP > 0)
+          if (totalHppPOS > 0) {
+            await tx.insert(jurnal_umum).values({
+              tanggal_transaksi: formattedDate,
+              no_referensi_bukti: noTxKas,
+              deskripsi: `Beban Pokok Penjualan (HPP) POS: ${noInvoice}`,
+              akun_id: coaHpp,
+              cabang_id: idCabang,
+              debit: totalHppPOS,
+              kredit: 0,
+              dibuat_oleh: idUser,
+            });
+
+            // Line 6: Kredit Persediaan Barang Dagang
+            await tx.insert(jurnal_umum).values({
+              tanggal_transaksi: formattedDate,
+              no_referensi_bukti: noTxKas,
+              deskripsi: `Pengurangan Persediaan Barang Dagang POS: ${noInvoice}`,
+              akun_id: coaPersediaan,
+              cabang_id: idCabang,
+              debit: 0,
+              kredit: totalHppPOS,
+              dibuat_oleh: idUser,
+            });
+          }
         }
       }
 
@@ -486,4 +781,207 @@ penjualanRoutes.post("/", async (c) => {
 penjualanRoutes.get("/promo", async (c) => {
   const data = await db.select().from(promo).orderBy(promo.tanggal_mulai);
   return c.json(data);
+});
+
+// ==========================================
+// 4. IMPORT TRANSAKSI KASIR DARI EXCEL (DEV MODE)
+// ==========================================
+penjualanRoutes.post("/import-excel", async (c) => {
+  const user = c.get("user");
+  const allowedRoles = [1, 2, 4, 5, 8, 11];
+  if (!allowedRoles.includes(user.id_jabatan)) {
+    return c.json({ error: "Forbidden. Hanya admin/manajer yang berwenang mengimpor data transaksi." }, 403);
+  }
+
+  try {
+    const body = await c.req.json();
+    let idCabang = parseInt(body.id_cabang) || user.id_cabang;
+    if (!idCabang) {
+      const [firstCab] = await db.select({ id_cabang: cabang.id_cabang }).from(cabang).limit(1);
+      idCabang = firstCab?.id_cabang || 2;
+    }
+    const fallbackUserId = parseInt(body.fallback_user_id) || user.id || 1;
+    const transactions = body.transactions;
+
+    if (!Array.isArray(transactions) || transactions.length === 0) {
+      return c.json({ error: "Payload transaksi kosong atau tidak valid." }, 400);
+    }
+
+    // 1. Preload master barang (cache)
+    const allProducts = await db.select({
+      id_barang: barang.id_barang,
+      kode_barang: barang.kode_barang,
+      barcode: barang.barcode,
+      nama_barang: barang.nama_barang,
+      satuan_1: barang.satuan_1,
+      harga_rata: barang.harga_rata,
+      harga_beli: barang.harga_beli,
+    }).from(barang);
+
+    const kodeBarangMap = new Map<string, typeof allProducts[0]>();
+    const barcodeMap = new Map<string, typeof allProducts[0]>();
+    const namaBarangMap = new Map<string, typeof allProducts[0]>();
+
+    for (const p of allProducts) {
+      if (p.kode_barang) kodeBarangMap.set(p.kode_barang.toLowerCase().trim(), p);
+      if (p.barcode) barcodeMap.set(p.barcode.trim(), p);
+      if (p.nama_barang) namaBarangMap.set(p.nama_barang.toLowerCase().trim(), p);
+    }
+
+    // 2. Preload users (kasir)
+    const allUsers = await db.select({
+      id: users.id,
+      nama_user: users.nama_user,
+      kode_user: users.kode_user,
+    }).from(users);
+
+    const userMap = new Map<string, number>();
+    for (const u of allUsers) {
+      if (u.nama_user) userMap.set(u.nama_user.toLowerCase().trim(), u.id);
+      if (u.kode_user) userMap.set(u.kode_user.toLowerCase().trim(), u.id);
+    }
+
+    // 3. Process transactions in batches inside transaction
+    let importedInvoices = 0;
+    let totalItemsImported = 0;
+    let skippedItemsCount = 0;
+    const skippedDetails: string[] = [];
+
+    await db.transaction(async (tx) => {
+      for (const trx of transactions) {
+        const noInvoice = (trx.no_invoice || "").trim();
+        if (!noInvoice) continue;
+
+        // Resolve Kasir
+        let idKasir = fallbackUserId;
+        if (trx.kasir_name) {
+          const matchUser = userMap.get(trx.kasir_name.toLowerCase().trim());
+          if (matchUser) idKasir = matchUser;
+        }
+
+        // Tanggal dan jam invoice
+        const tgl = trx.tanggal_invoice || new Date().toISOString().slice(0, 10);
+        const jam = trx.jam_invoice || "12:00:00";
+        const namaPelanggan = trx.nama_pelanggan || "Umum";
+        const idPelanggan = trx.id_pelanggan ? parseInt(trx.id_pelanggan) : null;
+        const caraBayar = trx.jenis_pembayaran || "Tunai";
+        const bayarNominal = Math.round(parseFloat(trx.jumlah_bayar) || parseFloat(trx.total_akhir) || 0);
+
+        // 3.1. Cek apakah no_invoice sudah ada (OVERWRITE POLICY)
+        const [existingInv] = await tx
+          .select({ id_penjualan: penjualan.id_penjualan })
+          .from(penjualan)
+          .where(eq(penjualan.no_invoice, noInvoice))
+          .limit(1);
+
+        let idPenjualan: number;
+
+        if (existingInv) {
+          idPenjualan = existingInv.id_penjualan;
+          // Hapus detail lama sebelum mengisi detail baru
+          await tx.delete(penjualan_detail).where(eq(penjualan_detail.id_penjualan, idPenjualan));
+
+          // Update header
+          await tx.update(penjualan).set({
+            tanggal_invoice: tgl,
+            jam_invoice: jam,
+            id_pelanggan: idPelanggan,
+            nama_pelanggan: namaPelanggan,
+            id_user: idKasir,
+            id_cabang: idCabang,
+            subtotal: Math.round(parseFloat(trx.subtotal) || 0),
+            diskon: Math.round(parseFloat(trx.diskon) || 0),
+            total_akhir: Math.round(parseFloat(trx.total_akhir) || 0),
+            jenis_pembayaran: caraBayar,
+            jumlah_bayar: bayarNominal,
+          }).where(eq(penjualan.id_penjualan, idPenjualan));
+        } else {
+          // Insert header baru
+          const [newInv] = await tx
+            .insert(penjualan)
+            .values({
+              no_invoice: noInvoice,
+              tanggal_invoice: tgl,
+              jam_invoice: jam,
+              id_pelanggan: idPelanggan,
+              nama_pelanggan: namaPelanggan,
+              id_user: idKasir,
+              id_cabang: idCabang,
+              subtotal: Math.round(parseFloat(trx.subtotal) || 0),
+              diskon: Math.round(parseFloat(trx.diskon) || 0),
+              nominal_voucher: 0,
+              potongan_poin: 0,
+              infaq: 0,
+              total_akhir: Math.round(parseFloat(trx.total_akhir) || 0),
+              jenis_pembayaran: caraBayar,
+              jumlah_bayar: bayarNominal,
+              poin_didapat: 0,
+              created_at: `${tgl} ${jam}`,
+            })
+            .returning();
+          idPenjualan = newInv.id_penjualan;
+        }
+
+        importedInvoices++;
+
+        // 3.2. Insert Detail Items
+        if (Array.isArray(trx.items)) {
+          for (const itm of trx.items) {
+            const kdBrg = (itm.kode_barang || "").toLowerCase().trim();
+            const barcodeVal = (itm.barcode || "").trim();
+            const nmBrg = (itm.nama_barang || "").toLowerCase().trim();
+
+            // Match product
+            const matchedProduct =
+              (kdBrg && kodeBarangMap.get(kdBrg)) ||
+              (barcodeVal && barcodeMap.get(barcodeVal)) ||
+              (nmBrg && namaBarangMap.get(nmBrg)) ||
+              null;
+
+            if (!matchedProduct) {
+              skippedItemsCount++;
+              if (skippedDetails.length < 50) {
+                skippedDetails.push(`[${noInvoice}] Barang '${itm.kode_barang || itm.nama_barang}' tidak ditemukan di Master Barang`);
+              }
+              continue; // Lewati item yang tidak terdaftar
+            }
+
+            const qty = Math.max(1, parseInt(itm.jumlah) || 1);
+            const isi = Math.max(1, parseInt(itm.isi_satuan) || 1);
+            const hargaJual = Math.round(parseFloat(itm.harga_jual) || 0);
+            const hargaRata = Math.round(parseFloat(itm.harga_rata || matchedProduct.harga_rata || matchedProduct.harga_beli || 0));
+            const diskonItem = Math.round(parseFloat(itm.diskon) || 0);
+            const subtotalItem = Math.round(parseFloat(itm.subtotal) || (qty * hargaJual - diskonItem));
+
+            await tx.insert(penjualan_detail).values({
+              id_penjualan: idPenjualan,
+              id_barang: matchedProduct.id_barang,
+              nama_barang: itm.nama_barang || matchedProduct.nama_barang,
+              jumlah: qty,
+              satuan: itm.satuan || matchedProduct.satuan_1 || "PCS",
+              isi_satuan: isi,
+              harga_jual: hargaJual,
+              harga_rata_saat_transaksi: hargaRata,
+              diskon: diskonItem,
+              subtotal: subtotalItem,
+              jenis_item: "TRANSAKSI",
+            });
+
+            totalItemsImported++;
+          }
+        }
+      }
+    });
+
+    return c.json({
+      success: true,
+      total_invoices: importedInvoices,
+      total_items: totalItemsImported,
+      skipped_items: skippedItemsCount,
+      skipped_details: skippedDetails,
+    });
+  } catch (error: any) {
+    console.error("Gagal import transaksi kasir dari excel:", error);
+    return c.json({ error: "Gagal memproses import transaksi: " + error.message }, 500);
+  }
 });

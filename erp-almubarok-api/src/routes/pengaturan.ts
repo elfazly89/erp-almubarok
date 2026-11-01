@@ -155,6 +155,8 @@ const MASTER_MENUS = [
     urutan: 11,
     subs: [
       { nama: "Role Menu", link: "/pengaturan/role-menu", urutan: 1 },
+      { nama: "Pengaturan Aplikasi", link: "/pengaturan/aplikasi", urutan: 2 },
+      { nama: "Pengaturan Struk / Nota", link: "/pengaturan/nota", urutan: 3 },
     ],
   },
 ];
@@ -222,6 +224,39 @@ async function ensureMenusSeeded() {
           await db.insert(role_menu_sub).values({
             id_jabatan: jabId,
             id_menu_sub: insertedSub.id,
+            aktif: true,
+            can_read: true,
+            can_create: true,
+            can_update: true,
+            can_delete: true,
+          });
+        }
+      }
+    }
+
+    // Check and seed "Pengaturan Struk / Nota" sub-menu if it's missing
+    const [existingNotaSub] = await db
+      .select()
+      .from(menu_sub)
+      .where(eq(menu_sub.link, "/pengaturan/nota"))
+      .limit(1);
+    if (!existingNotaSub) {
+      const [insertedNotaSub] = await db.insert(menu_sub).values({
+        id_menu_main: pengaturanMain.id,
+        nama: "Pengaturan Struk / Nota",
+        link: "/pengaturan/nota",
+        urutan: 3,
+        aktif: true,
+      }).returning();
+
+      // Auto grant full permissions to Jabatan ID 1 (Super User), ID 2 (IT), ID 8 (Manager)
+      const targetJabatanIds = [1, 2, 8];
+      for (const jabId of targetJabatanIds) {
+        const [exists] = await db.select().from(jabatan).where(eq(jabatan.id_jabatan, jabId)).limit(1);
+        if (exists) {
+          await db.insert(role_menu_sub).values({
+            id_jabatan: jabId,
+            id_menu_sub: insertedNotaSub.id,
             aktif: true,
             can_read: true,
             can_create: true,
@@ -725,10 +760,14 @@ pengaturanRoutes.get("/aplikasi", async (c) => {
       app_name: "ERP Al-Mubarok",
       company_name: "Sistem Manajemen Terpadu",
       cash_approval_threshold: "500000",
-      coa_kategori_penjualan: "7",
+      coa_kategori_penjualan: "31",
       coa_kategori_operasional: "10",
       coa_kategori_gaji: "8",
       coa_kategori_pembelian: "5",
+      coa_kategori_diskon: "33",
+      coa_kategori_infaq: "57",
+      coa_kategori_hpp: "36",
+      coa_kategori_persediaan: "10",
     };
     for (const item of settings) {
       config[item.key] = item.value;
@@ -749,7 +788,11 @@ pengaturanRoutes.put("/aplikasi", async (c) => {
       "coa_kategori_penjualan",
       "coa_kategori_operasional",
       "coa_kategori_gaji",
-      "coa_kategori_pembelian"
+      "coa_kategori_pembelian",
+      "coa_kategori_diskon",
+      "coa_kategori_infaq",
+      "coa_kategori_hpp",
+      "coa_kategori_persediaan"
     ];
 
     // Update or insert each key
@@ -778,5 +821,79 @@ pengaturanRoutes.put("/aplikasi", async (c) => {
     return c.json({ success: true, message: "Pengaturan aplikasi berhasil disimpan" });
   } catch (err: any) {
     return c.json({ success: false, message: "Gagal menyimpan pengaturan aplikasi: " + err.message }, 500);
+  }
+});
+
+// ==========================================
+// 4. PENGATURAN NOTA & STRUK TRANSAKSI
+// ==========================================
+const DEFAULT_NOTA_CONFIG: Record<string, string> = {
+  nota_nama_toko: "ERP Al-Mubarok",
+  nota_slogan: "Pusat Belanja Berkah & Terpercaya",
+  nota_show_alamat_cabang: "true",
+  nota_show_telepon_cabang: "true",
+  nota_show_logo: "false",
+  nota_paper_width: "58mm",
+  nota_show_kasir: "true",
+  nota_show_pelanggan: "true",
+  nota_show_barcode: "true",
+  nota_show_diskon: "true",
+  nota_show_infaq: "true",
+  nota_show_poin: "true",
+  nota_show_hemat: "true",
+  nota_footer_kebijakan: "Barang yang sudah dibeli tidak dapat ditukar/dikembalikan",
+  nota_footer_doa: "Jazaakumullah Khairan Katsiran",
+  nota_footer_pesan: "Simpan nota ini sebagai bukti transaksi resmi",
+  nota_footer_medsos: "IG: @erpalmubarok | WA: 0812-XXXX-XXXX",
+  nota_feed_lines: "2",
+  nota_auto_print: "false",
+  nota_rangkap_cetak: "1",
+};
+
+pengaturanRoutes.get("/nota", async (c) => {
+  try {
+    const settings = await db.select().from(pengaturan_aplikasi);
+    const config = { ...DEFAULT_NOTA_CONFIG };
+    for (const item of settings) {
+      if (item.key.startsWith("nota_")) {
+        config[item.key] = item.value;
+      }
+    }
+    return c.json({ success: true, data: config });
+  } catch (err: any) {
+    return c.json({ success: false, message: "Gagal memuat pengaturan nota: " + err.message }, 500);
+  }
+});
+
+pengaturanRoutes.put("/nota", async (c) => {
+  try {
+    const body = await c.req.json();
+    const keys = Object.keys(DEFAULT_NOTA_CONFIG);
+
+    for (const key of keys) {
+      if (body[key] !== undefined) {
+        const val = String(body[key]);
+        const [exists] = await db
+          .select()
+          .from(pengaturan_aplikasi)
+          .where(eq(pengaturan_aplikasi.key, key))
+          .limit(1);
+
+        if (exists) {
+          await db
+            .update(pengaturan_aplikasi)
+            .set({ value: val })
+            .where(eq(pengaturan_aplikasi.key, key));
+        } else {
+          await db
+            .insert(pengaturan_aplikasi)
+            .values({ key, value: val });
+        }
+      }
+    }
+
+    return c.json({ success: true, message: "Pengaturan nota berhasil disimpan" });
+  } catch (err: any) {
+    return c.json({ success: false, message: "Gagal menyimpan pengaturan nota: " + err.message }, 500);
   }
 });

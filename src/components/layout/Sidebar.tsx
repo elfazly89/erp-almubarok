@@ -37,7 +37,8 @@ import {
   Sliders,
   Banknote,
   TrendingUp,
-  Sparkles
+  Sparkles,
+  Receipt
 } from "lucide-react";
 import { useAppSettings } from "@/components/providers/AppSettingsProvider";
 
@@ -157,6 +158,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: "Role Menu", href: "/pengaturan/role-menu", icon: <Settings className="w-4 h-4" /> },
       { label: "Pengaturan Aplikasi", href: "/pengaturan/aplikasi", icon: <Sliders className="w-4 h-4" /> },
+      { label: "Pengaturan Struk / Nota", href: "/pengaturan/nota", icon: <Receipt className="w-4 h-4" /> },
     ],
   },
 ];

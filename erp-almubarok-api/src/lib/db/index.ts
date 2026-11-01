@@ -4,7 +4,7 @@ import * as schema from "./schema";
 
 const { Pool } = pkg;
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/erp_almubarok",
 });
 

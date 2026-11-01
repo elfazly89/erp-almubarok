@@ -33,6 +33,7 @@ interface Barang {
   isi_2: number | null;
   isi_3: number | null;
   harga_beli: number | null;
+  level_barang?: string | null;
 }
 
 interface POItem {
@@ -172,6 +173,10 @@ export default function PoPage() {
   };
 
   const handleAddProduct = (p: Barang) => {
+    if (p.level_barang === "DEAD") {
+      showToast(`⚠️ Peringatan: "${p.nama_barang}" tergolong Dead Stock (>60 hari tidak terjual). Harap pastikan kuantitas order sesuai kebutuhan.`, "error");
+    }
+
     const defaultUnit = p.satuan_1 || "pcs";
     const defaultIsi = p.isi_1 || 1;
     const defaultPrice = p.harga_beli || 0;
@@ -604,7 +609,19 @@ export default function PoPage() {
                           className="w-full bg-surface hover:bg-surface-container-high/50 p-2 rounded-lg flex items-center justify-between text-left text-xs transition-colors"
                         >
                           <div>
-                            <span className="text-on-surface font-semibold">{p.nama_barang}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-on-surface font-semibold">{p.nama_barang}</span>
+                              {p.level_barang === "DEAD" && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-500 border border-rose-500/25 font-bold">
+                                  DEAD STOCK
+                                </span>
+                              )}
+                              {p.level_barang === "FAST" && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/25 font-bold">
+                                  FAST MOVING
+                                </span>
+                              )}
+                            </div>
                             <span className="text-on-surface-variant block font-mono text-[10px]">{p.barcode}</span>
                           </div>
                           <span className="text-primary font-bold font-mono">{formatRupiah(p.harga_beli || 0)}</span>

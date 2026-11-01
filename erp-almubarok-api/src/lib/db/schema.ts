@@ -256,6 +256,7 @@ export const supplier = pgTable("supplier", {
 // ─── BARANG ──────────────────────────────────────────────────────────────────
 export const barang = pgTable("barang", {
   id_barang: serial("id_barang").primaryKey(),
+  kode_barang: text("kode_barang"),
   barcode: text("barcode").notNull(),
   nama_barang: text("nama_barang").notNull(),
   id_kategori: integer("id_kategori").references(() => kategori_barang.id_kategori),
@@ -280,12 +281,17 @@ export const barang = pgTable("barang", {
   jual_rugi: integer("jual_rugi").default(0),
   status: text("status").default("Aktif"),
   status_pajak: text("status_pajak"),
+  lapor_pajak: boolean("lapor_pajak").default(true), // true = Lapor Pajak (Fiskal), false = Tidak Lapor Pajak (Non-Fiskal)
   barcode_satuan_2: text("barcode_satuan_2"),
   barcode_satuan_3: text("barcode_satuan_3"),
   tipe_barang: text("tipe_barang").default("STOK"), // 'STOK' | 'JASA' | 'HABIS_PAKAI'
   lacak_kadaluarsa: boolean("lacak_kadaluarsa").default(false),
   keterangan_1: text("keterangan_1"),
   keterangan_2: text("keterangan_2"),
+  level_barang: text("level_barang").default("MEDIUM"), // 'FAST' | 'MEDIUM' | 'SLOW' | 'DEAD'
+  level_mode: text("level_mode").default("AUTO"), // 'AUTO' | 'MANUAL'
+  terakhir_terjual: text("terakhir_terjual"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
 
 // ─── STOK BARANG ─────────────────────────────────────────────────────────────
@@ -300,6 +306,8 @@ export const stok_barang = pgTable("stok_barang", {
   posisi_rak: text("posisi_rak"),
   minimal_stok: integer("minimal_stok").default(0),
   maksimal_stok: integer("maksimal_stok").default(0),
+  level_cabang: text("level_cabang").default("MEDIUM"), // 'FAST' | 'MEDIUM' | 'SLOW' | 'DEAD'
+  terakhir_terjual_cabang: text("terakhir_terjual_cabang"),
 });
 
 // ─── PELANGGAN ───────────────────────────────────────────────────────────────
