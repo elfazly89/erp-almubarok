@@ -123,11 +123,11 @@ export default function BatchKadaluarsaPage() {
       }
       if (resCabang.ok) {
         const data = await resCabang.json();
-        setCabangs(data);
+        setCabangs(Array.isArray(data) ? data : (data?.data || []));
       }
       if (resBarang.ok) {
         const data = await resBarang.json();
-        setBarangs(data);
+        setBarangs(Array.isArray(data) ? data : (data?.data || []));
       }
     } catch (err) {
       console.error("Error loading batch data:", err);

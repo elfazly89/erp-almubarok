@@ -182,10 +182,20 @@ export default function CabangManagementPage() {
       const cabRes = await fetch("/api/cabang");
       const userRes = await fetch("/api/hrd/users?limit=100");
 
-      if (cabRes.ok) setList(await cabRes.json());
+      if (cabRes.ok) {
+        const cabData = await cabRes.json();
+        setList(Array.isArray(cabData) ? cabData : (cabData?.data || []));
+      } else {
+        if (cabRes.status === 401) {
+          window.location.href = "/login?expired=1";
+          return;
+        }
+        const errJson = await cabRes.json().catch(() => null);
+        setErrorMsg(errJson?.error || "Gagal memuat data cabang dari server");
+      }
       if (userRes.ok) {
         const userData = await userRes.json();
-        setUserList(userData.data || []);
+        setUserList(Array.isArray(userData) ? userData : (userData?.data || []));
       }
     } catch (e: any) {
       setErrorMsg("Gagal memuat data cabang dari server");

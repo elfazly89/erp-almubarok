@@ -444,7 +444,17 @@ CREATE TABLE public.barang (
     status text DEFAULT 'Aktif'::text,
     status_pajak text,
     keterangan_1 text,
-    keterangan_2 text
+    keterangan_2 text,
+    barcode_satuan_2 text,
+    barcode_satuan_3 text,
+    tipe_barang text DEFAULT 'STOK'::text,
+    lacak_kadaluarsa boolean DEFAULT false,
+    kode_barang text,
+    level_barang text DEFAULT 'MEDIUM'::text,
+    level_mode text DEFAULT 'AUTO'::text,
+    terakhir_terjual text,
+    created_at text DEFAULT CURRENT_TIMESTAMP::text,
+    lapor_pajak boolean DEFAULT true
 );
 
 
@@ -580,11 +590,35 @@ CREATE TABLE public.cabang (
     data_kode text,
     created_at text DEFAULT CURRENT_TIMESTAMP,
     updated_at text DEFAULT CURRENT_TIMESTAMP,
-    is_dc boolean DEFAULT false NOT NULL
+    is_dc boolean DEFAULT false NOT NULL,
+    jenis_cabang text DEFAULT 'INTERNAL' NOT NULL,
+    nisbah_pengelola numeric DEFAULT 0,
+    nisbah_investor numeric DEFAULT 0,
+    total_modal_investor numeric DEFAULT 0
 );
 
 
 ALTER TABLE public.cabang OWNER TO postgres;
+
+CREATE TABLE public.cabang_investor (
+    id_cabang_investor serial PRIMARY KEY,
+    id_cabang integer NOT NULL,
+    nama_investor text NOT NULL,
+    telepon text,
+    email text,
+    nilai_investasi numeric DEFAULT 0 NOT NULL,
+    porsi_kepemilikan numeric DEFAULT 0 NOT NULL,
+    nama_bank text,
+    no_rekening text,
+    atas_nama_rekening text,
+    tanggal_bergabung text,
+    status text DEFAULT 'AKTIF' NOT NULL,
+    catatan text,
+    created_at text DEFAULT CURRENT_TIMESTAMP,
+    updated_at text DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE public.cabang_investor OWNER TO postgres;
 
 --
 -- Name: cabang_id_cabang_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -2685,7 +2719,9 @@ CREATE TABLE public.stok_barang (
     transfer_keluar integer DEFAULT 0,
     posisi_rak text,
     minimal_stok integer DEFAULT 0,
-    maksimal_stok integer DEFAULT 0
+    maksimal_stok integer DEFAULT 0,
+    level_cabang text DEFAULT 'MEDIUM'::text,
+    terakhir_terjual_cabang text
 );
 
 
@@ -2772,7 +2808,17 @@ CREATE TABLE public.supplier (
     status_pajak text,
     npwp text,
     keterangan_1 text,
-    keterangan_2 text
+    keterangan_2 text,
+    barcode_satuan_2 text,
+    barcode_satuan_3 text,
+    tipe_barang text DEFAULT 'STOK'::text,
+    lacak_kadaluarsa boolean DEFAULT false,
+    kode_barang text,
+    level_barang text DEFAULT 'MEDIUM'::text,
+    level_mode text DEFAULT 'AUTO'::text,
+    terakhir_terjual text,
+    created_at text DEFAULT CURRENT_TIMESTAMP::text,
+    lapor_pajak boolean DEFAULT true
 );
 
 

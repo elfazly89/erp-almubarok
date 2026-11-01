@@ -169,10 +169,11 @@ export default function PromoPage() {
 
       // 2. Fetch Branches
       const branchRes = await fetch("/api/cabang");
-      const branchData = await branchRes.json();
-      setBranches(branchData);
+      const branchData = branchRes.ok ? await branchRes.json() : [];
+      const safeBranches = Array.isArray(branchData) ? branchData : (branchData?.data || []);
+      setBranches(safeBranches);
       const bMap: any = {};
-      branchData.forEach((b: Branch) => {
+      safeBranches.forEach((b: Branch) => {
         bMap[b.id_cabang] = b.nama_cabang;
       });
       setBranchMap(bMap);

@@ -579,8 +579,14 @@ export default function UsersPage() {
   }, [fetchUsers, page, limit]);
 
   useEffect(() => {
-    fetch("/api/hrd/jabatan").then(r => r.json()).then(setJabatanList);
-    fetch("/api/cabang").then(r => r.json()).then(res => setCabangList(res.data || res));
+    fetch("/api/hrd/jabatan")
+      .then(r => r.ok ? r.json() : [])
+      .then(res => setJabatanList(Array.isArray(res) ? res : (res?.data || [])))
+      .catch(() => setJabatanList([]));
+    fetch("/api/cabang")
+      .then(r => r.ok ? r.json() : [])
+      .then(res => setCabangList(Array.isArray(res) ? res : (res?.data || [])))
+      .catch(() => setCabangList([]));
   }, []);
 
   useEffect(() => {

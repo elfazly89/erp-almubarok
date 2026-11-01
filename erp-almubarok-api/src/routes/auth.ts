@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { setCookie, deleteCookie } from "hono/cookie";
 import { db } from "../lib/db";
 import { users, jabatan, pengaturan_aplikasi } from "../lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { comparePassword } from "../lib/auth/password";
 import {
   signToken,
@@ -67,13 +67,15 @@ authRoutes.post("/login", async (c) => {
       return c.json({ error: "Kode user dan password wajib diisi" }, 400);
     }
 
+    const cleanKode = String(kode_user).trim();
+
     // Input length validation
-    if (kode_user.length > 50 || password.length > 128) {
+    if (cleanKode.length > 50 || password.length > 128) {
       return c.json({ error: "Format input tidak valid" }, 400);
     }
 
-    // Check rate limit
-    const limitCheck = handleRateLimit(kode_user);
+    // Check rate limit (case-insensitive)
+    const limitCheck = handleRateLimit(cleanKode.toLowerCase());
     if (!limitCheck.allowed) {
       return c.json(
         { error: `Terlalu banyak percobaan login. Akun dikunci. Coba lagi dalam ${limitCheck.remainingMinutes} menit.` },
@@ -94,13 +96,18 @@ authRoutes.post("/login", async (c) => {
       })
       .from(users)
       .leftJoin(jabatan, eq(users.id_jabatan, jabatan.id_jabatan))
-      .where(eq(users.kode_user, kode_user))
+      .where(
+        or(
+          eq(users.kode_user, cleanKode),
+          eq(sql`lower(${users.kode_user})`, cleanKode.toLowerCase())
+        )
+      )
       .limit(1);
 
     const user = result[0];
 
     if (!user) {
-      recordFailure(kode_user);
+      recordFailure(cleanKode.toLowerCase());
       return c.json({ error: "Kode user atau password salah" }, 401);
     }
 
@@ -110,12 +117,12 @@ authRoutes.post("/login", async (c) => {
 
     const isValid = await comparePassword(password, user.password);
     if (!isValid) {
-      recordFailure(kode_user);
+      recordFailure(cleanKode.toLowerCase());
       return c.json({ error: "Kode user atau password salah" }, 401);
     }
 
     // Reset attempts on success
-    recordSuccess(kode_user);
+    recordSuccess(cleanKode.toLowerCase());
 
     const token = await signToken(
       {
@@ -166,13 +173,15 @@ authRoutes.post("/mobile-login", async (c) => {
       return c.json({ error: "Kode user dan password wajib diisi" }, 400);
     }
 
+    const cleanKode = String(kode_user).trim();
+
     // Input length validation
-    if (kode_user.length > 50 || password.length > 128) {
+    if (cleanKode.length > 50 || password.length > 128) {
       return c.json({ error: "Format input tidak valid" }, 400);
     }
 
-    // Check rate limit
-    const limitCheck = handleRateLimit(kode_user);
+    // Check rate limit (case-insensitive)
+    const limitCheck = handleRateLimit(cleanKode.toLowerCase());
     if (!limitCheck.allowed) {
       return c.json(
         { error: `Terlalu banyak percobaan login. Akun dikunci. Coba lagi dalam ${limitCheck.remainingMinutes} menit.` },
@@ -194,13 +203,18 @@ authRoutes.post("/mobile-login", async (c) => {
       })
       .from(users)
       .leftJoin(jabatan, eq(users.id_jabatan, jabatan.id_jabatan))
-      .where(eq(users.kode_user, kode_user))
+      .where(
+        or(
+          eq(users.kode_user, cleanKode),
+          eq(sql`lower(${users.kode_user})`, cleanKode.toLowerCase())
+        )
+      )
       .limit(1);
 
     const user = result[0];
 
     if (!user) {
-      recordFailure(kode_user);
+      recordFailure(cleanKode.toLowerCase());
       return c.json({ error: "Kode user atau password salah" }, 401);
     }
 
@@ -210,12 +224,12 @@ authRoutes.post("/mobile-login", async (c) => {
 
     const isValid = await comparePassword(password, user.password);
     if (!isValid) {
-      recordFailure(kode_user);
+      recordFailure(cleanKode.toLowerCase());
       return c.json({ error: "Kode user atau password salah" }, 401);
     }
 
     // Reset attempts on success
-    recordSuccess(kode_user);
+    recordSuccess(cleanKode.toLowerCase());
 
     const payload = {
       id: user.id,

@@ -19,7 +19,7 @@ import {
   jurnal_umum,
   periode_akuntansi
 } from "../lib/db/schema";
-import { eq, and, or, like, ne, sql, desc, asc, lte, gte, gt } from "drizzle-orm";
+import { eq, and, or, like, ne, sql, desc, asc, lte, gte, gt, isNull } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
 import { recalculateProductLevels } from "../services/product-level.service";
 
@@ -38,7 +38,8 @@ masterRoutes.use("/*", async (c, next) => {
   const isPelangganWrite = path.includes("/pelanggan") && (method === "POST" || method === "PUT");
 
   if ((method === "POST" || method === "PUT" || method === "DELETE") && !isPelangganWrite) {
-    if (user.id_jabatan !== 1 && user.id_jabatan !== 2) {
+    const jabatanId = user?.id_jabatan ? Number(user.id_jabatan) : null;
+    if (jabatanId !== 1 && jabatanId !== 2) {
       return c.json({ error: "Forbidden. Hanya admin yang diizinkan melakukan modifikasi master data." }, 403);
     }
   }
@@ -263,68 +264,135 @@ masterRoutes.delete("/supplier/:id", async (c) => {
 // 3. BARANG
 // ==========================================
 masterRoutes.get("/barang", async (c) => {
-  const q = c.req.query("q") || c.req.query("search");
-  const barcode = c.req.query("barcode");
-  const level = c.req.query("level");
-  const laporPajakQuery = c.req.query("lapor_pajak");
-  const pageParam = c.req.query("page");
-  const limitParam = c.req.query("limit");
-  const allParam = c.req.query("all");
+  try {
+    const q = c.req.query("q") || c.req.query("search");
+    const barcode = c.req.query("barcode");
+    const level = c.req.query("level");
+    const laporPajakQuery = c.req.query("lapor_pajak");
+    const pageParam = c.req.query("page");
+    const limitParam = c.req.query("limit");
+    const allParam = c.req.query("all");
 
-  const user = c.get("user");
-  const idCabang = user.id_cabang || 1;
+    const user = c.get("user");
+    const idCabang = user?.id_cabang ? Number(user.id_cabang) : 1;
 
-  const conditions = [];
+    const conditions = [];
 
-  if (barcode) {
-    conditions.push(
-      or(
-        eq(barang.barcode, barcode),
-        eq(barang.kode_barang, barcode),
-        eq(barang.barcode_satuan_2, barcode),
-        eq(barang.barcode_satuan_3, barcode)
-      )
-    );
-  }
+    if (barcode && barcode.trim()) {
+      const cleanBarcode = barcode.trim();
+      conditions.push(
+        or(
+          eq(barang.barcode, cleanBarcode),
+          eq(barang.kode_barang, cleanBarcode),
+          eq(barang.barcode_satuan_2, cleanBarcode),
+          eq(barang.barcode_satuan_3, cleanBarcode)
+        )
+      );
+    }
 
-  if (q && q.trim()) {
-    const term = `%${q.trim()}%`;
-    conditions.push(
-      or(
-        like(sql`lower(${barang.nama_barang})`, term.toLowerCase()),
-        like(sql`lower(${barang.kode_barang})`, term.toLowerCase()),
-        like(barang.barcode, term),
-        like(barang.barcode_satuan_2, term),
-        like(barang.barcode_satuan_3, term)
-      )
-    );
-  }
+    if (q && q.trim()) {
+      const term = `%${q.trim()}%`;
+      conditions.push(
+        or(
+          like(sql`lower(${barang.nama_barang})`, term.toLowerCase()),
+          like(sql`lower(coalesce(${barang.kode_barang}, ''))`, term.toLowerCase()),
+          like(sql`coalesce(${barang.barcode}, '')`, term),
+          like(sql`coalesce(${barang.barcode_satuan_2}, '')`, term),
+          like(sql`coalesce(${barang.barcode_satuan_3}, '')`, term)
+        )
+      );
+    }
 
-  if (level && ["FAST", "MEDIUM", "SLOW", "DEAD"].includes(level.toUpperCase())) {
-    conditions.push(eq(barang.level_barang, level.toUpperCase()));
-  }
+    if (level && ["FAST", "MEDIUM", "SLOW", "DEAD"].includes(level.toUpperCase())) {
+      conditions.push(eq(barang.level_barang, level.toUpperCase()));
+    }
 
-  if (laporPajakQuery === "true") {
-    conditions.push(eq(barang.lapor_pajak, true));
-  } else if (laporPajakQuery === "false") {
-    conditions.push(eq(barang.lapor_pajak, false));
-  }
+    if (laporPajakQuery === "true") {
+      conditions.push(eq(barang.lapor_pajak, true));
+    } else if (laporPajakQuery === "false") {
+      conditions.push(or(eq(barang.lapor_pajak, false), isNull(barang.lapor_pajak)));
+    }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-  const isPaginationRequested = Boolean(pageParam || limitParam) && allParam !== "true";
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const isPaginationRequested = Boolean(pageParam || limitParam) && allParam !== "true";
 
-  if (isPaginationRequested) {
-    const page = Math.max(1, parseInt(pageParam || "1"));
-    const limit = Math.max(1, Math.min(250, parseInt(limitParam || "50")));
-    const offset = (page - 1) * limit;
+    if (isPaginationRequested) {
+      const page = Math.max(1, parseInt(pageParam || "1") || 1);
+      const limit = Math.max(1, Math.min(250, parseInt(limitParam || "50") || 50));
+      const offset = (page - 1) * limit;
 
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(barang)
-      .where(whereClause);
-    const total = Number(countResult?.count || 0);
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(barang)
+        .where(whereClause);
+      const total = Number(countResult?.count || 0);
 
-    const data = await db
+      const data = await db
+        .select({
+          id_barang: barang.id_barang,
+          kode_barang: barang.kode_barang,
+          barcode: barang.barcode,
+          nama_barang: barang.nama_barang,
+          id_kategori: barang.id_kategori,
+          nama_kategori: kategori_barang.nama_kategori,
+          id_supplier: barang.id_supplier,
+          nama_supplier: supplier.nama_supplier,
+          satuan_1: barang.satuan_1,
+          satuan_2: barang.satuan_2,
+          satuan_3: barang.satuan_3,
+          isi_1: barang.isi_1,
+          isi_2: barang.isi_2,
+          isi_3: barang.isi_3,
+          harga_beli: barang.harga_beli,
+          harga_rata: barang.harga_rata,
+          harga_jual_1_1: barang.harga_jual_1_1,
+          harga_jual_1_2: barang.harga_jual_1_2,
+          harga_jual_1_3: barang.harga_jual_1_3,
+          harga_jual_2_1: barang.harga_jual_2_1,
+          harga_jual_2_2: barang.harga_jual_2_2,
+          harga_jual_2_3: barang.harga_jual_2_3,
+          harga_jual_3_1: barang.harga_jual_3_1,
+          harga_jual_3_2: barang.harga_jual_3_2,
+          harga_jual_3_3: barang.harga_jual_3_3,
+          jual_rugi: barang.jual_rugi,
+          status: barang.status,
+          status_pajak: barang.status_pajak,
+          lapor_pajak: barang.lapor_pajak,
+          barcode_satuan_2: barang.barcode_satuan_2,
+          barcode_satuan_3: barang.barcode_satuan_3,
+          tipe_barang: barang.tipe_barang,
+          lacak_kadaluarsa: barang.lacak_kadaluarsa,
+          keterangan_1: barang.keterangan_1,
+          keterangan_2: barang.keterangan_2,
+          level_barang: barang.level_barang,
+          level_mode: barang.level_mode,
+          terakhir_terjual: barang.terakhir_terjual,
+          created_at: barang.created_at,
+          stok_akhir: stok_barang.stok_akhir,
+          level_cabang: stok_barang.level_cabang,
+          terakhir_terjual_cabang: stok_barang.terakhir_terjual_cabang,
+        })
+        .from(barang)
+        .leftJoin(kategori_barang, eq(barang.id_kategori, kategori_barang.id_kategori))
+        .leftJoin(supplier, eq(barang.id_supplier, supplier.id_supplier))
+        .leftJoin(stok_barang, and(eq(barang.id_barang, stok_barang.id_barang), eq(stok_barang.id_cabang, idCabang)))
+        .where(whereClause)
+        .orderBy(barang.nama_barang)
+        .limit(limit)
+        .offset(offset);
+
+      return c.json({
+        data,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      });
+    }
+
+    const query = db
       .select({
         id_barang: barang.id_barang,
         kode_barang: barang.kode_barang,
@@ -372,80 +440,19 @@ masterRoutes.get("/barang", async (c) => {
       .from(barang)
       .leftJoin(kategori_barang, eq(barang.id_kategori, kategori_barang.id_kategori))
       .leftJoin(supplier, eq(barang.id_supplier, supplier.id_supplier))
-      .leftJoin(stok_barang, and(eq(barang.id_barang, stok_barang.id_barang), eq(stok_barang.id_cabang, idCabang)))
-      .where(whereClause)
-      .orderBy(barang.nama_barang)
-      .limit(limit)
-      .offset(offset);
+      .leftJoin(stok_barang, and(eq(barang.id_barang, stok_barang.id_barang), eq(stok_barang.id_cabang, idCabang)));
 
-    return c.json({
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
-  }
+    if (conditions.length > 0) {
+      const data = await query.where(and(...conditions)).orderBy(barang.nama_barang);
+      return c.json(data);
+    }
 
-  const query = db
-    .select({
-      id_barang: barang.id_barang,
-      kode_barang: barang.kode_barang,
-      barcode: barang.barcode,
-      nama_barang: barang.nama_barang,
-      id_kategori: barang.id_kategori,
-      nama_kategori: kategori_barang.nama_kategori,
-      id_supplier: barang.id_supplier,
-      nama_supplier: supplier.nama_supplier,
-      satuan_1: barang.satuan_1,
-      satuan_2: barang.satuan_2,
-      satuan_3: barang.satuan_3,
-      isi_1: barang.isi_1,
-      isi_2: barang.isi_2,
-      isi_3: barang.isi_3,
-      harga_beli: barang.harga_beli,
-      harga_rata: barang.harga_rata,
-      harga_jual_1_1: barang.harga_jual_1_1,
-      harga_jual_1_2: barang.harga_jual_1_2,
-      harga_jual_1_3: barang.harga_jual_1_3,
-      harga_jual_2_1: barang.harga_jual_2_1,
-      harga_jual_2_2: barang.harga_jual_2_2,
-      harga_jual_2_3: barang.harga_jual_2_3,
-      harga_jual_3_1: barang.harga_jual_3_1,
-      harga_jual_3_2: barang.harga_jual_3_2,
-      harga_jual_3_3: barang.harga_jual_3_3,
-      jual_rugi: barang.jual_rugi,
-      status: barang.status,
-      status_pajak: barang.status_pajak,
-      lapor_pajak: barang.lapor_pajak,
-      barcode_satuan_2: barang.barcode_satuan_2,
-      barcode_satuan_3: barang.barcode_satuan_3,
-      tipe_barang: barang.tipe_barang,
-      lacak_kadaluarsa: barang.lacak_kadaluarsa,
-      keterangan_1: barang.keterangan_1,
-      keterangan_2: barang.keterangan_2,
-      level_barang: barang.level_barang,
-      level_mode: barang.level_mode,
-      terakhir_terjual: barang.terakhir_terjual,
-      created_at: barang.created_at,
-      stok_akhir: stok_barang.stok_akhir,
-      level_cabang: stok_barang.level_cabang,
-      terakhir_terjual_cabang: stok_barang.terakhir_terjual_cabang,
-    })
-    .from(barang)
-    .leftJoin(kategori_barang, eq(barang.id_kategori, kategori_barang.id_kategori))
-    .leftJoin(supplier, eq(barang.id_supplier, supplier.id_supplier))
-    .leftJoin(stok_barang, and(eq(barang.id_barang, stok_barang.id_barang), eq(stok_barang.id_cabang, idCabang)));
-
-  if (conditions.length > 0) {
-    const data = await query.where(and(...conditions)).orderBy(barang.nama_barang);
+    const data = await query.orderBy(barang.nama_barang);
     return c.json(data);
+  } catch (error: any) {
+    console.error("Error in GET /barang:", error);
+    return c.json({ error: error?.message || "Gagal memuat katalog barang." }, 500);
   }
-
-  const data = await query.orderBy(barang.nama_barang);
-  return c.json(data);
 });
 
 // Hitung Ulang Level Barang (FSN Classification)
@@ -862,20 +869,27 @@ masterRoutes.put("/barang/:id", async (c) => {
 });
 
 masterRoutes.delete("/barang/:id", async (c) => {
-  const id = c.req.param("id");
+  const id = parseInt(c.req.param("id"));
+  if (isNaN(id)) {
+    return c.json({ error: "ID barang tidak valid." }, 400);
+  }
   try {
-    // Cek stok terkait di cabang
+    // 1. Cek stok terkait di cabang
     const stokTerkait = await db
       .select()
       .from(stok_barang)
-      .where(eq(stok_barang.id_barang, parseInt(id)));
+      .where(eq(stok_barang.id_barang, id));
     if (stokTerkait.some((s) => (s.stok_akhir ?? 0) > 0)) {
       return c.json({ error: "Barang tidak dapat dihapus karena masih memiliki stok aktif di cabang." }, 400);
     }
 
-    await db.delete(barang).where(eq(barang.id_barang, parseInt(id)));
+    // 2. Hapus baris stok_barang bersaldo 0 agar foreign key tidak memblokir
+    await db.delete(stok_barang).where(eq(stok_barang.id_barang, id));
+
+    // 3. Hapus data master barang
+    await db.delete(barang).where(eq(barang.id_barang, id));
     return c.json({ success: true });
-  } catch (err) {
+  } catch (err: any) {
     return c.json({ error: "Barang tidak dapat dihapus karena sudah digunakan dalam transaksi atau data master lainnya." }, 400);
   }
 });
@@ -910,7 +924,41 @@ masterRoutes.get("/cabang", async (c) => {
       .orderBy(cabang.nama_cabang);
     return c.json(data);
   } catch (err: any) {
-    return c.json({ error: "Gagal memuat cabang: " + err.message }, 500);
+    console.error("GET /cabang primary query error:", err.message);
+    // Defensive fallback: jika tabel cabang_investor atau kolom investor belum termigrasi di database tertentu
+    try {
+      const basicData = await db
+        .select({
+          id_cabang: cabang.id_cabang,
+          kode_cabang: cabang.kode_cabang,
+          nama_cabang: cabang.nama_cabang,
+          alamat: cabang.alamat,
+          telepon: cabang.telepon,
+          email: cabang.email,
+          admin: cabang.admin,
+          nama_admin: users.nama_user,
+          latitude: cabang.latitude,
+          longitude: cabang.longitude,
+          data_kode: cabang.data_kode,
+          is_dc: cabang.is_dc,
+        })
+        .from(cabang)
+        .leftJoin(users, eq(cabang.admin, users.id))
+        .orderBy(cabang.nama_cabang);
+
+      const enriched = basicData.map((b) => ({
+        ...b,
+        jenis_cabang: "INTERNAL" as const,
+        nisbah_pengelola: "0",
+        nisbah_investor: "0",
+        total_modal_investor: "0",
+        jumlah_investor: 0,
+      }));
+      return c.json(enriched);
+    } catch (fallbackErr: any) {
+      console.error("GET /cabang fallback query error:", fallbackErr.message);
+      return c.json({ error: "Gagal memuat cabang: " + err.message }, 500);
+    }
   }
 });
 
@@ -1022,7 +1070,8 @@ masterRoutes.get("/cabang/:id/investor", async (c) => {
       .orderBy(desc(cabang_investor.id_cabang_investor));
     return c.json(data);
   } catch (err: any) {
-    return c.json({ error: "Gagal memuat investor: " + err.message }, 500);
+    console.error("GET /cabang/:id/investor error:", err.message);
+    return c.json([]); // Kembalikan array kosong jika tabel belum tersedia
   }
 });
 
@@ -1323,9 +1372,10 @@ masterRoutes.get("/stok", async (c) => {
 
   // Security check: Super User (1), IT (2), Bendahara (4), Admin (5), Manager (8), SPV (11) can query other branches
   const allowedRoles = [1, 2, 4, 5, 8, 11];
-  const isManagerOrAdmin = allowedRoles.includes(user.id_jabatan);
+  const userRole = user?.id_jabatan ? Number(user.id_jabatan) : 0;
+  const isManagerOrAdmin = allowedRoles.includes(userRole);
 
-  let idCabang: number | null = user.id_cabang;
+  let idCabang: number | null = user?.id_cabang ? Number(user.id_cabang) : null;
   let isAllBranches = false;
 
   if (isManagerOrAdmin && paramCabang) {
@@ -1520,7 +1570,8 @@ masterRoutes.get("/barang/:id/stok-cabang", async (c) => {
     }
 
     const allowedRoles = [1, 2, 4, 5, 8, 11];
-    const isManagerOrAdmin = allowedRoles.includes(user.id_jabatan);
+    const userRole = user?.id_jabatan ? Number(user.id_jabatan) : 0;
+    const isManagerOrAdmin = allowedRoles.includes(userRole);
 
     // Ambil daftar cabang
     const branchQuery = db
@@ -1532,9 +1583,10 @@ masterRoutes.get("/barang/:id/stok-cabang", async (c) => {
       })
       .from(cabang);
 
+    const userCabang = user?.id_cabang ? Number(user.id_cabang) : 1;
     const allBranches = isManagerOrAdmin
       ? await branchQuery.orderBy(cabang.id_cabang)
-      : await branchQuery.where(eq(cabang.id_cabang, user.id_cabang));
+      : await branchQuery.where(eq(cabang.id_cabang, userCabang));
 
     // Ambil semua stok untuk barang ini
     const stockRows = await db
@@ -2167,7 +2219,7 @@ masterRoutes.get("/kartu-stok", async (c) => {
     const endDate = c.req.query("end_date");
     const limit = parseInt(c.req.query("limit") || "100");
 
-    const targetCabang = idCabang ? parseInt(idCabang) : user.id_cabang;
+    const targetCabang = idCabang ? parseInt(idCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
 
     const conditions = [];
     if (targetCabang) conditions.push(eq(kartu_stok.id_cabang, targetCabang));
@@ -2220,7 +2272,7 @@ masterRoutes.get("/gudang-lokasi", async (c) => {
   try {
     const user = c.get("user");
     const idCabang = c.req.query("id_cabang");
-    const targetCabang = idCabang ? parseInt(idCabang) : user.id_cabang;
+    const targetCabang = idCabang ? parseInt(idCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
 
     const rows = await db
       .select()
@@ -2243,7 +2295,7 @@ masterRoutes.get("/stok/reorder-suggestions", async (c) => {
   try {
     const user = c.get("user");
     const idCabang = c.req.query("id_cabang");
-    const targetCabang = idCabang ? parseInt(idCabang) : user.id_cabang;
+    const targetCabang = idCabang ? parseInt(idCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
 
     const rows = await db
       .select({

@@ -87,6 +87,8 @@ export async function recalculateProductLevels(): Promise<RecalculateResult> {
   let countSlow = 0;
   let countDead = 0;
 
+  const barangUpdates: { id_barang: number; level_barang: string; terakhir_terjual: string | null }[] = [];
+
   for (const b of allBarang) {
     const saleInfo = lastSaleGlobalMap.get(b.id_barang);
     let calculatedLevel: "FAST" | "MEDIUM" | "SLOW" | "DEAD" = "MEDIUM";
@@ -139,11 +141,34 @@ export async function recalculateProductLevels(): Promise<RecalculateResult> {
     else if (finalLevel === "SLOW") countSlow++;
     else if (finalLevel === "DEAD") countDead++;
 
-    // Update master barang
-    await db.update(barang).set({
+    barangUpdates.push({
+      id_barang: b.id_barang,
       level_barang: finalLevel,
       terakhir_terjual: lastSaleFull,
-    }).where(eq(barang.id_barang, b.id_barang));
+    });
+  }
+
+  // Batch update barang dalam potongan 400 baris untuk efisiensi tinggi
+  const BATCH_SIZE = 400;
+  for (let i = 0; i < barangUpdates.length; i += BATCH_SIZE) {
+    const chunk = barangUpdates.slice(i, i + BATCH_SIZE);
+    const valuesClause = chunk
+      .map(
+        (item) =>
+          `(${item.id_barang}, '${item.level_barang}', ${
+            item.terakhir_terjual ? `'${item.terakhir_terjual.replace(/'/g, "''")}'` : "NULL"
+          })`
+      )
+      .join(", ");
+
+    await db.execute(sql.raw(`
+      UPDATE barang AS b
+      SET 
+        level_barang = v.level_barang,
+        terakhir_terjual = v.terakhir_terjual
+      FROM (VALUES ${valuesClause}) AS v(id_barang, level_barang, terakhir_terjual)
+      WHERE b.id_barang = v.id_barang;
+    `));
   }
 
   // 4. Update stok_barang per cabang
@@ -152,6 +177,8 @@ export async function recalculateProductLevels(): Promise<RecalculateResult> {
     id_barang: stok_barang.id_barang,
     id_cabang: stok_barang.id_cabang,
   }).from(stok_barang);
+
+  const stokUpdates: { id: number; level_cabang: string; terakhir_terjual_cabang: string | null }[] = [];
 
   for (const s of allStok) {
     if (!s.id_barang || !s.id_cabang) continue;
@@ -174,10 +201,33 @@ export async function recalculateProductLevels(): Promise<RecalculateResult> {
       branchLevel = "DEAD";
     }
 
-    await db.update(stok_barang).set({
+    stokUpdates.push({
+      id: s.id,
       level_cabang: branchLevel,
       terakhir_terjual_cabang: branchLastSale,
-    }).where(eq(stok_barang.id, s.id));
+    });
+  }
+
+  // Batch update stok_barang dalam potongan 400 baris
+  for (let i = 0; i < stokUpdates.length; i += BATCH_SIZE) {
+    const chunk = stokUpdates.slice(i, i + BATCH_SIZE);
+    const valuesClause = chunk
+      .map(
+        (item) =>
+          `(${item.id}, '${item.level_cabang}', ${
+            item.terakhir_terjual_cabang ? `'${item.terakhir_terjual_cabang.replace(/'/g, "''")}'` : "NULL"
+          })`
+      )
+      .join(", ");
+
+    await db.execute(sql.raw(`
+      UPDATE stok_barang AS s
+      SET 
+        level_cabang = v.level_cabang,
+        terakhir_terjual_cabang = v.terakhir_terjual_cabang
+      FROM (VALUES ${valuesClause}) AS v(id, level_cabang, terakhir_terjual_cabang)
+      WHERE s.id = v.id;
+    `));
   }
 
   return {

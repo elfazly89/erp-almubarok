@@ -1125,5 +1125,21 @@ export type KartuStok = typeof kartu_stok.$inferSelect;
 export type StokAdjustment = typeof stok_adjustment.$inferSelect;
 export type StokAdjustmentDetail = typeof stok_adjustment_detail.$inferSelect;
 
+// ==========================================
+// 8. PREFERENSI DASHBOARD MODULAR PER PENGGUNA
+// ==========================================
+export const user_dashboard_preferences = pgTable("user_dashboard_preferences", {
+  id: serial("id").primaryKey(),
+  id_user: integer("id_user").references(() => users.id).notNull().unique(),
+  layout_config: text("layout_config").notNull(),
+  last_preset: text("last_preset").default("CUSTOM"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+  updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export type UserDashboardPreferences = typeof user_dashboard_preferences.$inferSelect;
+export type NewUserDashboardPreferences = typeof user_dashboard_preferences.$inferInsert;
+
+
 
 

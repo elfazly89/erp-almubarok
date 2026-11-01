@@ -38,7 +38,7 @@ supplyChainRoutes.get("/batch", async (c) => {
     const search = c.req.query("search") || "";
     const alert = c.req.query("alert") || "ALL";
 
-    const targetCabang = queryCabang ? parseInt(queryCabang) : user.id_cabang;
+    const targetCabang = queryCabang ? parseInt(queryCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
 
     const todayStr = new Date().toISOString().split("T")[0];
     const d30 = new Date();
@@ -148,7 +148,7 @@ supplyChainRoutes.get("/batch/summary", async (c) => {
   try {
     const user = c.get("user");
     const queryCabang = c.req.query("cabang_id");
-    const targetCabang = queryCabang ? parseInt(queryCabang) : user.id_cabang;
+    const targetCabang = queryCabang ? parseInt(queryCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
 
     const todayStr = new Date().toISOString().split("T")[0];
     const d30 = new Date();
@@ -296,7 +296,7 @@ supplyChainRoutes.get("/stok-opname", async (c) => {
     const user = c.get("user");
     const queryCabang = c.req.query("cabang_id");
     const queryStatus = c.req.query("status");
-    const targetCabang = queryCabang ? parseInt(queryCabang) : user.id_cabang;
+    const targetCabang = queryCabang ? parseInt(queryCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
 
     const conditions = [];
     if (targetCabang) {

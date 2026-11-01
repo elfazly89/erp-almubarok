@@ -251,6 +251,14 @@ export default function BarangPage() {
           fetch("/api/supplier"),
         ]);
 
+        if (resBarang.status === 401 || resKat.status === 401 || resSup.status === 401) {
+          showToast("Sesi login Anda telah berakhir. Mengalihkan ke halaman login...", "error");
+          setTimeout(() => {
+            window.location.href = "/login";
+          }, 1200);
+          return;
+        }
+
         if (resBarang.ok && resKat.ok && resSup.ok) {
           const barangJson = await resBarang.json();
           if (barangJson && barangJson.pagination) {
@@ -267,7 +275,14 @@ export default function BarangPage() {
           setCategories(await resKat.json());
           setSuppliers(await resSup.json());
         } else {
-          showToast("Gagal memuat data katalog barang.", "error");
+          let errMsg = "Gagal memuat data katalog barang.";
+          try {
+            if (!resBarang.ok) {
+              const errJson = await resBarang.json();
+              if (errJson?.error) errMsg = errJson.error;
+            }
+          } catch {}
+          showToast(errMsg, "error");
         }
       } catch {
         showToast("Gagal memuat data katalog barang.", "error");
@@ -1003,7 +1018,7 @@ export default function BarangPage() {
                 ) : (
                   sortedList.map((b, idx) => (
                     <tr key={b.id_barang} className="hover:bg-surface-container-high/20 transition-colors">
-                      <td className="px-5 py-4 text-on-surface-variant text-sm font-mono">{idx + 1}</td>
+                      <td className="px-5 py-4 text-on-surface-variant text-sm font-mono">{(page - 1) * limit + idx + 1}</td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-on-surface font-semibold">{b.nama_barang}</span>
