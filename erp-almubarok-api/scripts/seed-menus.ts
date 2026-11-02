@@ -33,11 +33,12 @@ async function main() {
     const KAS_SUBS = [
       { nama: "Dashboard Kas", link: "/kas/dashboard", urutan: 1 },
       { nama: "Rekening Kas", link: "/kas/rekening", urutan: 2 },
-      { nama: "Mutasi Kas", link: "/kas/transaksi", urutan: 3 },
-      { nama: "Shift Kasir", link: "/kas/shift", urutan: 4 },
-      { nama: "Transfer Kas", link: "/kas/transfer", urutan: 5 },
-      { nama: "Rekonsiliasi", link: "/kas/rekonsiliasi", urutan: 6 },
-      { nama: "Laporan Kas", link: "/kas/laporan", urutan: 7 },
+      { nama: "Mutasi Kas Toko", link: "/kas/transaksi", urutan: 3 },
+      { nama: "Kas Pusat & Bank", link: "/kas/transaksi-pusat", urutan: 4 },
+      { nama: "Shift Kasir", link: "/kas/shift", urutan: 5 },
+      { nama: "Transfer Kas", link: "/kas/transfer", urutan: 6 },
+      { nama: "Rekonsiliasi", link: "/kas/rekonsiliasi", urutan: 7 },
+      { nama: "Laporan Kas", link: "/kas/laporan", urutan: 8 },
     ];
 
     for (const sub of KAS_SUBS) {
@@ -64,12 +65,22 @@ async function main() {
       } else {
         console.log(`  Sub menu '${sub.nama}' sudah ada.`);
         subId = existingSub.id;
+        // Pastikan urutan dan nama up to date
+        await db
+          .update(menu_sub)
+          .set({ nama: sub.nama, urutan: sub.urutan, aktif: true })
+          .where(eq(menu_sub.id, subId));
       }
 
-      // Auto grant full permissions to Jabatan ID 1 (Admin/Super User) and ID 2 (Owner/IT)
+      // Auto grant permissions
+      // Super User (1), IT (2) get all menus
       const targetJabatanIds = [1, 2];
-      if (sub.link === "/kas/shift") {
-        targetJabatanIds.push(7); // Juga untuk Kasir
+      if (sub.link === "/kas/transaksi-pusat") {
+        targetJabatanIds.push(4, 8); // Bendahara (4), Manager (8)
+      } else if (sub.link === "/kas/shift") {
+        targetJabatanIds.push(7); // Kasir (7)
+      } else if (sub.link === "/kas/transaksi") {
+        targetJabatanIds.push(4, 5, 8, 11); // Bendahara, Admin, Manager, SPV
       }
       for (const jabId of targetJabatanIds) {
         const [exists] = await db.select().from(jabatan).where(eq(jabatan.id_jabatan, jabId)).limit(1);

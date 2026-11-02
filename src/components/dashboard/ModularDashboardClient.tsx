@@ -9,11 +9,11 @@ import {
   type WidgetConfig,
 } from "@/lib/dashboard-presets";
 
-// Import all 11 Widgets
+// Import all active Widgets
 import { KpiStatsWidget } from "./widgets/KpiStatsWidget";
-import { QuickActionsWidget } from "./widgets/QuickActionsWidget";
-import { SalesCashFlowChartWidget } from "./widgets/SalesCashFlowChartWidget";
 import { BranchLeaderboardWidget } from "./widgets/BranchLeaderboardWidget";
+import { CompanyGrowthAnalyticsWidget } from "./widgets/CompanyGrowthAnalyticsWidget";
+import { SalesCashFlowChartWidget } from "./widgets/SalesCashFlowChartWidget";
 import { ActionableCriticalStockWidget } from "./widgets/ActionableCriticalStockWidget";
 import { FefoBatchExpiredWidget } from "./widgets/FefoBatchExpiredWidget";
 import { ActiveCashierShiftsWidget } from "./widgets/ActiveCashierShiftsWidget";
@@ -37,15 +37,20 @@ interface ModularDashboardClientProps {
 }
 
 export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
+  const roleLower = user.jabatan?.toLowerCase() || "";
   const isSuperOrOwner =
     !user.id_cabang ||
-    user.jabatan?.toLowerCase().includes("owner") ||
-    user.jabatan?.toLowerCase().includes("direktur") ||
-    user.jabatan?.toLowerCase().includes("super admin");
+    roleLower.includes("super user") ||
+    roleLower.includes("super admin") ||
+    roleLower.includes("owner") ||
+    roleLower.includes("direktur") ||
+    roleLower.includes("manager") ||
+    roleLower.includes("keuangan") ||
+    roleLower.includes("it");
 
   const [cabangList, setCabangList] = useState<CabangOption[]>([]);
   const [selectedCabang, setSelectedCabang] = useState<string>(
-    user.id_cabang ? String(user.id_cabang) : "all"
+    isSuperOrOwner ? "all" : (user.id_cabang ? String(user.id_cabang) : "all")
   );
   const [selectedPeriod, setSelectedPeriod] = useState<string>("today");
 
@@ -58,6 +63,20 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+  // Helper untuk normalisasi layout: membersihkan widget lama (misal: quick_actions)
+  // dan memastikan widget baru (misal: company_growth_analytics) terdaftar
+  const normalizeConfig = useCallback((config: WidgetConfig[]): WidgetConfig[] => {
+    const catalogIds = new Set(WIDGET_CATALOG.map((m) => m.id));
+    const valid = config.filter((w) => catalogIds.has(w.id));
+    const existingIds = new Set(valid.map((w) => w.id));
+    const missing = WIDGET_CATALOG.filter((m) => !existingIds.has(m.id)).map((m, idx) => ({
+      id: m.id,
+      visible: true,
+      order: valid.length + idx + 1,
+    }));
+    return [...valid, ...missing];
+  }, []);
+
   // 1. Inisialisasi susunan widget (Database -> LocalStorage -> Role Preset Bawaan)
   useEffect(() => {
     async function loadPreferences() {
@@ -68,7 +87,7 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
         if (res.ok) {
           const resData = await res.json();
           if (resData.success && resData.data?.layout_config?.length > 0) {
-            setWidgetConfig(resData.data.layout_config);
+            setWidgetConfig(normalizeConfig(resData.data.layout_config));
             return;
           }
         }
@@ -82,7 +101,7 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
         if (local) {
           const parsed = JSON.parse(local);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setWidgetConfig(parsed);
+            setWidgetConfig(normalizeConfig(parsed));
             return;
           }
         }
@@ -91,11 +110,11 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
       }
 
       // Default preset bawaan jabatan
-      setWidgetConfig(defaultRolePreset.widgets);
+      setWidgetConfig(normalizeConfig(defaultRolePreset.widgets));
     }
 
     loadPreferences();
-  }, [user.id, user.jabatan]);
+  }, [user.id, user.jabatan, normalizeConfig]);
 
   // 2. Fetch list cabang
   useEffect(() => {
@@ -161,11 +180,12 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
 
   // 4. Simpan preferensi widget
   const handleSaveConfig = async (newConfig: WidgetConfig[], presetName?: string) => {
-    setWidgetConfig(newConfig);
+    const cleaned = normalizeConfig(newConfig);
+    setWidgetConfig(cleaned);
 
     // Simpan ke local storage
     try {
-      localStorage.setItem(`erp_dash_pref_${user.id}`, JSON.stringify(newConfig));
+      localStorage.setItem(`erp_dash_pref_${user.id}`, JSON.stringify(cleaned));
     } catch {
       // Abaikan
     }
@@ -176,7 +196,7 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          layout_config: newConfig,
+          layout_config: cleaned,
           last_preset: presetName || "CUSTOM",
         }),
       });
@@ -188,7 +208,8 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
   // 5. Reset ke preset bawaan peran
   const handleResetDefault = async () => {
     const defaultRolePreset = getDefaultPresetForRole(user.jabatan);
-    setWidgetConfig(defaultRolePreset.widgets);
+    const cleaned = normalizeConfig(defaultRolePreset.widgets);
+    setWidgetConfig(cleaned);
 
     try {
       localStorage.removeItem(`erp_dash_pref_${user.id}`);
@@ -211,7 +232,6 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
     }))
     .filter((item) => {
       if (!item.meta) return false;
-      // Jika widget butuh admin tapi user bukan admin/owner/keuangan, sembunyikan widget finansial sensitif
       if (item.meta.requiresAdmin && !isSuperOrOwner) return false;
       return true;
     });
@@ -251,8 +271,8 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
       {loading && !stats ? (
         <div className="grid grid-cols-12 gap-5 animate-pulse">
           <div className="col-span-12 h-32 bg-surface-container rounded-2xl" />
-          <div className="col-span-12 xl:col-span-8 h-80 bg-surface-container rounded-2xl" />
-          <div className="col-span-12 xl:col-span-4 h-80 bg-surface-container rounded-2xl" />
+          <div className="col-span-12 h-72 bg-surface-container rounded-2xl" />
+          <div className="col-span-12 h-96 bg-surface-container rounded-2xl" />
           <div className="col-span-12 xl:col-span-6 h-64 bg-surface-container rounded-2xl" />
           <div className="col-span-12 xl:col-span-6 h-64 bg-surface-container rounded-2xl" />
         </div>
@@ -266,12 +286,18 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
             return (
               <div key={id} className={colSpan}>
                 {id === "kpi_stats" && <KpiStatsWidget data={stats.kpi} />}
-                {id === "quick_actions" && <QuickActionsWidget />}
+                {id === "branch_leaderboard" && (
+                  <BranchLeaderboardWidget
+                    data={stats.cabangLeaderboard || []}
+                    top3={stats.top3Cabang}
+                    bottom3={stats.bottom3Cabang}
+                  />
+                )}
+                {id === "company_growth_analytics" && (
+                  <CompanyGrowthAnalyticsWidget initialData={stats.growthStats} />
+                )}
                 {id === "sales_cashflow_chart" && (
                   <SalesCashFlowChartWidget data={stats.salesTrend || []} />
-                )}
-                {id === "branch_leaderboard" && (
-                  <BranchLeaderboardWidget data={stats.cabangLeaderboard || []} />
                 )}
                 {id === "actionable_critical_stock" && (
                   <ActionableCriticalStockWidget data={stats.stokKritis || []} />
@@ -326,4 +352,3 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
     </div>
   );
 }
-

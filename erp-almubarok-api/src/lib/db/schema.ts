@@ -848,6 +848,7 @@ export const kas_transaksi = pgTable("kas_transaksi", {
   id_rekening_tujuan: integer("id_rekening_tujuan").references(() => rekening_kas.id),
   bukti: text("bukti"),
   status: text("status").default("APPROVED"), // 'PENDING' | 'APPROVED' | 'REVERSED'
+  id_akun_lawan_coa: integer("id_akun_lawan_coa").references(() => daftar_akun.id),
   id_jurnal: integer("id_jurnal"),
   created_by: integer("created_by").references(() => users.id),
   approved_by: integer("approved_by").references(() => users.id),

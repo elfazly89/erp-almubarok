@@ -4,7 +4,7 @@ export interface WidgetConfig {
   order: number;
 }
 
-export type WidgetCategory = "FINANSIAL" | "OPERASIONAL" | "GUDANG" | "HRD" | "AKSI";
+export type WidgetCategory = "FINANSIAL" | "OPERASIONAL" | "GUDANG" | "HRD";
 
 export interface WidgetMeta {
   id: string;
@@ -18,18 +18,27 @@ export interface WidgetMeta {
 export const WIDGET_CATALOG: WidgetMeta[] = [
   {
     id: "kpi_stats",
-    title: "Ringkasan Metrik KPI Bisnis",
-    description: "Omzet hari ini, perputaran kas, margin kotor, dan total transaksi kasir",
+    title: "Ringkasan Finansial Utama",
+    description: "Omset penjualan, laba kotor, beban operasional, dan laba bersih konsolidasi seluruh toko",
     category: "FINANSIAL",
     defaultColSpan: "col-span-12",
     requiresAdmin: true,
   },
   {
-    id: "quick_actions",
-    title: "Pintasan Aksi Cepat (Quick Launcher)",
-    description: "Tombol jalan pintas ke Kasir POS, Buat PO, Mutasi Kas, dan Cek Stok",
-    category: "AKSI",
+    id: "branch_leaderboard",
+    title: "3 Cabang Omset Tertinggi & 3 Terendah",
+    description: "Split panel komparasi cabang berkinerja tertinggi 🏆 dan cabang dengan omset terendah ⚠️",
+    category: "FINANSIAL",
     defaultColSpan: "col-span-12",
+    requiresAdmin: true,
+  },
+  {
+    id: "company_growth_analytics",
+    title: "Statistik Pertumbuhan & Rincian Cabang",
+    description: "Grafik tren pertumbuhan berkala perusahaan serta matriks rincian kenaikan/penurunan seluruh cabang",
+    category: "FINANSIAL",
+    defaultColSpan: "col-span-12",
+    requiresAdmin: true,
   },
   {
     id: "sales_cashflow_chart",
@@ -40,19 +49,11 @@ export const WIDGET_CATALOG: WidgetMeta[] = [
     requiresAdmin: true,
   },
   {
-    id: "branch_leaderboard",
-    title: "Leaderboard Performa Antar-Cabang",
-    description: "Peringkat omzet dan kontribusi penjualan seluruh cabang ritel",
-    category: "FINANSIAL",
-    defaultColSpan: "col-span-12 xl:col-span-4",
-    requiresAdmin: true,
-  },
-  {
     id: "actionable_critical_stock",
     title: "Peringatan Stok Kritis & Stok Habis",
     description: "Daftar barang di bawah buffer dengan aksi langsung Buat PO atau Minta Transfer",
     category: "GUDANG",
-    defaultColSpan: "col-span-12 xl:col-span-8",
+    defaultColSpan: "col-span-12 xl:col-span-4",
   },
   {
     id: "fefo_batch_expired",
@@ -108,30 +109,30 @@ export const ROLE_PRESETS: Record<string, { name: string; widgets: WidgetConfig[
     name: "Preset Owner & Pimpinan Eksekutif",
     widgets: [
       { id: "kpi_stats", visible: true, order: 1 },
-      { id: "quick_actions", visible: true, order: 2 },
-      { id: "sales_cashflow_chart", visible: true, order: 3 },
-      { id: "branch_leaderboard", visible: true, order: 4 },
+      { id: "branch_leaderboard", visible: true, order: 2 },
+      { id: "company_growth_analytics", visible: true, order: 3 },
+      { id: "sales_cashflow_chart", visible: true, order: 4 },
       { id: "cash_accounts_liquidity", visible: true, order: 5 },
       { id: "supplier_payable_due", visible: true, order: 6 },
       { id: "actionable_critical_stock", visible: true, order: 7 },
       { id: "active_cashier_shifts", visible: true, order: 8 },
-      { id: "dc_shipment_tracking", visible: false, order: 9 },
-      { id: "fefo_batch_expired", visible: false, order: 10 },
-      { id: "hrd_attendance_summary", visible: true, order: 11 },
+      { id: "hrd_attendance_summary", visible: true, order: 9 },
+      { id: "dc_shipment_tracking", visible: false, order: 10 },
+      { id: "fefo_batch_expired", visible: false, order: 11 },
     ],
   },
   TOKO: {
     name: "Preset Kepala Toko & Kasir",
     widgets: [
-      { id: "quick_actions", visible: true, order: 1 },
-      { id: "active_cashier_shifts", visible: true, order: 2 },
-      { id: "actionable_critical_stock", visible: true, order: 3 },
-      { id: "dc_shipment_tracking", visible: true, order: 4 },
-      { id: "fefo_batch_expired", visible: true, order: 5 },
-      { id: "hrd_attendance_summary", visible: true, order: 6 },
-      { id: "kpi_stats", visible: false, order: 7 },
-      { id: "sales_cashflow_chart", visible: false, order: 8 },
-      { id: "branch_leaderboard", visible: false, order: 9 },
+      { id: "active_cashier_shifts", visible: true, order: 1 },
+      { id: "actionable_critical_stock", visible: true, order: 2 },
+      { id: "dc_shipment_tracking", visible: true, order: 3 },
+      { id: "fefo_batch_expired", visible: true, order: 4 },
+      { id: "hrd_attendance_summary", visible: true, order: 5 },
+      { id: "kpi_stats", visible: false, order: 6 },
+      { id: "branch_leaderboard", visible: false, order: 7 },
+      { id: "company_growth_analytics", visible: false, order: 8 },
+      { id: "sales_cashflow_chart", visible: false, order: 9 },
       { id: "cash_accounts_liquidity", visible: false, order: 10 },
       { id: "supplier_payable_due", visible: false, order: 11 },
     ],
@@ -139,28 +140,28 @@ export const ROLE_PRESETS: Record<string, { name: string; widgets: WidgetConfig[
   LOGISTIK: {
     name: "Preset Logistik & Gudang DC",
     widgets: [
-      { id: "quick_actions", visible: true, order: 1 },
-      { id: "actionable_critical_stock", visible: true, order: 2 },
-      { id: "fefo_batch_expired", visible: true, order: 3 },
-      { id: "dc_shipment_tracking", visible: true, order: 4 },
-      { id: "supplier_payable_due", visible: true, order: 5 },
-      { id: "active_cashier_shifts", visible: false, order: 6 },
-      { id: "hrd_attendance_summary", visible: true, order: 7 },
-      { id: "kpi_stats", visible: false, order: 8 },
-      { id: "sales_cashflow_chart", visible: false, order: 9 },
-      { id: "branch_leaderboard", visible: false, order: 10 },
+      { id: "actionable_critical_stock", visible: true, order: 1 },
+      { id: "fefo_batch_expired", visible: true, order: 2 },
+      { id: "dc_shipment_tracking", visible: true, order: 3 },
+      { id: "supplier_payable_due", visible: true, order: 4 },
+      { id: "active_cashier_shifts", visible: false, order: 5 },
+      { id: "hrd_attendance_summary", visible: true, order: 6 },
+      { id: "kpi_stats", visible: false, order: 7 },
+      { id: "branch_leaderboard", visible: false, order: 8 },
+      { id: "company_growth_analytics", visible: false, order: 9 },
+      { id: "sales_cashflow_chart", visible: false, order: 10 },
       { id: "cash_accounts_liquidity", visible: false, order: 11 },
     ],
   },
   HRD: {
     name: "Preset HRD & Personalia",
     widgets: [
-      { id: "quick_actions", visible: true, order: 1 },
-      { id: "hrd_attendance_summary", visible: true, order: 2 },
-      { id: "active_cashier_shifts", visible: true, order: 3 },
-      { id: "kpi_stats", visible: false, order: 4 },
-      { id: "sales_cashflow_chart", visible: false, order: 5 },
-      { id: "branch_leaderboard", visible: false, order: 6 },
+      { id: "hrd_attendance_summary", visible: true, order: 1 },
+      { id: "active_cashier_shifts", visible: true, order: 2 },
+      { id: "kpi_stats", visible: false, order: 3 },
+      { id: "branch_leaderboard", visible: false, order: 4 },
+      { id: "company_growth_analytics", visible: false, order: 5 },
+      { id: "sales_cashflow_chart", visible: false, order: 6 },
       { id: "cash_accounts_liquidity", visible: false, order: 7 },
       { id: "supplier_payable_due", visible: false, order: 8 },
       { id: "actionable_critical_stock", visible: false, order: 9 },
@@ -180,7 +181,17 @@ export function getDefaultPresetForRole(jabatan?: string): { presetKey: string; 
 
   const jLower = jabatan.toLowerCase();
 
-  if (jLower.includes("owner") || jLower.includes("direktur") || jLower.includes("super admin") || jLower.includes("keuangan") || jLower.includes("akuntansi")) {
+  if (
+    jLower.includes("super user") ||
+    jLower.includes("super admin") ||
+    jLower.includes("owner") ||
+    jLower.includes("direktur") ||
+    jLower.includes("manager") ||
+    jLower.includes("it") ||
+    jLower.includes("bendahara") ||
+    jLower.includes("keuangan") ||
+    jLower.includes("akuntansi")
+  ) {
     return { presetKey: "OWNER", widgets: ROLE_PRESETS.OWNER.widgets };
   }
 
@@ -188,14 +199,23 @@ export function getDefaultPresetForRole(jabatan?: string): { presetKey: string; 
     return { presetKey: "TOKO", widgets: ROLE_PRESETS.TOKO.widgets };
   }
 
-  if (jLower.includes("gudang") || jLower.includes("logistik") || jLower.includes("distribusi") || jLower.includes("pengadaan")) {
+  if (
+    jLower.includes("gudang") ||
+    jLower.includes("logistik") ||
+    jLower.includes("distribusi") ||
+    jLower.includes("pengadaan")
+  ) {
     return { presetKey: "LOGISTIK", widgets: ROLE_PRESETS.LOGISTIK.widgets };
   }
 
-  if (jLower.includes("hrd") || jLower.includes("personalia") || jLower.includes("abdi") || jLower.includes("tata usaha")) {
+  if (
+    jLower.includes("hrd") ||
+    jLower.includes("personalia") ||
+    jLower.includes("abdi") ||
+    jLower.includes("tata usaha")
+  ) {
     return { presetKey: "HRD", widgets: ROLE_PRESETS.HRD.widgets };
   }
 
   return { presetKey: "OWNER", widgets: ROLE_PRESETS.OWNER.widgets };
 }
-

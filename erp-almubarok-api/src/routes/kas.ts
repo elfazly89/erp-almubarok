@@ -7,6 +7,7 @@ import {
   rekonsiliasi_kas,
   jurnal_umum,
   daftar_akun,
+  tipe_akun,
   cabang,
   users,
   penjualan,
@@ -22,6 +23,9 @@ export const kasRoutes = new Hono<{
     user: JWTPayload;
   };
 }>();
+
+const EXECUTIVE_ROLES = [1, 2, 4, 8]; // 1: Super User, 2: IT, 4: Bendahara, 8: Manager
+const PUSAT_CABANG_ID = 3; // DC Pusat
 
 // ==========================================
 // 1. REKENING KAS
@@ -55,6 +59,72 @@ kasRoutes.get("/rekening", async (c) => {
       .leftJoin(daftar_akun, eq(rekening_kas.id_akun_coa, daftar_akun.id))
       .where(eq(rekening_kas.id_cabang, idCabang))
       .orderBy(rekening_kas.kode);
+
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// GET /rekening-pusat - List rekening kas & bank khusus Pusat
+kasRoutes.get("/rekening-pusat", async (c) => {
+  const activeUser = c.get("user");
+  const isExecutive = EXECUTIVE_ROLES.includes(activeUser.id_jabatan) || activeUser.id_cabang === PUSAT_CABANG_ID;
+  if (!isExecutive) {
+    return c.json({ success: false, error: "Akses ditolak. Menu ini khusus manajemen kas pusat." }, 403);
+  }
+
+  try {
+    const data = await db
+      .select({
+        id: rekening_kas.id,
+        kode: rekening_kas.kode,
+        nama: rekening_kas.nama,
+        jenis: rekening_kas.jenis,
+        id_cabang: rekening_kas.id_cabang,
+        saldo_awal: rekening_kas.saldo_awal,
+        saldo: rekening_kas.saldo,
+        id_akun_coa: rekening_kas.id_akun_coa,
+        is_active: rekening_kas.is_active,
+        nama_akun_coa: daftar_akun.nama_akun,
+        kode_akun_coa: daftar_akun.kode_akun,
+      })
+      .from(rekening_kas)
+      .leftJoin(daftar_akun, eq(rekening_kas.id_akun_coa, daftar_akun.id))
+      .where(
+        and(
+          or(
+            eq(rekening_kas.id_cabang, PUSAT_CABANG_ID),
+            sql`${rekening_kas.jenis} IN ('KAS_DC', 'BANK')`
+          ),
+          eq(rekening_kas.is_active, true)
+        )
+      )
+      .orderBy(rekening_kas.kode);
+
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// GET /coa-options - List COA untuk dropdown akun lawan transaksi
+kasRoutes.get("/coa-options", async (c) => {
+  const tipe = c.req.query("tipe"); // 'MASUK' | 'KELUAR' | undefined
+
+  try {
+    const data = await db
+      .select({
+        id: daftar_akun.id,
+        kode_akun: daftar_akun.kode_akun,
+        nama_akun: daftar_akun.nama_akun,
+        tipe_akun_id: daftar_akun.tipe_akun_id,
+        nama_tipe: tipe_akun.nama,
+        posisi_saldo_normal: tipe_akun.posisi_saldo_normal,
+      })
+      .from(daftar_akun)
+      .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
+      .orderBy(asc(daftar_akun.kode_akun));
 
     return c.json({ success: true, data });
   } catch (error: any) {
@@ -199,11 +269,15 @@ kasRoutes.get("/transaksi", async (c) => {
         keterangan: kas_transaksi.keterangan,
         status: kas_transaksi.status,
         bukti: kas_transaksi.bukti,
+        id_akun_lawan_coa: kas_transaksi.id_akun_lawan_coa,
+        nama_akun_lawan: daftar_akun.nama_akun,
+        kode_akun_lawan: daftar_akun.kode_akun,
         created_by_nama: users.nama_user,
       })
       .from(kas_transaksi)
       .innerJoin(rekening_kas, eq(kas_transaksi.id_rekening, rekening_kas.id))
       .leftJoin(users, eq(kas_transaksi.created_by, users.id))
+      .leftJoin(daftar_akun, eq(kas_transaksi.id_akun_lawan_coa, daftar_akun.id))
       .where(and(...conditions))
       .orderBy(desc(kas_transaksi.id));
 
@@ -232,11 +306,19 @@ async function getCoaCounterAccount(tx: any, kategori: string): Promise<number> 
   }
 
   switch (kategori) {
-    case "PENJUALAN": return 7; // Pendapatan Penjualan Toko (COA ID 7)
-    case "OPERASIONAL": return 10; // Beban Operasional Toko (COA ID 10)
-    case "GAJI": return 8; // Beban Gaji Karyawan (COA ID 8)
-    case "PEMBELIAN": return 5; // Hutang Usaha (COA ID 5)
-    default: return 10; // Beban Operasional Toko (COA ID 10)
+    case "PENJUALAN": return 29; // Penjualan (COA ID 29)
+    case "OPERASIONAL":
+    case "OPERASIONAL_DC": return 40; // Beban Listrik / Operasional Toko/DC (COA ID 40)
+    case "LOGISTIK": return 45; // Beban Transportasi & Distribusi (COA ID 45)
+    case "GAJI":
+    case "GAJI_PUSAT": return 37; // Beban Gaji Karyawan (COA ID 37)
+    case "PEMBELIAN":
+    case "HUTANG_SUPPLIER": return 18; // Utang Usaha Pemasok (COA ID 18)
+    case "PAJAK": return 21; // PPN Keluaran / Pajak (COA ID 21)
+    case "MODAL_INVESTOR": return 25; // Modal Disetor (COA ID 25)
+    case "DIVIDEN": return 28; // Prive / Dividen (COA ID 28)
+    case "ASET_TETAP": return 13; // Peralatan Toko / DC (COA ID 13)
+    default: return 40; // Beban Operasional Umum (COA ID 40)
   }
 }
 
@@ -252,7 +334,7 @@ kasRoutes.post("/transaksi/masuk", async (c) => {
 
   try {
     const body = await c.req.json();
-    const { id_rekening, nominal, tanggal, keterangan, kategori, bukti } = body;
+    const { id_rekening, nominal, tanggal, keterangan, kategori, bukti, id_akun_lawan_coa } = body;
 
     const parsedNominal = parseInt(nominal) || 0;
     const rekId = parseInt(id_rekening);
@@ -297,6 +379,11 @@ kasRoutes.post("/transaksi/masuk", async (c) => {
       const sequence = (countResult?.count || 0) + 1;
       const noTransaksi = `KM/${todayStr}/${idCabang}/${String(sequence).padStart(4, "0")}`;
 
+      let coaKredit = id_akun_lawan_coa ? parseInt(id_akun_lawan_coa) : null;
+      if (!coaKredit || isNaN(coaKredit)) {
+        coaKredit = await getCoaCounterAccount(tx, kategori || "LAIN");
+      }
+
       // 2. Insert kas_transaksi
       const [newTx] = await tx
         .insert(kas_transaksi)
@@ -310,6 +397,7 @@ kasRoutes.post("/transaksi/masuk", async (c) => {
           tanggal,
           keterangan,
           bukti,
+          id_akun_lawan_coa: coaKredit,
           status: "APPROVED",
           created_by: idUser,
         })
@@ -326,9 +414,8 @@ kasRoutes.post("/transaksi/masuk", async (c) => {
 
       // 4. Integrasi Jurnal Akuntansi (Double Entry)
       const coaDebit = rekening.id_akun_coa; // Akun kas
-      const coaKredit = await getCoaCounterAccount(tx, kategori || "LAIN"); // Akun lawan
 
-      if (coaDebit) {
+      if (coaDebit && coaKredit) {
         // Line 1: Debit Akun Kas
         await tx.insert(jurnal_umum).values({
           tanggal_transaksi: tanggal,
@@ -375,7 +462,7 @@ kasRoutes.post("/transaksi/keluar", async (c) => {
 
   try {
     const body = await c.req.json();
-    const { id_rekening, nominal, tanggal, keterangan, kategori, bukti } = body;
+    const { id_rekening, nominal, tanggal, keterangan, kategori, bukti, id_akun_lawan_coa } = body;
 
     const parsedNominal = parseInt(nominal) || 0;
     const rekId = parseInt(id_rekening);
@@ -436,6 +523,11 @@ kasRoutes.post("/transaksi/keluar", async (c) => {
       const sequence = (countResult?.count || 0) + 1;
       const noTransaksi = `KK/${todayStr}/${idCabang}/${String(sequence).padStart(4, "0")}`;
 
+      let coaDebit = id_akun_lawan_coa ? parseInt(id_akun_lawan_coa) : null;
+      if (!coaDebit || isNaN(coaDebit)) {
+        coaDebit = await getCoaCounterAccount(tx, kategori || "LAIN");
+      }
+
       // 2. Insert kas_transaksi
       const [newTx] = await tx
         .insert(kas_transaksi)
@@ -449,6 +541,7 @@ kasRoutes.post("/transaksi/keluar", async (c) => {
           tanggal,
           keterangan: needsApproval ? `[MENUNGGU PERSETUJUAN] ${keterangan || ""}` : keterangan,
           bukti,
+          id_akun_lawan_coa: coaDebit,
           status: statusTx,
           created_by: idUser,
         })
@@ -467,9 +560,8 @@ kasRoutes.post("/transaksi/keluar", async (c) => {
 
         // 4. Integrasi Jurnal Akuntansi (Double Entry)
         const coaKredit = rekening.id_akun_coa; // Akun kas berkurang
-        const coaDebit = await getCoaCounterAccount(tx, kategori || "LAIN"); // Akun beban/biaya bertambah
 
-        if (coaKredit) {
+        if (coaKredit && coaDebit) {
           // Line 1: Debit Akun Lawan (Beban)
           await tx.insert(jurnal_umum).values({
             tanggal_transaksi: tanggal,
@@ -500,6 +592,470 @@ kasRoutes.post("/transaksi/keluar", async (c) => {
     });
 
     return c.json({ success: true, data: result, needsApproval });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 2B. KAS & BANK TRANSAKSI PUSAT
+// ==========================================
+
+// GET /transaksi-pusat - List transaksi kas & bank khusus Pusat
+kasRoutes.get("/transaksi-pusat", async (c) => {
+  const activeUser = c.get("user");
+  const isExecutive = EXECUTIVE_ROLES.includes(activeUser.id_jabatan) || activeUser.id_cabang === PUSAT_CABANG_ID;
+  if (!isExecutive) {
+    return c.json({ success: false, error: "Akses ditolak. Menu ini khusus manajemen kas pusat." }, 403);
+  }
+
+  const startDate = c.req.query("startDate");
+  const endDate = c.req.query("endDate");
+  const tipe = c.req.query("tipe");
+  const status = c.req.query("status");
+  const idRekening = c.req.query("id_rekening");
+
+  try {
+    const conditions = [
+      or(
+        eq(kas_transaksi.id_cabang, PUSAT_CABANG_ID),
+        sql`${rekening_kas.jenis} IN ('KAS_DC', 'BANK')`
+      )
+    ];
+
+    if (startDate) {
+      conditions.push(gte(kas_transaksi.tanggal, startDate));
+    }
+    if (endDate) {
+      conditions.push(lte(kas_transaksi.tanggal, endDate));
+    }
+    if (tipe) {
+      conditions.push(eq(kas_transaksi.tipe, tipe));
+    }
+    if (status) {
+      conditions.push(eq(kas_transaksi.status, status));
+    }
+    if (idRekening) {
+      conditions.push(eq(kas_transaksi.id_rekening, parseInt(idRekening)));
+    }
+
+    const data = await db
+      .select({
+        id: kas_transaksi.id,
+        nomor_transaksi: kas_transaksi.nomor_transaksi,
+        id_rekening: kas_transaksi.id_rekening,
+        nama_rekening: rekening_kas.nama,
+        kode_rekening: rekening_kas.kode,
+        jenis_rekening: rekening_kas.jenis,
+        tipe: kas_transaksi.tipe,
+        kategori: kas_transaksi.kategori,
+        nominal: kas_transaksi.nominal,
+        tanggal: kas_transaksi.tanggal,
+        keterangan: kas_transaksi.keterangan,
+        status: kas_transaksi.status,
+        bukti: kas_transaksi.bukti,
+        id_akun_lawan_coa: kas_transaksi.id_akun_lawan_coa,
+        nama_akun_lawan: daftar_akun.nama_akun,
+        kode_akun_lawan: daftar_akun.kode_akun,
+        created_by_nama: users.nama_user,
+      })
+      .from(kas_transaksi)
+      .innerJoin(rekening_kas, eq(kas_transaksi.id_rekening, rekening_kas.id))
+      .leftJoin(users, eq(kas_transaksi.created_by, users.id))
+      .leftJoin(daftar_akun, eq(kas_transaksi.id_akun_lawan_coa, daftar_akun.id))
+      .where(and(...conditions))
+      .orderBy(desc(kas_transaksi.tanggal), desc(kas_transaksi.id));
+
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// POST /transaksi-pusat/masuk - Mutasi kas/bank masuk Pusat
+kasRoutes.post("/transaksi-pusat/masuk", async (c) => {
+  const activeUser = c.get("user");
+  const isExecutive = EXECUTIVE_ROLES.includes(activeUser.id_jabatan) || activeUser.id_cabang === PUSAT_CABANG_ID;
+  if (!isExecutive) {
+    return c.json({ success: false, error: "Akses ditolak. Khusus manajemen kas pusat." }, 403);
+  }
+
+  const idUser = activeUser.id;
+
+  try {
+    const body = await c.req.json();
+    const { id_rekening, nominal, tanggal, keterangan, kategori, id_akun_lawan_coa, bukti } = body;
+
+    const parsedNominal = parseInt(nominal) || 0;
+    const rekId = parseInt(id_rekening);
+
+    if (isNaN(rekId) || parsedNominal <= 0 || !tanggal) {
+      return c.json({ success: false, error: "Parameter transaksi tidak valid" }, 400);
+    }
+
+    // Ambil rekening kas
+    const [rekening] = await db
+      .select()
+      .from(rekening_kas)
+      .where(eq(rekening_kas.id, rekId))
+      .limit(1);
+
+    if (!rekening) {
+      return c.json({ success: false, error: "Rekening kas tidak ditemukan" }, 404);
+    }
+
+    if (rekening.id_cabang !== PUSAT_CABANG_ID && rekening.jenis !== "BANK" && rekening.jenis !== "KAS_DC") {
+      return c.json({ success: false, error: "Rekening bukan milik Pusat atau Bank" }, 400);
+    }
+
+    const todayStr = tanggal.replace(/-/g, ""); // YYYYMMDD
+    const pusatCabangId = rekening.id_cabang || PUSAT_CABANG_ID;
+
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${pusatCabangId})`);
+
+      // Sequence nomor transaksi pusat
+      const [countResult] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(kas_transaksi)
+        .where(
+          and(
+            eq(kas_transaksi.id_cabang, pusatCabangId),
+            eq(kas_transaksi.tipe, "MASUK"),
+            eq(kas_transaksi.tanggal, tanggal)
+          )
+        );
+
+      const sequence = (countResult?.count || 0) + 1;
+      const noTransaksi = `KM-PST/${todayStr}/${String(sequence).padStart(4, "0")}`;
+
+      // Tentukan akun lawan COA
+      let coaKredit = id_akun_lawan_coa ? parseInt(id_akun_lawan_coa) : null;
+      if (!coaKredit || isNaN(coaKredit)) {
+        coaKredit = await getCoaCounterAccount(tx, kategori || "LAIN");
+      }
+
+      const [newTx] = await tx
+        .insert(kas_transaksi)
+        .values({
+          nomor_transaksi: noTransaksi,
+          id_rekening: rekId,
+          id_cabang: pusatCabangId,
+          tipe: "MASUK",
+          kategori: kategori || "LAIN",
+          nominal: parsedNominal,
+          tanggal,
+          keterangan: keterangan || `Kas Masuk Pusat: ${kategori}`,
+          id_akun_lawan_coa: coaKredit,
+          bukti,
+          status: "APPROVED",
+          created_by: idUser,
+        })
+        .returning();
+
+      // Update saldo rekening kas/bank
+      await tx
+        .update(rekening_kas)
+        .set({
+          saldo: sql`saldo + ${parsedNominal}`,
+          updated_at: new Date().toISOString(),
+        })
+        .where(eq(rekening_kas.id, rekId));
+
+      // Double Entry Journal
+      const coaDebit = rekening.id_akun_coa; // Akun kas bertambah (Debit)
+      if (coaDebit && coaKredit) {
+        // Line 1: Debit Akun Kas/Bank
+        await tx.insert(jurnal_umum).values({
+          tanggal_transaksi: tanggal,
+          no_referensi_bukti: noTransaksi,
+          deskripsi: keterangan || `Kas Masuk Pusat: ${noTransaksi}`,
+          akun_id: coaDebit,
+          cabang_id: pusatCabangId,
+          debit: parsedNominal,
+          kredit: 0,
+          dibuat_oleh: idUser,
+        });
+
+        // Line 2: Kredit Akun Lawan
+        await tx.insert(jurnal_umum).values({
+          tanggal_transaksi: tanggal,
+          no_referensi_bukti: noTransaksi,
+          deskripsi: keterangan || `Kas Masuk Pusat: ${noTransaksi}`,
+          akun_id: coaKredit,
+          cabang_id: pusatCabangId,
+          debit: 0,
+          kredit: parsedNominal,
+          dibuat_oleh: idUser,
+        });
+      }
+
+      return newTx;
+    });
+
+    return c.json({ success: true, data: result });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// POST /transaksi-pusat/keluar - Mutasi kas/bank keluar Pusat
+kasRoutes.post("/transaksi-pusat/keluar", async (c) => {
+  const activeUser = c.get("user");
+  const isExecutive = EXECUTIVE_ROLES.includes(activeUser.id_jabatan) || activeUser.id_cabang === PUSAT_CABANG_ID;
+  if (!isExecutive) {
+    return c.json({ success: false, error: "Akses ditolak. Khusus manajemen kas pusat." }, 403);
+  }
+
+  const idUser = activeUser.id;
+
+  try {
+    const body = await c.req.json();
+    const { id_rekening, nominal, tanggal, keterangan, kategori, id_akun_lawan_coa, bukti } = body;
+
+    const parsedNominal = parseInt(nominal) || 0;
+    const rekId = parseInt(id_rekening);
+
+    if (isNaN(rekId) || parsedNominal <= 0 || !tanggal) {
+      return c.json({ success: false, error: "Parameter transaksi tidak valid" }, 400);
+    }
+
+    // Ambil rekening kas
+    const [rekening] = await db
+      .select()
+      .from(rekening_kas)
+      .where(eq(rekening_kas.id, rekId))
+      .limit(1);
+
+    if (!rekening) {
+      return c.json({ success: false, error: "Rekening kas tidak ditemukan" }, 404);
+    }
+
+    if (rekening.id_cabang !== PUSAT_CABANG_ID && rekening.jenis !== "BANK" && rekening.jenis !== "KAS_DC") {
+      return c.json({ success: false, error: "Rekening bukan milik Pusat atau Bank" }, 400);
+    }
+
+    // Validasi saldo
+    if (rekening.saldo < parsedNominal) {
+      return c.json({
+        success: false,
+        error: `Saldo rekening tidak mencukupi. Saldo saat ini: Rp ${rekening.saldo.toLocaleString("id-ID")}`
+      }, 400);
+    }
+
+    // Ambil threshold approval pusat dari pengaturan (default: 10.000.000)
+    const [thresholdSetting] = await db
+      .select()
+      .from(pengaturan_aplikasi)
+      .where(eq(pengaturan_aplikasi.key, "cash_pusat_approval_threshold"))
+      .limit(1);
+
+    const threshold = thresholdSetting ? parseInt(thresholdSetting.value) || 10000000 : 10000000;
+    const needsApproval = parsedNominal > threshold;
+    const statusTx = needsApproval ? "PENDING" : "APPROVED";
+
+    const todayStr = tanggal.replace(/-/g, ""); // YYYYMMDD
+    const pusatCabangId = rekening.id_cabang || PUSAT_CABANG_ID;
+
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${pusatCabangId})`);
+
+      const [countResult] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(kas_transaksi)
+        .where(
+          and(
+            eq(kas_transaksi.id_cabang, pusatCabangId),
+            eq(kas_transaksi.tipe, "KELUAR"),
+            eq(kas_transaksi.tanggal, tanggal)
+          )
+        );
+
+      const sequence = (countResult?.count || 0) + 1;
+      const noTransaksi = `KK-PST/${todayStr}/${String(sequence).padStart(4, "0")}`;
+
+      let coaDebit = id_akun_lawan_coa ? parseInt(id_akun_lawan_coa) : null;
+      if (!coaDebit || isNaN(coaDebit)) {
+        coaDebit = await getCoaCounterAccount(tx, kategori || "LAIN");
+      }
+
+      const [newTx] = await tx
+        .insert(kas_transaksi)
+        .values({
+          nomor_transaksi: noTransaksi,
+          id_rekening: rekId,
+          id_cabang: pusatCabangId,
+          tipe: "KELUAR",
+          kategori: kategori || "LAIN",
+          nominal: parsedNominal,
+          tanggal,
+          keterangan: needsApproval ? `[MENUNGGU APPROVAL PUSAT] ${keterangan || ""}` : (keterangan || `Kas Keluar Pusat: ${kategori}`),
+          id_akun_lawan_coa: coaDebit,
+          bukti,
+          status: statusTx,
+          created_by: idUser,
+        })
+        .returning();
+
+      // Jika <= threshold (auto approved), potong saldo & buat jurnal
+      if (!needsApproval) {
+        await tx
+          .update(rekening_kas)
+          .set({
+            saldo: sql`saldo - ${parsedNominal}`,
+            updated_at: new Date().toISOString(),
+          })
+          .where(eq(rekening_kas.id, rekId));
+
+        const coaKredit = rekening.id_akun_coa;
+        if (coaDebit && coaKredit) {
+          // Line 1: Debit Akun Lawan
+          await tx.insert(jurnal_umum).values({
+            tanggal_transaksi: tanggal,
+            no_referensi_bukti: noTransaksi,
+            deskripsi: keterangan || `Kas Keluar Pusat: ${noTransaksi}`,
+            akun_id: coaDebit,
+            cabang_id: pusatCabangId,
+            debit: parsedNominal,
+            kredit: 0,
+            dibuat_oleh: idUser,
+          });
+
+          // Line 2: Kredit Akun Kas/Bank
+          await tx.insert(jurnal_umum).values({
+            tanggal_transaksi: tanggal,
+            no_referensi_bukti: noTransaksi,
+            deskripsi: keterangan || `Kas Keluar Pusat: ${noTransaksi}`,
+            akun_id: coaKredit,
+            cabang_id: pusatCabangId,
+            debit: 0,
+            kredit: parsedNominal,
+            dibuat_oleh: idUser,
+          });
+        }
+      }
+
+      return newTx;
+    });
+
+    return c.json({ success: true, data: result, needsApproval, threshold });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// PUT /transaksi-pusat/:id/approve - Approve pending kas keluar Pusat
+kasRoutes.put("/transaksi-pusat/:id/approve", async (c) => {
+  const activeUser = c.get("user");
+  const isExecutive = EXECUTIVE_ROLES.includes(activeUser.id_jabatan);
+  if (!isExecutive) {
+    return c.json({
+      success: false,
+      error: "Akses ditolak. Hanya Super Admin, IT, Bendahara, atau Manager yang dapat menyetujui pengeluaran pusat."
+    }, 403);
+  }
+
+  const id = parseInt(c.req.param("id"));
+  const idUser = activeUser.id;
+
+  if (isNaN(id)) {
+    return c.json({ success: false, error: "ID Transaksi tidak valid" }, 400);
+  }
+
+  try {
+    const [txRecord] = await db
+      .select()
+      .from(kas_transaksi)
+      .where(eq(kas_transaksi.id, id))
+      .limit(1);
+
+    if (!txRecord) {
+      return c.json({ success: false, error: "Transaksi tidak ditemukan" }, 404);
+    }
+
+    if (txRecord.status !== "PENDING" || txRecord.tipe !== "KELUAR") {
+      return c.json({ success: false, error: "Transaksi tidak dalam status PENDING atau bukan tipe KELUAR" }, 400);
+    }
+
+    // Ambil rekening kas
+    const [rekening] = await db
+      .select()
+      .from(rekening_kas)
+      .where(eq(rekening_kas.id, txRecord.id_rekening))
+      .limit(1);
+
+    if (!rekening) {
+      return c.json({ success: false, error: "Rekening kas tidak ditemukan" }, 404);
+    }
+
+    if (rekening.saldo < txRecord.nominal) {
+      return c.json({
+        success: false,
+        error: `Saldo rekening tidak mencukupi untuk approval. Saldo saat ini: Rp ${rekening.saldo.toLocaleString("id-ID")}, dibutuhkan: Rp ${txRecord.nominal.toLocaleString("id-ID")}`
+      }, 400);
+    }
+
+    const pusatCabangId = rekening.id_cabang || PUSAT_CABANG_ID;
+
+    const result = await db.transaction(async (tx) => {
+      const cleanedKeterangan = (txRecord.keterangan || "").replace("[MENUNGGU APPROVAL PUSAT] ", "").trim();
+
+      const [updatedTx] = await tx
+        .update(kas_transaksi)
+        .set({
+          status: "APPROVED",
+          approved_by: idUser,
+          keterangan: cleanedKeterangan || txRecord.keterangan,
+        })
+        .where(eq(kas_transaksi.id, id))
+        .returning();
+
+      // Potong saldo rekening kas/bank
+      await tx
+        .update(rekening_kas)
+        .set({
+          saldo: sql`saldo - ${txRecord.nominal}`,
+          updated_at: new Date().toISOString(),
+        })
+        .where(eq(rekening_kas.id, txRecord.id_rekening));
+
+      // Double entry journal
+      const coaKredit = rekening.id_akun_coa;
+      let coaDebit = txRecord.id_akun_lawan_coa;
+      if (!coaDebit) {
+        coaDebit = await getCoaCounterAccount(tx, txRecord.kategori || "LAIN");
+      }
+
+      if (coaKredit && coaDebit) {
+        // Line 1: Debit Akun Lawan
+        await tx.insert(jurnal_umum).values({
+          tanggal_transaksi: txRecord.tanggal,
+          no_referensi_bukti: txRecord.nomor_transaksi,
+          deskripsi: cleanedKeterangan || `Kas Keluar Pusat (Approved): ${txRecord.nomor_transaksi}`,
+          akun_id: coaDebit,
+          cabang_id: pusatCabangId,
+          debit: txRecord.nominal,
+          kredit: 0,
+          dibuat_oleh: txRecord.created_by || idUser,
+        });
+
+        // Line 2: Kredit Akun Kas/Bank
+        await tx.insert(jurnal_umum).values({
+          tanggal_transaksi: txRecord.tanggal,
+          no_referensi_bukti: txRecord.nomor_transaksi,
+          deskripsi: cleanedKeterangan || `Kas Keluar Pusat (Approved): ${txRecord.nomor_transaksi}`,
+          akun_id: coaKredit,
+          cabang_id: pusatCabangId,
+          debit: 0,
+          kredit: txRecord.nominal,
+          dibuat_oleh: txRecord.created_by || idUser,
+        });
+      }
+
+      return updatedTx;
+    });
+
+    return c.json({ success: true, data: result });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }

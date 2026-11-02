@@ -17,6 +17,8 @@ import {
   users,
   absensi,
   user_dashboard_preferences,
+  jurnal_umum,
+  daftar_akun,
 } from "../lib/db/schema";
 import type { JWTPayload } from "../lib/auth/jwt";
 
@@ -25,6 +27,326 @@ export const dashboardRoutes = new Hono<{
     user: JWTPayload;
   };
 }>();
+
+// ----------------------------------------------------
+// HELPER: STATISTIK PERTUMBUHAN PERUSAHAAN & SELURUH CABANG
+// ----------------------------------------------------
+async function fetchGrowthStats(granularity = "monthly") {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  try {
+    const allCabangs = await db
+      .select({
+        id_cabang: cabang.id_cabang,
+        nama_cabang: cabang.nama_cabang,
+      })
+      .from(cabang)
+      .orderBy(cabang.nama_cabang);
+
+    if (granularity === "monthly") {
+      const monthSlots: { ym: string; label: string; start: string; end: string }[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const label = d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" });
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        monthSlots.push({
+          ym,
+          label,
+          start: `${ym}-01`,
+          end: `${ym}-${String(lastDay).padStart(2, "0")}`,
+        });
+      }
+
+      const earliestDate = monthSlots[0].start;
+      const salesRows = await db
+        .select({
+          ym: sql<string>`SUBSTRING(${penjualan.tanggal_invoice}, 1, 7)`,
+          id_cabang: penjualan.id_cabang,
+          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+          transaksi: sql<number>`COUNT(*)::int`,
+        })
+        .from(penjualan)
+        .where(gte(penjualan.tanggal_invoice, earliestDate))
+        .groupBy(sql`SUBSTRING(${penjualan.tanggal_invoice}, 1, 7)`, penjualan.id_cabang);
+
+      const currentYm = monthSlots[monthSlots.length - 1].ym;
+      const prevYm = monthSlots[monthSlots.length - 2].ym;
+
+      // Company monthly trend
+      const companyTrend = monthSlots.map((m) => {
+        const rowsInMonth = salesRows.filter((r) => r.ym === m.ym);
+        const omzet = rowsInMonth.reduce((acc, curr) => acc + Number(curr.omzet), 0);
+        const transaksi = rowsInMonth.reduce((acc, curr) => acc + Number(curr.transaksi), 0);
+        return {
+          period: m.ym,
+          label: m.label,
+          omzet,
+          transaksi,
+        };
+      });
+
+      // Branch breakdown
+      const branchDetails = allCabangs.map((c) => {
+        const branchRows = salesRows.filter((r) => r.id_cabang === c.id_cabang);
+        const currentOmzet = Number(branchRows.find((r) => r.ym === currentYm)?.omzet || 0);
+        const previousOmzet = Number(branchRows.find((r) => r.ym === prevYm)?.omzet || 0);
+        const diffNominal = currentOmzet - previousOmzet;
+        const growthPercent =
+          previousOmzet > 0
+            ? Number(((diffNominal / previousOmzet) * 100).toFixed(1))
+            : currentOmzet > 0
+            ? 100
+            : 0;
+
+        const trend = monthSlots.map((m) => {
+          const row = branchRows.find((r) => r.ym === m.ym);
+          return {
+            period: m.ym,
+            label: m.label,
+            omzet: Number(row?.omzet || 0),
+          };
+        });
+
+        return {
+          id_cabang: c.id_cabang,
+          nama_cabang: c.nama_cabang,
+          currentOmzet,
+          previousOmzet,
+          diffNominal,
+          growthPercent,
+          trend,
+        };
+      });
+
+      branchDetails.sort((a, b) => b.currentOmzet - a.currentOmzet);
+
+      const companyCurrent = companyTrend[companyTrend.length - 1]?.omzet || 0;
+      const companyPrev = companyTrend[companyTrend.length - 2]?.omzet || 0;
+      const companyDiff = companyCurrent - companyPrev;
+      const companyGrowthPercent =
+        companyPrev > 0
+          ? Number(((companyDiff / companyPrev) * 100).toFixed(1))
+          : companyCurrent > 0
+          ? 100
+          : 0;
+
+      return {
+        granularity: "monthly",
+        periodTitle: "Bulan Ini vs Bulan Lalu (MoM)",
+        company: {
+          currentOmzet: companyCurrent,
+          previousOmzet: companyPrev,
+          diffNominal: companyDiff,
+          growthPercent: companyGrowthPercent,
+          trend: companyTrend,
+        },
+        branches: branchDetails,
+      };
+    } else if (granularity === "weekly") {
+      const weekSlots: { label: string; start: string; end: string }[] = [];
+      for (let i = 3; i >= 0; i--) {
+        const endD = new Date(now);
+        endD.setDate(now.getDate() - i * 7);
+        const startD = new Date(endD);
+        startD.setDate(endD.getDate() - 6);
+        weekSlots.push({
+          label: `W-${i === 0 ? "Ini" : 4 - i}`,
+          start: startD.toISOString().slice(0, 10),
+          end: endD.toISOString().slice(0, 10),
+        });
+      }
+
+      const earliestDate = weekSlots[0].start;
+      const salesWeekly = await db
+        .select({
+          tanggal: penjualan.tanggal_invoice,
+          id_cabang: penjualan.id_cabang,
+          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+        })
+        .from(penjualan)
+        .where(gte(penjualan.tanggal_invoice, earliestDate))
+        .groupBy(penjualan.tanggal_invoice, penjualan.id_cabang);
+
+      const companyTrend = weekSlots.map((w) => {
+        const rows = salesWeekly.filter((r) => r.tanggal >= w.start && r.tanggal <= w.end);
+        const omzet = rows.reduce((acc, curr) => acc + Number(curr.omzet), 0);
+        return {
+          period: w.start,
+          label: w.label,
+          omzet,
+        };
+      });
+
+      const branchDetails = allCabangs.map((c) => {
+        const branchRows = salesWeekly.filter((r) => r.id_cabang === c.id_cabang);
+        const currentSlot = weekSlots[weekSlots.length - 1];
+        const prevSlot = weekSlots[weekSlots.length - 2];
+
+        const currentOmzet = branchRows
+          .filter((r) => r.tanggal >= currentSlot.start && r.tanggal <= currentSlot.end)
+          .reduce((acc, curr) => acc + Number(curr.omzet), 0);
+
+        const previousOmzet = branchRows
+          .filter((r) => r.tanggal >= prevSlot.start && r.tanggal <= prevSlot.end)
+          .reduce((acc, curr) => acc + Number(curr.omzet), 0);
+
+        const diffNominal = currentOmzet - previousOmzet;
+        const growthPercent =
+          previousOmzet > 0
+            ? Number(((diffNominal / previousOmzet) * 100).toFixed(1))
+            : currentOmzet > 0
+            ? 100
+            : 0;
+
+        const trend = weekSlots.map((w) => {
+          const omzet = branchRows
+            .filter((r) => r.tanggal >= w.start && r.tanggal <= w.end)
+            .reduce((acc, curr) => acc + Number(curr.omzet), 0);
+          return { period: w.start, label: w.label, omzet };
+        });
+
+        return {
+          id_cabang: c.id_cabang,
+          nama_cabang: c.nama_cabang,
+          currentOmzet,
+          previousOmzet,
+          diffNominal,
+          growthPercent,
+          trend,
+        };
+      });
+
+      branchDetails.sort((a, b) => b.currentOmzet - a.currentOmzet);
+      const companyCurrent = companyTrend[companyTrend.length - 1]?.omzet || 0;
+      const companyPrev = companyTrend[companyTrend.length - 2]?.omzet || 0;
+      const companyDiff = companyCurrent - companyPrev;
+      const companyGrowthPercent =
+        companyPrev > 0
+          ? Number(((companyDiff / companyPrev) * 100).toFixed(1))
+          : companyCurrent > 0
+          ? 100
+          : 0;
+
+      return {
+        granularity: "weekly",
+        periodTitle: "Minggu Ini vs Minggu Lalu (WoW)",
+        company: {
+          currentOmzet: companyCurrent,
+          previousOmzet: companyPrev,
+          diffNominal: companyDiff,
+          growthPercent: companyGrowthPercent,
+          trend: companyTrend,
+        },
+        branches: branchDetails,
+      };
+    } else {
+      // Harian (30 Hari Terakhir vs 30 Hari Sebelumnya)
+      const past30D = new Date(now);
+      past30D.setDate(now.getDate() - 29);
+      const startCurrentStr = past30D.toISOString().slice(0, 10);
+
+      const past60D = new Date(now);
+      past60D.setDate(now.getDate() - 59);
+      const startPrevStr = past60D.toISOString().slice(0, 10);
+
+      const past31D = new Date(now);
+      past31D.setDate(now.getDate() - 30);
+      const endPrevStr = past31D.toISOString().slice(0, 10);
+
+      const salesDaily = await db
+        .select({
+          tanggal: penjualan.tanggal_invoice,
+          id_cabang: penjualan.id_cabang,
+          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+        })
+        .from(penjualan)
+        .where(gte(penjualan.tanggal_invoice, startPrevStr))
+        .groupBy(penjualan.tanggal_invoice, penjualan.id_cabang);
+
+      const daySlots: { label: string; date: string }[] = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10);
+        daySlots.push({
+          label: d.toLocaleDateString("id-ID", { day: "numeric", month: "numeric" }),
+          date: dateStr,
+        });
+      }
+
+      const companyTrend = daySlots.map((ds) => {
+        const rows = salesDaily.filter((r) => r.tanggal === ds.date);
+        const omzet = rows.reduce((acc, curr) => acc + Number(curr.omzet), 0);
+        return {
+          period: ds.date,
+          label: ds.label,
+          omzet,
+        };
+      });
+
+      const branchDetails = allCabangs.map((c) => {
+        const branchRows = salesDaily.filter((r) => r.id_cabang === c.id_cabang);
+        const currentOmzet = branchRows
+          .filter((r) => r.tanggal >= startCurrentStr && r.tanggal <= todayStr)
+          .reduce((acc, curr) => acc + Number(curr.omzet), 0);
+        const previousOmzet = branchRows
+          .filter((r) => r.tanggal >= startPrevStr && r.tanggal <= endPrevStr)
+          .reduce((acc, curr) => acc + Number(curr.omzet), 0);
+
+        const diffNominal = currentOmzet - previousOmzet;
+        const growthPercent =
+          previousOmzet > 0
+            ? Number(((diffNominal / previousOmzet) * 100).toFixed(1))
+            : currentOmzet > 0
+            ? 100
+            : 0;
+
+        const trend = daySlots.map((ds) => {
+          const row = branchRows.find((r) => r.tanggal === ds.date);
+          return { period: ds.date, label: ds.label, omzet: Number(row?.omzet || 0) };
+        });
+
+        return {
+          id_cabang: c.id_cabang,
+          nama_cabang: c.nama_cabang,
+          currentOmzet,
+          previousOmzet,
+          diffNominal,
+          growthPercent,
+          trend,
+        };
+      });
+
+      branchDetails.sort((a, b) => b.currentOmzet - a.currentOmzet);
+      const companyCurrent = branchDetails.reduce((acc, curr) => acc + curr.currentOmzet, 0);
+      const companyPrev = branchDetails.reduce((acc, curr) => acc + curr.previousOmzet, 0);
+      const companyDiff = companyCurrent - companyPrev;
+      const companyGrowthPercent =
+        companyPrev > 0
+          ? Number(((companyDiff / companyPrev) * 100).toFixed(1))
+          : companyCurrent > 0
+          ? 100
+          : 0;
+
+      return {
+        granularity: "daily",
+        periodTitle: "30 Hari Terakhir vs 30 Hari Sebelumnya",
+        company: {
+          currentOmzet: companyCurrent,
+          previousOmzet: companyPrev,
+          diffNominal: companyDiff,
+          growthPercent: companyGrowthPercent,
+          trend: companyTrend,
+        },
+        branches: branchDetails,
+      };
+    }
+  } catch (err: any) {
+    console.error("⚠️ [Dashboard] Error in fetchGrowthStats:", err.cause || err.message);
+    return null;
+  }
+}
 
 // ==========================================
 // 1. GET /api/dashboard/stats
@@ -39,12 +361,27 @@ dashboardRoutes.get("/stats", async (c) => {
 
     // Branch authorization scoping
     let idCabangFilter: number | null = null;
+    const userRoleLower = (user?.jabatan || "").toLowerCase();
+    const canAccessAllBranches =
+      !user?.id_cabang ||
+      userRoleLower.includes("super user") ||
+      userRoleLower.includes("super admin") ||
+      userRoleLower.includes("owner") ||
+      userRoleLower.includes("direktur") ||
+      userRoleLower.includes("manager") ||
+      userRoleLower.includes("it") ||
+      userRoleLower.includes("bendahara") ||
+      user?.id_jabatan === 1 ||
+      user?.id_jabatan === 2 ||
+      user?.id_jabatan === 4 ||
+      user?.id_jabatan === 8;
+
     if (queryCabang && queryCabang !== "all") {
       const parsed = parseInt(queryCabang, 10);
       if (!isNaN(parsed) && parsed > 0) {
         idCabangFilter = parsed;
       }
-    } else if (user?.id_cabang && user.jabatan !== "Owner" && user.jabatan !== "Super Admin") {
+    } else if (user?.id_cabang && !canAccessAllBranches) {
       idCabangFilter = user.id_cabang;
     }
 
@@ -132,6 +469,54 @@ dashboardRoutes.get("/stats", async (c) => {
           marginKotor = Math.round(omzet * 0.2);
         }
 
+        // Beban Operasional (Jurnal Beban Umum Akun Tipe 6 & Kas Keluar Operasional)
+        let bebanOperasional = 0;
+        try {
+          const journalExpenseCond = [
+            gte(jurnal_umum.tanggal_transaksi, startDate),
+            lte(jurnal_umum.tanggal_transaksi, endDate),
+          ];
+          if (idCabangFilter !== null) {
+            journalExpenseCond.push(eq(jurnal_umum.cabang_id, idCabangFilter));
+          }
+
+          const [bebanJurnalRes] = await db
+            .select({
+              total: sql<number>`COALESCE(CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER), 0)`,
+            })
+            .from(jurnal_umum)
+            .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
+            .where(and(eq(daftar_akun.tipe_akun_id, 6), ...journalExpenseCond));
+
+          bebanOperasional = Number(bebanJurnalRes?.total || 0);
+
+          // Fallback jika jurnal belum tersinkronisasi, hitung dari kas_transaksi keluar
+          if (bebanOperasional <= 0) {
+            const kasBebanCond = [
+              gte(kas_transaksi.tanggal, startDate),
+              lte(kas_transaksi.tanggal, endDate),
+              eq(kas_transaksi.tipe, "KELUAR"),
+              sql`(${kas_transaksi.kategori} IN ('OPERASIONAL', 'GAJI', 'BEBAN') OR ${kas_transaksi.kategori} IS NULL)`,
+            ];
+            if (idCabangFilter !== null) {
+              kasBebanCond.push(eq(kas_transaksi.id_cabang, idCabangFilter));
+            }
+            const [kasBebanRes] = await db
+              .select({
+                total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+              })
+              .from(kas_transaksi)
+              .where(and(...kasBebanCond));
+            bebanOperasional = Number(kasBebanRes?.total || 0);
+          }
+        } catch (e) {
+          console.warn("⚠️ Error fetching bebanOperasional:", e);
+        }
+
+        const labaBersih = marginKotor - bebanOperasional;
+        const marginKotorPercent = omzet > 0 ? Number(((marginKotor / omzet) * 100).toFixed(1)) : 0;
+        const marginBersihPercent = omzet > 0 ? Number(((labaBersih / omzet) * 100).toFixed(1)) : 0;
+
         return {
           omzet,
           omzetKemarin,
@@ -139,6 +524,10 @@ dashboardRoutes.get("/stats", async (c) => {
           totalTransaksi,
           basketSize,
           marginKotor,
+          marginKotorPercent,
+          bebanOperasional,
+          labaBersih,
+          marginBersihPercent,
         };
       } catch (err: any) {
         console.error("⚠️ [Dashboard] Error in fetchSalesKpi:", err.cause || err.message);
@@ -149,6 +538,10 @@ dashboardRoutes.get("/stats", async (c) => {
           totalTransaksi: 0,
           basketSize: 0,
           marginKotor: 0,
+          marginKotorPercent: 0,
+          bebanOperasional: 0,
+          labaBersih: 0,
+          marginBersihPercent: 0,
         };
       }
     };
@@ -306,37 +699,61 @@ dashboardRoutes.get("/stats", async (c) => {
     };
 
     // ----------------------------------------------------
-    // E. Task: LEADERBOARD PERFORMA CABANG
+    // E. Task: LEADERBOARD PERFORMA CABANG (TOP 3 & BOTTOM 3)
     // ----------------------------------------------------
     const fetchLeaderboard = async () => {
       try {
+        const allCabangs = await db
+          .select({
+            id_cabang: cabang.id_cabang,
+            nama_cabang: cabang.nama_cabang,
+          })
+          .from(cabang)
+          .orderBy(cabang.nama_cabang);
+
         const leaderboardSales = await db
           .select({
             id_cabang: penjualan.id_cabang,
-            nama_cabang: cabang.nama_cabang,
             omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
             transaksi: sql<number>`COUNT(*)::int`,
           })
           .from(penjualan)
-          .leftJoin(cabang, eq(penjualan.id_cabang, cabang.id_cabang))
           .where(and(gte(penjualan.tanggal_invoice, startDate), lte(penjualan.tanggal_invoice, endDate)))
-          .groupBy(penjualan.id_cabang, cabang.nama_cabang)
-          .orderBy(desc(sql`SUM(${penjualan.total_akhir})`));
+          .groupBy(penjualan.id_cabang);
 
+        const salesMap = new Map(leaderboardSales.map((s) => [s.id_cabang, s]));
         const totalAllCabangOmzet = leaderboardSales.reduce((acc, curr) => acc + Number(curr.omzet), 0);
-        return leaderboardSales.map((lb) => ({
-          id_cabang: lb.id_cabang,
-          nama_cabang: lb.nama_cabang || "Cabang Utama",
-          omzet: Number(lb.omzet),
-          transaksi: Number(lb.transaksi),
-          persen:
+
+        const mapped = allCabangs.map((c) => {
+          const s = salesMap.get(c.id_cabang);
+          const omzet = Number(s?.omzet || 0);
+          const transaksi = Number(s?.transaksi || 0);
+          const persen =
             totalAllCabangOmzet > 0
-              ? Number(((Number(lb.omzet) / totalAllCabangOmzet) * 100).toFixed(1))
-              : 0,
-        }));
+              ? Number(((omzet / totalAllCabangOmzet) * 100).toFixed(1))
+              : 0;
+          return {
+            id_cabang: c.id_cabang,
+            nama_cabang: c.nama_cabang,
+            omzet,
+            transaksi,
+            persen,
+          };
+        });
+
+        mapped.sort((a, b) => b.omzet - a.omzet);
+
+        const top3 = mapped.slice(0, 3);
+        const bottom3 = mapped.length > 3 ? [...mapped.slice(-3)].reverse() : [];
+
+        return {
+          all: mapped,
+          top3,
+          bottom3,
+        };
       } catch (err: any) {
         console.error("⚠️ [Dashboard] Error in fetchLeaderboard:", err.cause || err.message);
-        return [];
+        return { all: [], top3: [], bottom3: [] };
       }
     };
 
@@ -573,12 +990,13 @@ dashboardRoutes.get("/stats", async (c) => {
       kasData,
       hutangData,
       salesTrend,
-      cabangLeaderboard,
+      leaderboardData,
       stokKritis,
       batchExpired,
       kasirShiftAktif,
       suratJalanList,
       hrdStats,
+      growthStats,
     ] = await Promise.all([
       fetchSalesKpi(),
       fetchKas(),
@@ -590,6 +1008,7 @@ dashboardRoutes.get("/stats", async (c) => {
       fetchKasirShift(),
       fetchSuratJalan(),
       fetchHrdStats(),
+      fetchGrowthStats("monthly"),
     ]);
 
     return c.json({
@@ -602,7 +1021,10 @@ dashboardRoutes.get("/stats", async (c) => {
           hutangCount: hutangData.hutangCount,
         },
         salesTrend,
-        cabangLeaderboard,
+        cabangLeaderboard: leaderboardData.all,
+        top3Cabang: leaderboardData.top3,
+        bottom3Cabang: leaderboardData.bottom3,
+        growthStats,
         rekeningList: kasData.rekeningList,
         stokKritis,
         batchExpired,
@@ -621,6 +1043,21 @@ dashboardRoutes.get("/stats", async (c) => {
       },
       500
     );
+  }
+});
+
+// ==========================================
+// 1b. GET /api/dashboard/growth
+// Dynamic growth statistics with custom granularity
+// ==========================================
+dashboardRoutes.get("/growth", async (c) => {
+  try {
+    const granularity = c.req.query("granularity") || "monthly";
+    const data = await fetchGrowthStats(granularity);
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    console.error("Error in GET /api/dashboard/growth:", error);
+    return c.json({ success: false, error: "Gagal memuat analitik pertumbuhan" }, 500);
   }
 });
 

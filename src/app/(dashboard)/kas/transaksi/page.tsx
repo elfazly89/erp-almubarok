@@ -284,11 +284,17 @@ export default function KasTransaksiPage() {
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-on-background tracking-tight">
-            Mutasi Kas & Transaksi
+          <div className="flex items-center gap-2 text-xs font-semibold text-primary uppercase tracking-wider mb-1">
+            <span>Operasional Kas Toko Cabang</span>
+          </div>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-on-background tracking-tight">
+            Mutasi Kas Cabang
           </h1>
           <p className="text-sm text-on-surface-variant mt-1">
-            Input penerimaan kas masuk atau pengeluaran kas operasional manual.
+            Pencatatan kas operasional toko cabang. Untuk transaksi holding & rekening bank, buka{" "}
+            <a href="/kas/transaksi-pusat" className="text-primary font-medium hover:underline inline-flex items-center gap-0.5">
+              Kas Pusat & Bank →
+            </a>
           </p>
         </div>
         {can_create && (

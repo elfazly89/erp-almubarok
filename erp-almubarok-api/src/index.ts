@@ -85,12 +85,66 @@ app.route("/investor", investorRoutes);
 // Mobile endpoints (protected — memerlukan access_token di header Authorization)
 app.route("/mobile", mobileRoutes);
 
-async function ensureDatabaseSchema() {
+export async function ensureBarangSchema() {
   try {
     await db.execute(sql`
-      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      ALTER TABLE barang 
+        ADD COLUMN IF NOT EXISTS kode_barang text,
+        ADD COLUMN IF NOT EXISTS barcode_satuan_2 text,
+        ADD COLUMN IF NOT EXISTS barcode_satuan_3 text,
+        ADD COLUMN IF NOT EXISTS tipe_barang text DEFAULT 'STOK',
+        ADD COLUMN IF NOT EXISTS lacak_kadaluarsa boolean DEFAULT false,
+        ADD COLUMN IF NOT EXISTS level_barang text DEFAULT 'MEDIUM',
+        ADD COLUMN IF NOT EXISTS level_mode text DEFAULT 'AUTO',
+        ADD COLUMN IF NOT EXISTS terakhir_terjual text,
+        ADD COLUMN IF NOT EXISTS created_at text DEFAULT CURRENT_TIMESTAMP::text,
+        ADD COLUMN IF NOT EXISTS lapor_pajak boolean DEFAULT true;
 
-      -- 1. Tabel Cabang
+      CREATE TABLE IF NOT EXISTS stok_barang (
+        id serial PRIMARY KEY,
+        id_barang integer,
+        id_cabang integer,
+        stok_akhir integer DEFAULT 0,
+        penjualan integer DEFAULT 0,
+        transfer_masuk integer DEFAULT 0,
+        transfer_keluar integer DEFAULT 0,
+        posisi_rak text,
+        minimal_stok integer DEFAULT 0,
+        maksimal_stok integer DEFAULT 0,
+        level_cabang text DEFAULT 'MEDIUM',
+        terakhir_terjual_cabang text
+      );
+
+      ALTER TABLE stok_barang 
+        ADD COLUMN IF NOT EXISTS stok_akhir integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS minimal_stok integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS maksimal_stok integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS posisi_rak text,
+        ADD COLUMN IF NOT EXISTS penjualan integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS transfer_masuk integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS transfer_keluar integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS level_cabang text DEFAULT 'MEDIUM',
+        ADD COLUMN IF NOT EXISTS terakhir_terjual_cabang text;
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan ensureBarangSchema:", err.message);
+  }
+}
+
+async function ensureDatabaseSchema() {
+  // Ekstensi PostgreSQL (opsional jika permission user terbatas)
+  try {
+    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan ekstensi pg_trgm:", err.message);
+  }
+
+  // 1. Skema Barang & Stok
+  await ensureBarangSchema();
+
+  // 2. Skema Cabang & Cabang Investor
+  try {
+    await db.execute(sql`
       ALTER TABLE cabang 
         ADD COLUMN IF NOT EXISTS jenis_cabang text DEFAULT 'INTERNAL',
         ADD COLUMN IF NOT EXISTS nisbah_pengelola numeric DEFAULT 0,
@@ -99,7 +153,6 @@ async function ensureDatabaseSchema() {
         ADD COLUMN IF NOT EXISTS created_at text DEFAULT CURRENT_TIMESTAMP::text,
         ADD COLUMN IF NOT EXISTS updated_at text DEFAULT CURRENT_TIMESTAMP::text;
 
-      -- 2. Tabel Cabang Investor (Konsorsium Multi-Investor)
       CREATE TABLE IF NOT EXISTS cabang_investor (
         id_cabang_investor serial PRIMARY KEY,
         id_cabang integer NOT NULL,
@@ -118,28 +171,14 @@ async function ensureDatabaseSchema() {
         updated_at text DEFAULT CURRENT_TIMESTAMP::text
       );
       CREATE INDEX IF NOT EXISTS idx_cabang_investor_cabang ON cabang_investor (id_cabang);
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema cabang/investor:", err.message);
+  }
 
-      -- 3. Tabel Barang & Stok
-      ALTER TABLE barang 
-        ADD COLUMN IF NOT EXISTS kode_barang text,
-        ADD COLUMN IF NOT EXISTS level_barang text DEFAULT 'MEDIUM',
-        ADD COLUMN IF NOT EXISTS level_mode text DEFAULT 'AUTO',
-        ADD COLUMN IF NOT EXISTS terakhir_terjual text,
-        ADD COLUMN IF NOT EXISTS created_at text DEFAULT CURRENT_TIMESTAMP::text,
-        ADD COLUMN IF NOT EXISTS lapor_pajak boolean DEFAULT true;
-
-      ALTER TABLE stok_barang 
-        ADD COLUMN IF NOT EXISTS stok_akhir integer DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS minimal_stok integer DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS maksimal_stok integer DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS posisi_rak text,
-        ADD COLUMN IF NOT EXISTS penjualan integer DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS transfer_masuk integer DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS transfer_keluar integer DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS level_cabang text DEFAULT 'MEDIUM',
-        ADD COLUMN IF NOT EXISTS terakhir_terjual_cabang text;
-
-      -- 4. Tabel Faktur Beli & Detail (Landed Cost & Batch)
+  // 3. Faktur Beli & Detail
+  try {
+    await db.execute(sql`
       ALTER TABLE faktur_beli
         ADD COLUMN IF NOT EXISTS biaya_ongkir integer DEFAULT 0,
         ADD COLUMN IF NOT EXISTS biaya_bongkar integer DEFAULT 0,
@@ -153,8 +192,14 @@ async function ensureDatabaseSchema() {
         ADD COLUMN IF NOT EXISTS tanggal_kadaluarsa text,
         ADD COLUMN IF NOT EXISTS alokasi_biaya_tambahan integer DEFAULT 0,
         ADD COLUMN IF NOT EXISTS hpp_efektif_satuan integer DEFAULT 0;
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema faktur_beli:", err.message);
+  }
 
-      -- 5. Tabel Periode Akuntansi
+  // 4. Periode Akuntansi, Pajak, Aset Tetap
+  try {
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS periode_akuntansi (
         id serial PRIMARY KEY,
         bulan integer NOT NULL,
@@ -171,7 +216,6 @@ async function ensureDatabaseSchema() {
         created_at text DEFAULT CURRENT_TIMESTAMP::text
       );
 
-      -- 6. Tabel Master Pajak & Barang Pajak
       CREATE TABLE IF NOT EXISTS master_pajak (
         id serial PRIMARY KEY,
         kode_pajak text NOT NULL UNIQUE,
@@ -191,7 +235,6 @@ async function ensureDatabaseSchema() {
         is_include_harga boolean DEFAULT true NOT NULL
       );
 
-      -- 7. Tabel Aset Tetap & Riwayat Penyusutan
       CREATE TABLE IF NOT EXISTS aset_tetap (
         id serial PRIMARY KEY,
         kode_aset text NOT NULL UNIQUE,
@@ -226,8 +269,14 @@ async function ensureDatabaseSchema() {
         dieksekusi_oleh integer,
         created_at text DEFAULT CURRENT_TIMESTAMP::text
       );
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema akuntansi/pajak/aset:", err.message);
+  }
 
-      -- 8. Supply Chain & WMS (Batch, Sub-Lokasi, Opname, Adjustment, Kartu Stok)
+  // 5. Supply Chain & WMS (Batch, Sub-Lokasi, Opname, Adjustment, Kartu Stok)
+  try {
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS barang_batch (
         id_batch serial PRIMARY KEY,
         nomor_batch text NOT NULL,
@@ -336,8 +385,14 @@ async function ensureDatabaseSchema() {
         id_user integer NOT NULL,
         created_at text DEFAULT CURRENT_TIMESTAMP::text
       );
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema supply-chain:", err.message);
+  }
 
-      -- 8. Tabel Preferensi Dashboard Modular Pengguna
+  // 6. User Preferences
+  try {
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS user_dashboard_preferences (
         id serial PRIMARY KEY,
         id_user integer NOT NULL UNIQUE REFERENCES users(id),
@@ -346,9 +401,14 @@ async function ensureDatabaseSchema() {
         created_at text DEFAULT CURRENT_TIMESTAMP::text,
         updated_at text DEFAULT CURRENT_TIMESTAMP::text
       );
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema user_dashboard_preferences:", err.message);
+  }
 
-      -- Indeks Performa & Keamanan
-      CREATE INDEX IF NOT EXISTS idx_barang_nama_trgm ON barang USING gin (nama_barang gin_trgm_ops);
+  // 7. Indeks Performa & Keamanan
+  try {
+    await db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_barang_barcode ON barang (barcode);
       CREATE INDEX IF NOT EXISTS idx_barang_level ON barang (level_barang);
       CREATE INDEX IF NOT EXISTS idx_barang_lapor_pajak ON barang (lapor_pajak);
@@ -362,10 +422,41 @@ async function ensureDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_barang_batch_cabang ON barang_batch (id_barang, id_cabang);
       CREATE INDEX IF NOT EXISTS idx_barang_batch_exp ON barang_batch (id_cabang, tanggal_kadaluarsa);
     `);
-    console.log("✅ Integritas skema database PostgreSQL (kolom, tabel enterprise & indeks performa) terverifikasi.");
   } catch (err: any) {
-    console.warn("⚠️ Peringatan verifikasi skema database:", err.message);
+    console.warn("⚠️ Peringatan indeks performa:", err.message);
   }
+
+  try {
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_barang_nama_trgm ON barang USING gin (nama_barang gin_trgm_ops);`);
+  } catch (err: any) {
+    // Abaikan jika pg_trgm belum aktif
+  }
+
+  // 8. Skema Kas & Transaksi Kas Enterprise
+  try {
+    await db.execute(sql`
+      ALTER TABLE kas_transaksi 
+        ADD COLUMN IF NOT EXISTS id_akun_lawan_coa integer;
+
+      INSERT INTO pengaturan_aplikasi (key, value, updated_at)
+      VALUES 
+        ('cash_approval_threshold', '500000', CURRENT_TIMESTAMP),
+        ('cash_pusat_approval_threshold', '10000000', CURRENT_TIMESTAMP)
+      ON CONFLICT (key) DO NOTHING;
+
+      INSERT INTO rekening_kas (kode, nama, jenis, id_cabang, saldo_awal, saldo, id_akun_coa, is_active)
+      SELECT 'REK-BCA-PST', 'Bank BCA Pusat', 'BANK', 3, 0, 0, 5, true
+      WHERE NOT EXISTS (SELECT 1 FROM rekening_kas WHERE kode = 'REK-BCA-PST');
+
+      INSERT INTO rekening_kas (kode, nama, jenis, id_cabang, saldo_awal, saldo, id_akun_coa, is_active)
+      SELECT 'REK-MDR-PST', 'Bank Mandiri Pusat', 'BANK', 3, 0, 0, 4, true
+      WHERE NOT EXISTS (SELECT 1 FROM rekening_kas WHERE kode = 'REK-MDR-PST');
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema kas:", err.message);
+  }
+
+  console.log("✅ Integritas skema database PostgreSQL (kolom, tabel enterprise & indeks performa) terverifikasi.");
 }
 
 async function startServer() {

@@ -326,17 +326,17 @@ export default function StockOpnamePage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-on-surface">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-low p-6 rounded-2xl shadow-sm border border-outline-variant/30">
         <div>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+            <div className="p-2.5 bg-primary/10 text-primary rounded-xl">
               <ClipboardCheck className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Stock Opname Fisik & Rekonsiliasi</h1>
-              <p className="text-sm text-gray-500">
+              <h1 className="text-xl font-bold text-on-surface">Stock Opname Fisik & Rekonsiliasi</h1>
+              <p className="text-sm text-on-surface-variant">
                 Pencacahan fisik persediaan, approval bertingkat, dan posting otomatis jurnal selisih inventaris.
               </p>
             </div>
@@ -346,7 +346,7 @@ export default function StockOpnamePage() {
           <button
             onClick={fetchOpnames}
             disabled={loading}
-            className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-xl transition border border-gray-200"
+            className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-on-surface bg-surface hover:bg-surface-container-high rounded-xl transition border border-outline-variant/40 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -354,7 +354,7 @@ export default function StockOpnamePage() {
           {can_create && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm hover:shadow"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-on-primary bg-primary hover:bg-primary/90 rounded-xl transition shadow-sm hover:shadow cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Mulai Sesi Opname Baru
@@ -364,16 +364,16 @@ export default function StockOpnamePage() {
       </div>
 
       {/* Filter Tabs & Selection */}
-      <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
-        <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-3">
+      <div className="bg-surface-container-low p-5 rounded-2xl border border-outline-variant/30 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant/20 pb-3">
           {["ALL", "DRAFT", "MENUNGGU_APPROVAL", "DISETUJUI", "DIBATALKAN"].map((st) => (
             <button
               key={st}
               onClick={() => setSelectedStatus(st)}
-              className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition ${
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
                 selectedStatus === st
-                  ? "bg-gray-900 text-white"
-                  : "text-gray-600 hover:bg-gray-100"
+                  ? "bg-primary text-on-primary shadow-xs"
+                  : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
               }`}
             >
               {st === "ALL"
@@ -390,7 +390,7 @@ export default function StockOpnamePage() {
             <select
               value={selectedCabang}
               onChange={(e) => setSelectedCabang(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full px-3 py-2 text-sm border border-outline-variant/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary bg-surface text-on-surface cursor-pointer"
             >
               <option value="">Semua Cabang / Gudang</option>
               {cabangs.map((c) => (
@@ -406,17 +406,17 @@ export default function StockOpnamePage() {
               placeholder="Cari nomor sesi opname..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm border border-outline-variant/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary bg-surface text-on-surface placeholder:text-on-surface-variant/50"
             />
           </div>
         </div>
       </div>
 
       {/* Table of Opname Sessions */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-surface-container-low rounded-2xl shadow-sm border border-outline-variant/30 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 border-b border-gray-100 text-gray-700 text-xs uppercase font-semibold">
+          <table className="w-full text-left text-sm text-on-surface">
+            <thead className="bg-surface-container border-b border-outline-variant/30 text-on-surface-variant text-xs uppercase font-semibold">
               <tr>
                 <th className="py-3 px-4">No. Opname</th>
                 <th className="py-3 px-4">Tanggal</th>
@@ -429,18 +429,18 @@ export default function StockOpnamePage() {
                 <th className="py-3 px-4 text-center">Aksi</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-outline-variant/20">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-gray-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
+                  <td colSpan={9} className="py-12 text-center text-on-surface-variant">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
                     Memuat daftar sesi stock opname...
                   </td>
                 </tr>
               ) : opnameList.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-gray-400">
-                    <ClipboardCheck className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <td colSpan={9} className="py-12 text-center text-on-surface-variant">
+                    <ClipboardCheck className="w-8 h-8 mx-auto mb-2 text-on-surface-variant/40" />
                     Belum ada riwayat sesi Stock Opname.
                   </td>
                 </tr>
@@ -450,31 +450,31 @@ export default function StockOpnamePage() {
                     search ? op.nomor_opname.toLowerCase().includes(search.toLowerCase()) : true
                   )
                   .map((op) => (
-                    <tr key={op.id_opname} className="hover:bg-gray-50/70 transition">
-                      <td className="py-3 px-4 font-mono font-medium text-gray-900">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-semibold text-xs border border-blue-200">
+                    <tr key={op.id_opname} className="hover:bg-surface-container/50 transition">
+                      <td className="py-3 px-4 font-mono font-medium text-on-surface">
+                        <span className="px-2 py-0.5 bg-primary/10 text-primary rounded font-semibold text-xs border border-primary/20">
                           {op.nomor_opname}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-xs text-gray-600">
+                      <td className="py-3 px-4 text-xs text-on-surface-variant">
                         {formatDate(op.tanggal_opname)}
                       </td>
-                      <td className="py-3 px-4 font-medium text-gray-800">
+                      <td className="py-3 px-4 font-medium text-on-surface">
                         {op.nama_cabang}
                       </td>
-                      <td className="py-3 px-4 text-xs text-gray-700">
+                      <td className="py-3 px-4 text-xs text-on-surface-variant">
                         {op.nama_petugas}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span
                           className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                             op.status === "DISETUJUI"
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
                               : op.status === "MENUNGGU_APPROVAL"
-                              ? "bg-amber-100 text-amber-800 border border-amber-300"
+                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
                               : op.status === "DRAFT"
-                              ? "bg-blue-100 text-blue-800 border border-blue-300"
-                              : "bg-gray-100 text-gray-700"
+                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30"
+                              : "bg-surface-container text-on-surface-variant border border-outline-variant/30"
                           }`}
                         >
                           {op.status}
@@ -482,41 +482,41 @@ export default function StockOpnamePage() {
                       </td>
                       <td className="py-3 px-4 text-center">
                         {op.total_selisih_item > 0 ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-xs border border-amber-200">
+                          <span className="inline-flex items-center gap-1 font-bold text-amber-700 dark:text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded text-xs border border-amber-500/30">
                             {op.total_selisih_item} Item
                           </span>
                         ) : (
-                          <span className="text-emerald-600 text-xs font-medium">0 Sesuai</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 text-xs font-medium">0 Sesuai</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right font-medium">
                         {op.total_selisih_rupiah < 0 ? (
-                          <span className="text-rose-600 font-bold flex items-center justify-end gap-1">
+                          <span className="text-rose-600 dark:text-rose-400 font-bold flex items-center justify-end gap-1 font-mono">
                             <TrendingDown className="w-3.5 h-3.5" />
                             {formatCurrency(op.total_selisih_rupiah)}
                           </span>
                         ) : op.total_selisih_rupiah > 0 ? (
-                          <span className="text-emerald-600 font-bold flex items-center justify-end gap-1">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-end gap-1 font-mono">
                             <TrendingUp className="w-3.5 h-3.5" />
                             +{formatCurrency(op.total_selisih_rupiah)}
                           </span>
                         ) : (
-                          <span className="text-gray-400">Rp 0</span>
+                          <span className="text-on-surface-variant/60 font-mono">Rp 0</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         {op.id_jurnal ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono font-medium border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 px-2 py-0.5 rounded font-mono font-medium border border-emerald-500/30">
                             <BookOpen className="w-3 h-3" /> #{op.id_jurnal}
                           </span>
                         ) : (
-                          <span className="text-xs text-gray-400">-</span>
+                          <span className="text-xs text-on-surface-variant/50">-</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
                           onClick={() => handleOpenSheet(op.id_opname)}
-                          className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                          className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 rounded-lg transition cursor-pointer"
                         >
                           Buka Lembar Hitung
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -532,16 +532,16 @@ export default function StockOpnamePage() {
 
       {/* Modal Mulai Sesi Baru */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-gray-100 overflow-hidden">
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-surface-container-low rounded-2xl shadow-xl w-full max-w-md border border-outline-variant/30 overflow-hidden text-on-surface">
+            <div className="p-5 border-b border-outline-variant/20 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ClipboardCheck className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-gray-900">Mulai Sesi Stock Opname</h3>
+                <ClipboardCheck className="w-5 h-5 text-primary" />
+                <h3 className="font-bold text-on-surface">Mulai Sesi Stock Opname</h3>
               </div>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg"
+                className="p-1 text-on-surface-variant hover:text-on-surface rounded-lg hover:bg-surface-container transition-colors cursor-pointer"
               >
                 <XCircle className="w-5 h-5" />
               </button>
@@ -549,14 +549,14 @@ export default function StockOpnamePage() {
 
             <form onSubmit={handleCreateSubmit} className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Pilih Cabang / Toko <span className="text-red-500">*</span>
+                <label className="block text-xs font-medium text-on-surface mb-1">
+                  Pilih Cabang / Toko <span className="text-rose-500">*</span>
                 </label>
                 <select
                   required
                   value={createData.id_cabang}
                   onChange={(e) => setCreateData({ ...createData, id_cabang: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-outline-variant/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary bg-surface text-on-surface cursor-pointer"
                 >
                   {cabangs.map((c) => (
                     <option key={c.id_cabang} value={c.id_cabang}>
@@ -567,24 +567,24 @@ export default function StockOpnamePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Tanggal Pelaksanaan</label>
+                <label className="block text-xs font-medium text-on-surface mb-1">Tanggal Pelaksanaan</label>
                 <input
                   type="date"
                   required
                   value={createData.tanggal_opname}
                   onChange={(e) => setCreateData({ ...createData, tanggal_opname: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-outline-variant/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary bg-surface text-on-surface font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-on-surface mb-1">
                   Filter Kategori Barang (Opsional)
                 </label>
                 <select
                   value={createData.filter_kategori_id}
                   onChange={(e) => setCreateData({ ...createData, filter_kategori_id: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-outline-variant/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary bg-surface text-on-surface cursor-pointer"
                 >
                   <option value="">Semua Kategori (Seluruh Barang Cabang)</option>
                   {kategoris.map((k) => (
@@ -596,27 +596,27 @@ export default function StockOpnamePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Catatan Petugas</label>
+                <label className="block text-xs font-medium text-on-surface mb-1">Catatan Petugas</label>
                 <textarea
                   rows={2}
                   value={createData.catatan}
                   onChange={(e) => setCreateData({ ...createData, catatan: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-outline-variant/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary bg-surface text-on-surface placeholder:text-on-surface-variant/50"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-outline-variant/20">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
+                  className="px-4 py-2 text-sm font-medium text-on-surface bg-surface hover:bg-surface-container-high border border-outline-variant/40 rounded-xl transition cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={creating}
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm"
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-on-primary bg-primary hover:bg-primary/90 rounded-xl transition shadow-sm cursor-pointer"
                 >
                   {creating && <RefreshCw className="w-4 h-4 animate-spin" />}
                   Generate Sesi Opname
@@ -629,33 +629,33 @@ export default function StockOpnamePage() {
 
       {/* Drawer / Full Modal Lembar Hitung & Rekonsiliasi */}
       {showSheetModal && activeHeader && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col border border-gray-200 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4">
+          <div className="bg-surface-container-low rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col border border-outline-variant/30 overflow-hidden text-on-surface">
             {/* Modal Header */}
-            <div className="p-5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4 bg-gray-50/50">
+            <div className="p-5 border-b border-outline-variant/20 flex flex-wrap items-center justify-between gap-4 bg-surface-container/60">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
                   <ClipboardCheck className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-gray-900 text-lg">{activeHeader.nomor_opname}</h3>
+                    <h3 className="font-bold text-on-surface text-lg">{activeHeader.nomor_opname}</h3>
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-bold ${
                         activeHeader.status === "DISETUJUI"
-                          ? "bg-emerald-100 text-emerald-800"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
                           : activeHeader.status === "MENUNGGU_APPROVAL"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-blue-100 text-blue-800"
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                          : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30"
                       }`}
                     >
                       {activeHeader.status}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Cabang: <span className="font-semibold text-gray-700">{activeHeader.nama_cabang}</span> | Tanggal:{" "}
-                    <span className="font-semibold text-gray-700">{formatDate(activeHeader.tanggal_opname)}</span> | Petugas:{" "}
-                    <span className="font-semibold text-gray-700">{activeHeader.nama_petugas}</span>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Cabang: <span className="font-semibold text-on-surface">{activeHeader.nama_cabang}</span> | Tanggal:{" "}
+                    <span className="font-semibold text-on-surface">{formatDate(activeHeader.tanggal_opname)}</span> | Petugas:{" "}
+                    <span className="font-semibold text-on-surface">{activeHeader.nama_petugas}</span>
                   </p>
                 </div>
               </div>
@@ -663,14 +663,14 @@ export default function StockOpnamePage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handlePrint}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-100 rounded-lg border border-gray-200 shadow-xs"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-on-surface bg-surface hover:bg-surface-container-high rounded-lg border border-outline-variant/40 shadow-xs transition cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   Cetak Berita Acara
                 </button>
                 <button
                   onClick={() => setShowSheetModal(false)}
-                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-1.5 text-on-surface-variant hover:text-on-surface rounded-lg hover:bg-surface-container transition-colors cursor-pointer"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
@@ -682,8 +682,8 @@ export default function StockOpnamePage() {
               <div
                 className={`px-5 py-2.5 text-xs font-medium flex items-center gap-2 ${
                   sheetMsg.type === "success"
-                    ? "bg-emerald-50 text-emerald-800 border-b border-emerald-200"
-                    : "bg-red-50 text-red-800 border-b border-red-200"
+                    ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-b border-emerald-500/30"
+                    : "bg-rose-500/15 text-rose-800 dark:text-rose-300 border-b border-rose-500/30"
                 }`}
               >
                 {sheetMsg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
@@ -692,34 +692,34 @@ export default function StockOpnamePage() {
             )}
 
             {/* Sheet Search & Stats Bar */}
-            <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
+            <div className="px-5 py-3 border-b border-outline-variant/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-container-low">
               <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
                 <input
                   type="text"
                   placeholder="Filter nama barang / barcode dalam lembar ini..."
                   value={itemSearch}
                   onChange={(e) => setItemSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full pl-9 pr-3 py-1.5 text-xs border border-outline-variant/40 bg-surface text-on-surface placeholder:text-on-surface-variant/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
 
               <div className="flex items-center gap-4 text-xs font-medium">
                 <div>
-                  Item Dihitung: <span className="font-bold text-gray-900">{activeItems.length}</span>
+                  Item Dihitung: <span className="font-bold text-on-surface">{activeItems.length}</span>
                 </div>
                 <div>
-                  Item Selisih: <span className="font-bold text-amber-600">{sheetDiffItemCount}</span>
+                  Item Selisih: <span className="font-bold text-amber-600 dark:text-amber-400">{sheetDiffItemCount}</span>
                 </div>
                 <div>
                   Netto Selisih:{" "}
                   <span
-                    className={`font-bold ${
+                    className={`font-bold font-mono ${
                       sheetTotalDiffRp < 0
-                        ? "text-rose-600"
+                        ? "text-rose-600 dark:text-rose-400"
                         : sheetTotalDiffRp > 0
-                        ? "text-emerald-600"
-                        : "text-gray-900"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-on-surface"
                     }`}
                   >
                     {formatCurrency(sheetTotalDiffRp)}
@@ -731,14 +731,14 @@ export default function StockOpnamePage() {
             {/* Items Table */}
             <div className="flex-1 overflow-y-auto p-5">
               {sheetLoading ? (
-                <div className="py-20 text-center text-gray-400">
-                  <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-600" />
+                <div className="py-20 text-center text-on-surface-variant">
+                  <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-primary" />
                   Memuat lembar pencacahan...
                 </div>
               ) : (
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs text-gray-600">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 uppercase font-semibold">
+                <div className="border border-outline-variant/30 rounded-xl overflow-hidden bg-surface">
+                  <table className="w-full text-left text-xs text-on-surface">
+                    <thead className="bg-surface-container border-b border-outline-variant/30 text-on-surface-variant uppercase font-semibold">
                       <tr>
                         <th className="py-2.5 px-3">No</th>
                         <th className="py-2.5 px-3">Barang & Barcode</th>
@@ -750,28 +750,28 @@ export default function StockOpnamePage() {
                         <th className="py-2.5 px-3 w-44">Alasan Selisih</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-outline-variant/20">
                       {filteredActiveItems.map((item, idx) => {
                         const isLocked =
                           activeHeader.status === "DISETUJUI" || activeHeader.status === "DIBATALKAN";
                         return (
                           <tr
                             key={item.id}
-                            className={`hover:bg-gray-50 transition ${
-                              item.selisih_qty !== 0 ? "bg-amber-50/30" : ""
+                            className={`hover:bg-surface-container/50 transition ${
+                              item.selisih_qty !== 0 ? "bg-amber-500/10" : ""
                             }`}
                           >
-                            <td className="py-2 px-3 text-gray-400 font-mono">{idx + 1}</td>
+                            <td className="py-2 px-3 text-on-surface-variant/60 font-mono">{idx + 1}</td>
                             <td className="py-2 px-3">
-                              <div className="font-semibold text-gray-900">{item.nama_barang}</div>
-                              <div className="text-[10px] text-gray-400 font-mono">{item.barcode || "-"}</div>
+                              <div className="font-semibold text-on-surface">{item.nama_barang}</div>
+                              <div className="text-[10px] text-on-surface-variant font-mono">{item.barcode || "-"}</div>
                             </td>
-                            <td className="py-2 px-3 text-right font-medium text-gray-700">
+                            <td className="py-2 px-3 text-right font-medium text-on-surface">
                               {item.stok_sistem} {item.satuan_1 || "pcs"}
                             </td>
                             <td className="py-2 px-3 text-center">
                               {isLocked ? (
-                                <span className="font-bold text-gray-900">{item.stok_fisik}</span>
+                                <span className="font-bold text-on-surface">{item.stok_fisik}</span>
                               ) : (
                                 <input
                                   type="number"
@@ -780,47 +780,47 @@ export default function StockOpnamePage() {
                                   onChange={(e) =>
                                     handlePhysicalCountChange(item.id, parseInt(e.target.value))
                                   }
-                                  className="w-24 text-center py-1 px-2 text-xs font-bold text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                  className="w-24 text-center py-1 px-2 text-xs font-bold text-on-surface bg-surface-container-low border border-outline-variant/60 rounded-lg focus:ring-2 focus:ring-primary focus:outline-none"
                                 />
                               )}
                             </td>
                             <td className="py-2 px-3 text-center">
                               {item.selisih_qty < 0 ? (
-                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800">
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30">
                                   {item.selisih_qty}
                                 </span>
                               ) : item.selisih_qty > 0 ? (
-                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
                                   +{item.selisih_qty}
                                 </span>
                               ) : (
-                                <span className="text-gray-400">0</span>
+                                <span className="text-on-surface-variant/60">0</span>
                               )}
                             </td>
-                            <td className="py-2 px-3 text-right text-gray-600">
+                            <td className="py-2 px-3 text-right text-on-surface-variant font-mono">
                               {formatCurrency(item.hpp_satuan)}
                             </td>
-                            <td className="py-2 px-3 text-right font-medium">
+                            <td className="py-2 px-3 text-right font-medium font-mono">
                               {item.selisih_rupiah < 0 ? (
-                                <span className="text-rose-600 font-semibold">
+                                <span className="text-rose-600 dark:text-rose-400 font-semibold">
                                   {formatCurrency(item.selisih_rupiah)}
                                 </span>
                               ) : item.selisih_rupiah > 0 ? (
-                                <span className="text-emerald-600 font-semibold">
+                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                                   +{formatCurrency(item.selisih_rupiah)}
                                 </span>
                               ) : (
-                                <span className="text-gray-400">Rp 0</span>
+                                <span className="text-on-surface-variant/60">Rp 0</span>
                               )}
                             </td>
                             <td className="py-2 px-3">
                               {isLocked ? (
-                                <span className="text-xs text-gray-700">{item.alasan_selisih || "-"}</span>
+                                <span className="text-xs text-on-surface">{item.alasan_selisih || "-"}</span>
                               ) : (
                                 <select
                                   value={item.alasan_selisih || "Sesuai"}
                                   onChange={(e) => handleAlasanChange(item.id, e.target.value)}
-                                  className="w-full py-1 px-2 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                                  className="w-full py-1 px-2 text-[11px] border border-outline-variant/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary bg-surface-container-low text-on-surface cursor-pointer"
                                 >
                                   <option value="Sesuai">Sesuai</option>
                                   <option value="Hilang/Kurang Hitung">Hilang / Kurang Hitung</option>
@@ -840,10 +840,10 @@ export default function StockOpnamePage() {
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="p-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
-              <div className="text-xs text-gray-500">
+            <div className="p-4 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-3 bg-surface-container/60">
+              <div className="text-xs text-on-surface-variant">
                 {activeHeader.status === "DISETUJUI" ? (
-                  <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                     <CheckCircle2 className="w-4 h-4" /> Sesi telah disetujui & dijurnal otomatis ke Buku Besar
                   </span>
                 ) : (
@@ -855,7 +855,7 @@ export default function StockOpnamePage() {
                 <button
                   type="button"
                   onClick={() => setShowSheetModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 rounded-xl transition"
+                  className="px-4 py-2 text-xs font-medium text-on-surface bg-surface hover:bg-surface-container border border-outline-variant/40 rounded-xl transition cursor-pointer"
                 >
                   Tutup
                 </button>
@@ -866,7 +866,7 @@ export default function StockOpnamePage() {
                       type="button"
                       disabled={savingSheet}
                       onClick={handleSaveSheet}
-                      className="px-4 py-2 text-xs font-semibold text-gray-800 bg-gray-200 hover:bg-gray-300 rounded-xl transition flex items-center gap-1.5"
+                      className="px-4 py-2 text-xs font-semibold text-on-surface bg-surface-container hover:bg-surface-container-high border border-outline-variant/40 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                     >
                       {savingSheet && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                       Simpan Draft
@@ -875,7 +875,7 @@ export default function StockOpnamePage() {
                       type="button"
                       disabled={savingSheet}
                       onClick={handleSubmitApproval}
-                      className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm flex items-center gap-1.5"
+                      className="px-4 py-2 text-xs font-semibold text-on-primary bg-primary hover:bg-primary/90 rounded-xl transition shadow-sm flex items-center gap-1.5 cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" />
                       Ajukan Approval
@@ -888,7 +888,7 @@ export default function StockOpnamePage() {
                     type="button"
                     disabled={savingSheet}
                     onClick={handleApprove}
-                    className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow flex items-center gap-2"
+                    className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow flex items-center gap-2 cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
                     Setujui & Posting Jurnal Selisih Otomatis

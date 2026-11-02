@@ -66,13 +66,40 @@ CREATE INDEX IF NOT EXISTS idx_cabang_investor_cabang ON cabang_investor (id_cab
 
 -- 3. Tabel Barang & Stok
 ALTER TABLE barang 
+  ADD COLUMN IF NOT EXISTS kode_barang text,
+  ADD COLUMN IF NOT EXISTS barcode_satuan_2 text,
+  ADD COLUMN IF NOT EXISTS barcode_satuan_3 text,
+  ADD COLUMN IF NOT EXISTS tipe_barang text DEFAULT 'STOK',
+  ADD COLUMN IF NOT EXISTS lacak_kadaluarsa boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS level_barang text DEFAULT 'MEDIUM',
   ADD COLUMN IF NOT EXISTS level_mode text DEFAULT 'AUTO',
   ADD COLUMN IF NOT EXISTS terakhir_terjual text,
   ADD COLUMN IF NOT EXISTS created_at text DEFAULT CURRENT_TIMESTAMP::text,
   ADD COLUMN IF NOT EXISTS lapor_pajak boolean DEFAULT true;
 
+CREATE TABLE IF NOT EXISTS stok_barang (
+  id serial PRIMARY KEY,
+  id_barang integer,
+  id_cabang integer,
+  stok_akhir integer DEFAULT 0,
+  penjualan integer DEFAULT 0,
+  transfer_masuk integer DEFAULT 0,
+  transfer_keluar integer DEFAULT 0,
+  posisi_rak text,
+  minimal_stok integer DEFAULT 0,
+  maksimal_stok integer DEFAULT 0,
+  level_cabang text DEFAULT 'MEDIUM',
+  terakhir_terjual_cabang text
+);
+
 ALTER TABLE stok_barang 
+  ADD COLUMN IF NOT EXISTS stok_akhir integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS minimal_stok integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS maksimal_stok integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS posisi_rak text,
+  ADD COLUMN IF NOT EXISTS penjualan integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS transfer_masuk integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS transfer_keluar integer DEFAULT 0,
   ADD COLUMN IF NOT EXISTS level_cabang text DEFAULT 'MEDIUM',
   ADD COLUMN IF NOT EXISTS terakhir_terjual_cabang text;
 
@@ -273,6 +300,14 @@ CREATE TABLE IF NOT EXISTS kartu_stok (
   id_user integer NOT NULL,
   created_at text DEFAULT CURRENT_TIMESTAMP::text
 );
+
+-- Kas Transaksi & Rekening Kas Enterprise
+ALTER TABLE kas_transaksi ADD COLUMN IF NOT EXISTS id_akun_lawan_coa integer;
+INSERT INTO pengaturan_aplikasi (key, value, updated_at)
+VALUES 
+  ('cash_approval_threshold', '500000', CURRENT_TIMESTAMP),
+  ('cash_pusat_approval_threshold', '10000000', CURRENT_TIMESTAMP)
+ON CONFLICT (key) DO NOTHING;
 
 -- Indeks Users (Daftar Abdi)
 CREATE INDEX IF NOT EXISTS idx_users_nama_trgm ON users USING gin (nama_user gin_trgm_ops);

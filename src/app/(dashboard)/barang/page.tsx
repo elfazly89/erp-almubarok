@@ -279,13 +279,21 @@ export default function BarangPage() {
           try {
             if (!resBarang.ok) {
               const errJson = await resBarang.json();
-              if (errJson?.error) errMsg = errJson.error;
+              if (errJson?.error) {
+                const lowerErr = String(errJson.error).toLowerCase();
+                if (lowerErr.includes("failed query") || lowerErr.includes("select \"barang\"") || lowerErr.includes("syntax error")) {
+                  console.error("Database Query Error:", errJson.error);
+                  errMsg = "Terjadi kendala pada database server saat memuat katalog barang.";
+                } else {
+                  errMsg = errJson.error;
+                }
+              }
             }
           } catch {}
           showToast(errMsg, "error");
         }
       } catch {
-        showToast("Gagal memuat data katalog barang.", "error");
+        showToast("Gagal memuat data katalog barang. Periksa koneksi ke server.", "error");
       } finally {
         setLoading(false);
       }

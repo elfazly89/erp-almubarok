@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -146,7 +146,8 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: "Dashboard Kas", href: "/kas/dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
       { label: "Rekening Kas", href: "/kas/rekening", icon: <Wallet className="w-4 h-4" /> },
-      { label: "Mutasi Kas", href: "/kas/transaksi", icon: <ArrowLeftRight className="w-4 h-4" /> },
+      { label: "Mutasi Kas Cabang", href: "/kas/transaksi", icon: <ArrowLeftRight className="w-4 h-4" /> },
+      { label: "Kas Pusat & Bank", href: "/kas/transaksi-pusat", icon: <Building2 className="w-4 h-4" /> },
       { label: "Transfer Kas", href: "/kas/transfer", icon: <Send className="w-4 h-4" /> },
       { label: "Rekonsiliasi", href: "/kas/rekonsiliasi", icon: <FileText className="w-4 h-4" /> },
       { label: "Laporan Kas", href: "/kas/laporan", icon: <FileText className="w-4 h-4" /> },
@@ -213,6 +214,21 @@ function SidebarContent({
 }: SidebarContentProps) {
   const { hasAccess, loading } = usePermissions();
   const { settings } = useAppSettings();
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Auto-scroll to opened submenu smoothly so it is never hidden behind viewport bottom
+  useEffect(() => {
+    if (openMenus.length > 0 && !isVisualCollapsed) {
+      const activeLabel = openMenus[0];
+      const el = itemRefs.current[activeLabel];
+      if (el) {
+        const timer = setTimeout(() => {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 150);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [openMenus, isVisualCollapsed]);
 
   const filteredItems = NAV_ITEMS.map((item) => {
     if (item.href) {
@@ -231,10 +247,10 @@ function SidebarContent({
   }).filter((item): item is NavItem => item !== null);
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low transition-all duration-300">
+    <div className="flex flex-col h-full max-h-full bg-surface-container-low transition-all duration-300 overflow-hidden">
       {/* Logo */}
       <div className={cn(
-        "py-3 border-b border-outline-variant/40 flex items-center transition-all duration-300",
+        "py-3 border-b border-outline-variant/40 flex items-center transition-all duration-300 shrink-0",
         isVisualCollapsed ? "px-4 justify-center" : "px-5"
       )}>
         <div className="flex items-center gap-3 overflow-hidden">
@@ -250,7 +266,7 @@ function SidebarContent({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-1 scrollbar-none">
+      <nav className="flex-1 min-h-0 px-3 py-4 overflow-y-auto space-y-1 [scrollbar-width:thin] [scrollbar-color:var(--color-outline-variant)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-outline-variant/30 hover:[&::-webkit-scrollbar-thumb]:bg-outline-variant/60 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors">
         {loading ? (
           <div className="flex items-center justify-center py-8 text-xs text-on-surface-variant/60">
             Memuat menu...
@@ -288,7 +304,10 @@ function SidebarContent({
           const hasActive = item.children?.some((c) => checkActive(pathname, c.href));
 
           return (
-            <div key={item.label}>
+            <div 
+              key={item.label}
+              ref={(el) => { itemRefs.current[item.label] = el; }}
+            >
               <button
                 onClick={() => {
                   if (isCollapsed) {
@@ -449,7 +468,7 @@ export default function Sidebar({ userName, jabatan }: SidebarProps) {
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={cn(
-          "hidden lg:flex flex-col min-h-screen bg-surface-container-low border-r border-outline-variant/40 fixed top-0 left-0 z-30 transition-all duration-300 ease-in-out",
+          "hidden lg:flex flex-col h-screen h-[100dvh] max-h-screen bg-surface-container-low border-r border-outline-variant/40 fixed top-0 bottom-0 left-0 z-30 transition-all duration-300 ease-in-out",
           visualCollapsed ? "w-20" : "w-64",
           isCollapsed && isHovered ? "shadow-2xl border-r border-primary/20 z-40" : "shadow-none"
         )}
@@ -478,7 +497,7 @@ export default function Sidebar({ userName, jabatan }: SidebarProps) {
       {/* Mobile sidebar (always expanded in drawer overlay) */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 flex flex-col w-72 h-full bg-surface-container-low border-r border-outline-variant/40 transition-transform duration-300 lg:hidden",
+          "fixed top-0 bottom-0 left-0 z-50 flex flex-col w-72 h-screen h-[100dvh] max-h-screen bg-surface-container-low border-r border-outline-variant/40 transition-transform duration-300 lg:hidden",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
