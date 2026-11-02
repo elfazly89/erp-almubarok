@@ -10,7 +10,8 @@
     "db:migrate-sqlite-to-pg": "npx tsx scripts/migrate-sqlite-to-pg.ts",
     "db:migrate-performance-indexes": "npx tsx scripts/migrate-performance-indexes.ts",
     "db:migrate-supplier-pelanggan-indexes": "npx tsx scripts/migrate-supplier-pelanggan-indexes.ts",
-    "db:migrate-users-indexes": "npx tsx scripts/migrate-users-indexes.ts"
+    "db:migrate-users-indexes": "npx tsx scripts/migrate-users-indexes.ts",
+    "db:clean-mock-kas": "npx tsx scripts/clean-mock-kas.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.0",
