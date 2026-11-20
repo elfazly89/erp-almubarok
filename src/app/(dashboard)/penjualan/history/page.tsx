@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   DollarSign,
   Printer,
@@ -44,6 +45,11 @@ interface Invoice {
 export default function HistoryPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
   const { settings } = useAppSettings();
+  const searchParams = useSearchParams();
+  const initialSource = searchParams.get("source");
+  const [sourceFilter, setSourceFilter] = useState<"ALL" | "POS" | "MIGRASI">(
+    initialSource === "MIGRASI" ? "MIGRASI" : initialSource === "POS" ? "POS" : "ALL"
+  );
   const [list, setList] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -100,7 +106,7 @@ export default function HistoryPage() {
   const [branchName, setBranchName] = useState("Cabang");
 
   const fetchData = useCallback(
-    async (targetPage = page, targetLimit = limit, targetSearch = debouncedSearch) => {
+    async (targetPage = page, targetLimit = limit, targetSearch = debouncedSearch, targetSource = sourceFilter) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({
@@ -108,10 +114,16 @@ export default function HistoryPage() {
           limit: targetLimit.toString(),
         });
         if (targetSearch.trim()) params.append("search", targetSearch.trim());
+        if (targetSource !== "ALL") params.append("tipe_sumber", targetSource);
+
+        const sumParams = new URLSearchParams();
+        if (targetSearch.trim()) sumParams.append("search", targetSearch.trim());
+        if (targetSource !== "ALL") sumParams.append("tipe_sumber", targetSource);
+        const sumQuery = sumParams.toString() ? `?${sumParams.toString()}` : "";
 
         const [resList, resSummary, resProfile, resUsers, resCabang] = await Promise.all([
           fetch(`/api/penjualan?${params.toString()}`),
-          fetch(`/api/penjualan/summary${targetSearch.trim() ? `?search=${encodeURIComponent(targetSearch.trim())}` : ""}`),
+          fetch(`/api/penjualan/summary${sumQuery}`),
           fetch("/api/pengaturan/profile"),
           fetch("/api/hrd/users?limit=100"),
           fetch("/api/master/cabang")
@@ -179,12 +191,12 @@ export default function HistoryPage() {
         setLoading(false);
       }
     },
-    [page, limit, debouncedSearch, showToast]
+    [page, limit, debouncedSearch, sourceFilter, showToast]
   );
 
   useEffect(() => {
-    fetchData(page, limit, debouncedSearch);
-  }, [page, limit, debouncedSearch, fetchData]);
+    fetchData(page, limit, debouncedSearch, sourceFilter);
+  }, [page, limit, debouncedSearch, sourceFilter, fetchData]);
 
   // Debounced search (350ms)
   useEffect(() => {
@@ -591,7 +603,53 @@ export default function HistoryPage() {
             Melihat transaksi penjualan terbaru yang diproses di cabang ini.
           </p>
         </div>
-        <div className="flex items-center gap-2.5 w-full md:w-auto">
+        <div className="flex items-center flex-wrap gap-2.5 w-full md:w-auto">
+          {/* Filter Sumber Transaksi (Semua | POS | Migrasi) */}
+          <div className="flex items-center p-1 bg-surface-container rounded-xl border border-outline-variant/40 shrink-0">
+            <button
+              onClick={() => {
+                setSourceFilter("ALL");
+                setPage(1);
+              }}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                sourceFilter === "ALL"
+                  ? "bg-primary text-on-primary shadow-xs"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              Semua
+            </button>
+            <button
+              onClick={() => {
+                setSourceFilter("POS");
+                setPage(1);
+              }}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                sourceFilter === "POS"
+                  ? "bg-primary text-on-primary shadow-xs"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              Kasir POS
+            </button>
+            <button
+              onClick={() => {
+                setSourceFilter("MIGRASI");
+                setPage(1);
+              }}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 ${
+                sourceFilter === "MIGRASI"
+                  ? "bg-primary text-on-primary shadow-xs"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              <span>Data Migrasi</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-300 font-bold">
+                MIG
+              </span>
+            </button>
+          </div>
+
           {/* Tombol Import Excel Dev Mode */}
           <button
             onClick={() => {
@@ -695,7 +753,14 @@ export default function HistoryPage() {
                   filteredList.map((item, idx) => (
                     <tr key={item.id_penjualan} className="hover:bg-surface-container-high/40 transition-colors">
                       <td className="px-5 py-2.5 text-on-surface-variant/60">{idx + 1}</td>
-                      <td className="px-5 py-2.5 font-medium font-mono text-primary">{item.no_invoice}</td>
+                      <td className="px-5 py-2.5 font-medium font-mono text-primary flex items-center gap-2">
+                        <span>{item.no_invoice}</span>
+                        {item.no_invoice?.startsWith("MIG-") && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shrink-0">
+                            Migrasi
+                          </span>
+                        )}
+                      </td>
                       <td className="px-5 py-2.5 text-on-surface-variant">
                         {item.tanggal_invoice} {item.jam_invoice}
                       </td>

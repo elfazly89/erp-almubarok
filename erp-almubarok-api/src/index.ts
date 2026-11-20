@@ -30,6 +30,7 @@ import { kasRoutes } from "./routes/kas";
 import { supplyChainRoutes } from "./routes/supply-chain";
 import { dashboardRoutes } from "./routes/dashboard";
 import { investorRoutes } from "./routes/investor";
+import { migrasiRoutes } from "./routes/migrasi";
 import { startDailyProductLevelScheduler } from "./services/product-level.service";
 
 const app = new Hono().basePath("/api");
@@ -81,6 +82,7 @@ app.route("/voucher", voucherRoutes);
 app.route("/user", userRoutes);
 app.route("/dashboard", dashboardRoutes);
 app.route("/investor", investorRoutes);
+app.route("/migrasi", migrasiRoutes);
 
 // Mobile endpoints (protected — memerlukan access_token di header Authorization)
 app.route("/mobile", mobileRoutes);
@@ -171,6 +173,36 @@ async function ensureDatabaseSchema() {
         updated_at text DEFAULT CURRENT_TIMESTAMP::text
       );
       CREATE INDEX IF NOT EXISTS idx_cabang_investor_cabang ON cabang_investor (id_cabang);
+      ALTER TABLE cabang_investor ALTER COLUMN id_cabang DROP NOT NULL;
+
+      ALTER TABLE investor_bagi_hasil
+        ADD COLUMN IF NOT EXISTS jenis_periode text DEFAULT 'BULANAN',
+        ADD COLUMN IF NOT EXISTS jadwal_pencairan_bulan integer DEFAULT 2,
+        ADD COLUMN IF NOT EXISTS jadwal_pencairan_tahun integer;
+
+      CREATE TABLE IF NOT EXISTS investor_bagi_hasil_member (
+        id serial PRIMARY KEY,
+        id_bagi_hasil integer NOT NULL REFERENCES investor_bagi_hasil(id) ON DELETE CASCADE,
+        id_cabang_investor integer REFERENCES cabang_investor(id_cabang_investor),
+        nama_investor text NOT NULL,
+        modal_disetor numeric DEFAULT 0 NOT NULL,
+        tanggal_bergabung text,
+        bulan_aktif integer DEFAULT 12 NOT NULL,
+        bobot_waktu_modal numeric DEFAULT 0 NOT NULL,
+        porsi_persen numeric DEFAULT 0 NOT NULL,
+        nominal_hak_dividen numeric DEFAULT 0 NOT NULL,
+        nominal_transfer numeric DEFAULT 0 NOT NULL,
+        nominal_reinvestasi numeric DEFAULT 0 NOT NULL,
+        metode_pencairan text DEFAULT 'TRANSFER',
+        nama_bank text,
+        no_rekening text,
+        atas_nama_rekening text,
+        status_pencairan text DEFAULT 'PENDING' NOT NULL,
+        tanggal_realisasi text,
+        catatan text,
+        created_at text DEFAULT CURRENT_TIMESTAMP::text
+      );
+      CREATE INDEX IF NOT EXISTS idx_bagi_hasil_member_bh ON investor_bagi_hasil_member (id_bagi_hasil);
     `);
   } catch (err: any) {
     console.warn("⚠️ Peringatan skema cabang/investor:", err.message);
@@ -379,8 +411,8 @@ async function ensureDatabaseSchema() {
         masuk integer DEFAULT 0 NOT NULL,
         keluar integer DEFAULT 0 NOT NULL,
         saldo_akhir integer NOT NULL,
-        hpp_satuan integer DEFAULT 0 NOT NULL,
-        total_nilai integer DEFAULT 0 NOT NULL,
+        hpp_satuan numeric(15,2) DEFAULT 0 NOT NULL,
+        total_nilai numeric(15,2) DEFAULT 0 NOT NULL,
         keterangan text,
         id_user integer NOT NULL,
         created_at text DEFAULT CURRENT_TIMESTAMP::text
@@ -454,6 +486,31 @@ async function ensureDatabaseSchema() {
     `);
   } catch (err: any) {
     console.warn("⚠️ Peringatan skema kas:", err.message);
+  }
+
+  // 9. Skema Log Migrasi Data Sistem Lama
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS migrasi_log (
+        id serial PRIMARY KEY,
+        id_cabang integer NOT NULL,
+        id_user integer NOT NULL,
+        nama_file text NOT NULL,
+        tipe_migrasi text DEFAULT 'ALL',
+        total_baris integer DEFAULT 0,
+        berhasil integer DEFAULT 0,
+        gagal integer DEFAULT 0,
+        detail_error text,
+        detail_summary text,
+        status text DEFAULT 'SUCCESS',
+        created_at text DEFAULT CURRENT_TIMESTAMP::text
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_migrasi_log_cabang ON migrasi_log (id_cabang);
+      CREATE INDEX IF NOT EXISTS idx_migrasi_log_created_at ON migrasi_log (created_at DESC);
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan skema migrasi_log:", err.message);
   }
 
   console.log("✅ Integritas skema database PostgreSQL (kolom, tabel enterprise & indeks performa) terverifikasi.");

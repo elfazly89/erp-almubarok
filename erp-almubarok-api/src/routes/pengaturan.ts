@@ -157,6 +157,7 @@ const MASTER_MENUS = [
       { nama: "Role Menu", link: "/pengaturan/role-menu", urutan: 1 },
       { nama: "Pengaturan Aplikasi", link: "/pengaturan/aplikasi", urutan: 2 },
       { nama: "Pengaturan Struk / Nota", link: "/pengaturan/nota", urutan: 3 },
+      { nama: "Migrasi Data", link: "/pengaturan/migrasi", urutan: 4 },
     ],
   },
 ];
@@ -257,6 +258,39 @@ async function ensureMenusSeeded() {
           await db.insert(role_menu_sub).values({
             id_jabatan: jabId,
             id_menu_sub: insertedNotaSub.id,
+            aktif: true,
+            can_read: true,
+            can_create: true,
+            can_update: true,
+            can_delete: true,
+          });
+        }
+      }
+    }
+
+    // Check and seed "Migrasi Data" sub-menu if it's missing
+    const [existingMigrasiSub] = await db
+      .select()
+      .from(menu_sub)
+      .where(eq(menu_sub.link, "/pengaturan/migrasi"))
+      .limit(1);
+    if (!existingMigrasiSub) {
+      const [insertedMigrasiSub] = await db.insert(menu_sub).values({
+        id_menu_main: pengaturanMain.id,
+        nama: "Migrasi Data",
+        link: "/pengaturan/migrasi",
+        urutan: 4,
+        aktif: true,
+      }).returning();
+
+      // Auto grant full permissions to Jabatan ID 1 (Super User), ID 2 (IT), ID 8 (Manager)
+      const targetJabatanIds = [1, 2, 8];
+      for (const jabId of targetJabatanIds) {
+        const [exists] = await db.select().from(jabatan).where(eq(jabatan.id_jabatan, jabId)).limit(1);
+        if (exists) {
+          await db.insert(role_menu_sub).values({
+            id_jabatan: jabId,
+            id_menu_sub: insertedMigrasiSub.id,
             aktif: true,
             can_read: true,
             can_create: true,

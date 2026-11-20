@@ -74,6 +74,14 @@ penjualanRoutes.get("/summary", async (c) => {
     }
   }
 
+  // Tipe sumber filter (POS vs Data Migrasi)
+  const tipeSumberSummary = c.req.query("tipe_sumber");
+  if (tipeSumberSummary === "MIGRASI") {
+    conditions.push(like(penjualan.no_invoice, "MIG-%"));
+  } else if (tipeSumberSummary === "POS") {
+    conditions.push(sql`${penjualan.no_invoice} NOT LIKE 'MIG-%'`);
+  }
+
   // Search filter
   if (search && search.trim()) {
     const term = `%${search.trim().toLowerCase()}%`;
@@ -227,6 +235,14 @@ penjualanRoutes.get("/", async (c) => {
     } else {
       conditions.push(eq(penjualan.jenis_pembayaran, jenisPembayaran));
     }
+  }
+
+  // Tipe sumber filter (POS vs Data Migrasi)
+  const tipeSumberSummary = c.req.query("tipe_sumber");
+  if (tipeSumberSummary === "MIGRASI") {
+    conditions.push(like(penjualan.no_invoice, "MIG-%"));
+  } else if (tipeSumberSummary === "POS") {
+    conditions.push(sql`${penjualan.no_invoice} NOT LIKE 'MIG-%'`);
   }
 
   // Search filter

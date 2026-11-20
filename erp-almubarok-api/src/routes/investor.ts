@@ -5,7 +5,9 @@ import {
   investor_transaksi_modal,
   investor_bagi_hasil,
   investor_bagi_hasil_cabang,
+  investor_bagi_hasil_member,
   cabang,
+  cabang_investor,
   penjualan,
   penjualan_detail,
   jurnal_umum,
@@ -630,14 +632,23 @@ investorRoutes.post("/transaksi-modal/:id/reject", async (c) => {
 // Preview / Live Calculate bagi hasil konsolidasi periode tertentu
 investorRoutes.get("/bagi-hasil/kalkulasi", async (c) => {
   try {
-    const bulan = parseInt(c.req.query("bulan") || String(new Date().getMonth() + 1));
+    const jenisPeriode = c.req.query("jenis_periode") || "TAHUNAN"; // 'TAHUNAN' | 'BULANAN'
+    const isTahunan = jenisPeriode === "TAHUNAN";
+    const bulan = isTahunan ? 12 : parseInt(c.req.query("bulan") || String(new Date().getMonth() + 1));
     const tahun = parseInt(c.req.query("tahun") || String(new Date().getFullYear()));
 
-    // Tanggal awal dan akhir bulan
-    const strBulan = String(bulan).padStart(2, "0");
-    const lastDay = new Date(tahun, bulan, 0).getDate();
-    const startDate = `${tahun}-${strBulan}-01`;
-    const endDate = `${tahun}-${strBulan}-${String(lastDay).padStart(2, "0")}`;
+    let startDate: string;
+    let endDate: string;
+
+    if (isTahunan) {
+      startDate = `${tahun}-01-01`;
+      endDate = `${tahun}-12-31`;
+    } else {
+      const strBulan = String(bulan).padStart(2, "0");
+      const lastDay = new Date(tahun, bulan, 0).getDate();
+      startDate = `${tahun}-${strBulan}-01`;
+      endDate = `${tahun}-${strBulan}-${String(lastDay).padStart(2, "0")}`;
+    }
 
     const [profil] = await db.select().from(investor_profil).limit(1);
     if (!profil) {
@@ -772,14 +783,94 @@ investorRoutes.get("/bagi-hasil/kalkulasi", async (c) => {
     const hakPengelola = Math.round(labaKenaBagiHasil * (nisbahPengelola / 100));
     const hakInvestor = Math.round(labaKenaBagiHasil * (nisbahInvestor / 100));
 
+    // ─────────────────────────────────────────────────────────────
+    // Kalkulasi Time-Weighted Capital (Prorata Bulan Aktif Pemodal)
+    // ─────────────────────────────────────────────────────────────
+    const allMembers = await db
+      .select({
+        id_cabang_investor: cabang_investor.id_cabang_investor,
+        nama_investor: cabang_investor.nama_investor,
+        nilai_investasi: sql<number>`CAST(${cabang_investor.nilai_investasi} AS NUMERIC)`,
+        tanggal_bergabung: cabang_investor.tanggal_bergabung,
+        nama_bank: cabang_investor.nama_bank,
+        no_rekening: cabang_investor.no_rekening,
+        atas_nama_rekening: cabang_investor.atas_nama_rekening,
+        status: cabang_investor.status,
+      })
+      .from(cabang_investor)
+      .where(eq(cabang_investor.status, "AKTIF"))
+      .orderBy(desc(cabang_investor.nilai_investasi), asc(cabang_investor.nama_investor));
+
+    let totalBobotKonsorsium = 0;
+    const computedMembers = allMembers.map((m) => {
+      const modal = Number(m.nilai_investasi || 0);
+      let bulanAktif = 12;
+
+      if (isTahunan) {
+        if (m.tanggal_bergabung) {
+          const tgl = new Date(m.tanggal_bergabung);
+          const thnGabung = tgl.getFullYear();
+          const blnGabung = tgl.getMonth() + 1; // 1 - 12
+          const tglHari = tgl.getDate();
+
+          if (thnGabung < tahun) {
+            bulanAktif = 12; // Sudah bergabung dari tahun buku sebelumnya
+          } else if (thnGabung === tahun) {
+            // Cut-off rule: Jika tgl 1 langsung aktif bulan tsb; jika > 1, efektif mulai bulan berikutnya
+            const bulanMulai = tglHari === 1 ? blnGabung : Math.min(13, blnGabung + 1);
+            bulanAktif = Math.max(0, 12 - bulanMulai + 1);
+          } else {
+            bulanAktif = 0; // Bergabung di tahun mendatang
+          }
+        }
+      } else {
+        bulanAktif = 1;
+      }
+
+      const bobot = modal * bulanAktif;
+      totalBobotKonsorsium += bobot;
+
+      return {
+        ...m,
+        modal_disetor: modal,
+        bulan_aktif: bulanAktif,
+        bobot_waktu_modal: bobot,
+      };
+    });
+
+    const memberBreakdown = computedMembers.map((m) => {
+      const porsi = totalBobotKonsorsium > 0 ? (m.bobot_waktu_modal / totalBobotKonsorsium) * 100 : 0;
+      const nominalDividen = Math.round(hakInvestor * (porsi / 100));
+
+      return {
+        id_cabang_investor: m.id_cabang_investor,
+        nama_investor: m.nama_investor,
+        modal_disetor: m.modal_disetor,
+        tanggal_bergabung: m.tanggal_bergabung,
+        bulan_aktif: m.bulan_aktif,
+        bobot_waktu_modal: m.bobot_waktu_modal,
+        porsi_persen: Number(porsi.toFixed(2)),
+        nominal_hak_dividen: nominalDividen,
+        nominal_transfer: nominalDividen,
+        nominal_reinvestasi: 0,
+        metode_pencairan: "TRANSFER",
+        nama_bank: m.nama_bank,
+        no_rekening: m.no_rekening,
+        atas_nama_rekening: m.atas_nama_rekening,
+      };
+    });
+
     return c.json({
       success: true,
       data: {
         periode: {
-          bulan,
+          jenis_periode: jenisPeriode,
+          bulan: isTahunan ? 12 : bulan,
           tahun,
           tanggal_mulai: startDate,
           tanggal_selesai: endDate,
+          jadwal_pencairan_bulan: 2, // Februari
+          jadwal_pencairan_tahun: isTahunan ? tahun + 1 : tahun,
         },
         profil: {
           nama_investor: profil.nama_investor,
@@ -802,8 +893,10 @@ investorRoutes.get("/bagi-hasil/kalkulasi", async (c) => {
           defisit_terbawa_berikutnya: defisitTerbawaBerikutnya,
           nominal_hak_pengelola: hakPengelola,
           nominal_hak_investor: hakInvestor,
+          total_bobot_konsorsium: totalBobotKonsorsium,
         },
         breakdown_cabang: breakdownCabang,
+        member_breakdown: memberBreakdown,
       },
     });
   } catch (error: any) {
@@ -820,6 +913,9 @@ investorRoutes.get("/bagi-hasil", async (c) => {
         nomor_rekap: investor_bagi_hasil.nomor_rekap,
         periode_bulan: investor_bagi_hasil.periode_bulan,
         periode_tahun: investor_bagi_hasil.periode_tahun,
+        jenis_periode: investor_bagi_hasil.jenis_periode,
+        jadwal_pencairan_bulan: investor_bagi_hasil.jadwal_pencairan_bulan,
+        jadwal_pencairan_tahun: investor_bagi_hasil.jadwal_pencairan_tahun,
         tanggal_mulai: investor_bagi_hasil.tanggal_mulai,
         tanggal_selesai: investor_bagi_hasil.tanggal_selesai,
         total_penjualan_bersih: investor_bagi_hasil.total_penjualan_bersih,
@@ -861,6 +957,9 @@ investorRoutes.post("/bagi-hasil", async (c) => {
 
     const bulan = parseInt(body.periode_bulan);
     const tahun = parseInt(body.periode_tahun);
+    const jenisPeriode = body.jenis_periode || "TAHUNAN";
+    const jadwalPencairanBulan = body.jadwal_pencairan_bulan !== undefined ? parseInt(body.jadwal_pencairan_bulan) : 2;
+    const jadwalPencairanTahun = body.jadwal_pencairan_tahun !== undefined ? parseInt(body.jadwal_pencairan_tahun) : (jenisPeriode === "TAHUNAN" ? tahun + 1 : tahun);
 
     // Cek apakah periode ini sudah pernah dibuat sebelumnya
     const [existing] = await db
@@ -870,6 +969,7 @@ investorRoutes.post("/bagi-hasil", async (c) => {
         and(
           eq(investor_bagi_hasil.periode_bulan, bulan),
           eq(investor_bagi_hasil.periode_tahun, tahun),
+          eq(investor_bagi_hasil.jenis_periode, jenisPeriode),
           inArray(investor_bagi_hasil.status, ["PENDING", "APPROVED", "DIBAYARKAN"])
         )
       )
@@ -879,23 +979,30 @@ investorRoutes.post("/bagi-hasil", async (c) => {
       return c.json(
         {
           success: false,
-          error: `Bagi hasil untuk periode ${bulan}/${tahun} sudah terdaftar dengan status ${existing.status}.`,
+          error: `Bagi hasil ${jenisPeriode} untuk periode ${bulan}/${tahun} sudah terdaftar dengan status ${existing.status}.`,
         },
         400
       );
     }
 
-    const nomorRekap = generateRef(`DIV-${tahun}${String(bulan).padStart(2, "0")}`);
-    const metode = body.metode_penyelesaian || "TRANSFER_BANK"; // 'TRANSFER_BANK' | 'REINVESTASI_MODAL'
+    const nomorRekap = generateRef(`DIV-${jenisPeriode === "TAHUNAN" ? "Y" : "M"}${tahun}${String(bulan).padStart(2, "0")}`);
+    const metode = body.metode_penyelesaian || "TRANSFER_BANK"; // 'TRANSFER_BANK' | 'REINVESTASI_MODAL' | 'MEMBER_CHOICE'
 
     const hakInvestor = Math.round(parseFloat(body.nominal_hak_investor || "0"));
     let nominalTransfer = 0;
     let nominalReinvestasi = 0;
 
-    if (metode === "REINVESTASI_MODAL") {
-      nominalReinvestasi = hakInvestor;
+    if (Array.isArray(body.member_breakdown) && body.member_breakdown.length > 0) {
+      for (const m of body.member_breakdown) {
+        nominalTransfer += Math.round(parseFloat(m.nominal_transfer || 0));
+        nominalReinvestasi += Math.round(parseFloat(m.nominal_reinvestasi || 0));
+      }
     } else {
-      nominalTransfer = hakInvestor;
+      if (metode === "REINVESTASI_MODAL") {
+        nominalReinvestasi = hakInvestor;
+      } else {
+        nominalTransfer = hakInvestor;
+      }
     }
 
     const [inserted] = await db
@@ -905,6 +1012,9 @@ investorRoutes.post("/bagi-hasil", async (c) => {
         id_investor: profil.id,
         periode_bulan: bulan,
         periode_tahun: tahun,
+        jenis_periode: jenisPeriode,
+        jadwal_pencairan_bulan: jadwalPencairanBulan,
+        jadwal_pencairan_tahun: jadwalPencairanTahun,
         tanggal_mulai: body.tanggal_mulai,
         tanggal_selesai: body.tanggal_selesai,
         total_penjualan_bruto: String(body.total_penjualan_bruto || 0),
@@ -946,9 +1056,33 @@ investorRoutes.post("/bagi-hasil", async (c) => {
       }
     }
 
+    // Simpan snapshot member time-weighted capital jika disertakan
+    if (Array.isArray(body.member_breakdown)) {
+      for (const m of body.member_breakdown) {
+        await db.insert(investor_bagi_hasil_member).values({
+          id_bagi_hasil: inserted.id,
+          id_cabang_investor: m.id_cabang_investor || null,
+          nama_investor: m.nama_investor,
+          modal_disetor: String(m.modal_disetor || 0),
+          tanggal_bergabung: m.tanggal_bergabung || null,
+          bulan_aktif: m.bulan_aktif ?? 12,
+          bobot_waktu_modal: String(m.bobot_waktu_modal || 0),
+          porsi_persen: String(m.porsi_persen || 0),
+          nominal_hak_dividen: String(m.nominal_hak_dividen || 0),
+          nominal_transfer: String(m.nominal_transfer || 0),
+          nominal_reinvestasi: String(m.nominal_reinvestasi || 0),
+          metode_pencairan: m.metode_pencairan || "TRANSFER",
+          nama_bank: m.nama_bank || null,
+          no_rekening: m.no_rekening || null,
+          atas_nama_rekening: m.atas_nama_rekening || null,
+          status_pencairan: "PENDING",
+        });
+      }
+    }
+
     return c.json({
       success: true,
-      message: `Bagi hasil konsolidasi periode ${bulan}/${tahun} berhasil diajukan dan menunggu persetujuan (Checker).`,
+      message: `Bagi hasil konsolidasi periode ${bulan}/${tahun} (${jenisPeriode}) berhasil diajukan dan menunggu persetujuan (Checker).`,
       data: inserted,
     });
   } catch (error: any) {
@@ -1186,6 +1320,50 @@ investorRoutes.post("/bagi-hasil/:id/approve", async (c) => {
       .where(eq(investor_bagi_hasil.id, id))
       .returning();
 
+    // 5. Update status snapshot pemodal di investor_bagi_hasil_member & eksekusi reinvestasi anggota
+    const snapshotMembers = await db
+      .select()
+      .from(investor_bagi_hasil_member)
+      .where(eq(investor_bagi_hasil_member.id_bagi_hasil, id));
+
+    let memberReinvestedCount = 0;
+    for (const mem of snapshotMembers) {
+      const reinvNom = Math.round(parseFloat(mem.nominal_reinvestasi || "0"));
+      const isReinv = reinvNom > 0 || mem.metode_pencairan === "REINVESTASI";
+      const newStatus = isReinv ? "DIREINVESTASIKAN" : "DIBAYARKAN";
+
+      await db
+        .update(investor_bagi_hasil_member)
+        .set({
+          status_pencairan: newStatus,
+          tanggal_realisasi: tgl,
+        })
+        .where(eq(investor_bagi_hasil_member.id, mem.id));
+
+      if (isReinv && mem.id_cabang_investor && reinvNom > 0) {
+        memberReinvestedCount++;
+        const [targetInv] = await db
+          .select()
+          .from(cabang_investor)
+          .where(eq(cabang_investor.id_cabang_investor, mem.id_cabang_investor))
+          .limit(1);
+
+        if (targetInv) {
+          const modalLama = parseFloat(targetInv.nilai_investasi || "0");
+          await db
+            .update(cabang_investor)
+            .set({
+              nilai_investasi: String(modalLama + reinvNom),
+            })
+            .where(eq(cabang_investor.id_cabang_investor, targetInv.id_cabang_investor));
+        }
+      }
+    }
+
+    if (memberReinvestedCount > 0) {
+      await syncConsortiumEquity();
+    }
+
     return c.json({
       success: true,
       message: `Bagi hasil periode ${div.periode_bulan}/${div.periode_tahun} berhasil disetujui & dieksekusi (${div.metode_penyelesaian}).`,
@@ -1315,83 +1493,445 @@ investorRoutes.get("/buku-pembantu", async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. DETAIL SLIP BAGI HASIL UNTUK CETAK RESMI
+// 7. DETAIL SLIP BAGI HASIL UNTUK CETAK RESMI & AUDIT SNAPSHOT
 // ─────────────────────────────────────────────────────────────────────────────
+async function getBagiHasilDetail(id: number) {
+  const [bagiHasil] = await db
+    .select({
+      id: investor_bagi_hasil.id,
+      nomor_rekap: investor_bagi_hasil.nomor_rekap,
+      periode_bulan: investor_bagi_hasil.periode_bulan,
+      periode_tahun: investor_bagi_hasil.periode_tahun,
+      jenis_periode: investor_bagi_hasil.jenis_periode,
+      jadwal_pencairan_bulan: investor_bagi_hasil.jadwal_pencairan_bulan,
+      jadwal_pencairan_tahun: investor_bagi_hasil.jadwal_pencairan_tahun,
+      tanggal_mulai: investor_bagi_hasil.tanggal_mulai,
+      tanggal_selesai: investor_bagi_hasil.tanggal_selesai,
+      total_penjualan_bruto: investor_bagi_hasil.total_penjualan_bruto,
+      total_diskon_retur: investor_bagi_hasil.total_diskon_retur,
+      total_penjualan_bersih: investor_bagi_hasil.total_penjualan_bersih,
+      total_hpp: investor_bagi_hasil.total_hpp,
+      total_laba_kotor: investor_bagi_hasil.total_laba_kotor,
+      total_beban_operasional: investor_bagi_hasil.total_beban_operasional,
+      laba_konsolidasi_kotor: investor_bagi_hasil.laba_konsolidasi_kotor,
+      defisit_bulan_lalu: investor_bagi_hasil.defisit_bulan_lalu,
+      laba_kena_bagi_hasil: investor_bagi_hasil.laba_kena_bagi_hasil,
+      defisit_terbawa_berikutnya: investor_bagi_hasil.defisit_terbawa_berikutnya,
+      nisbah_pengelola_persen: investor_bagi_hasil.nisbah_pengelola_persen,
+      nisbah_investor_persen: investor_bagi_hasil.nisbah_investor_persen,
+      nominal_hak_pengelola: investor_bagi_hasil.nominal_hak_pengelola,
+      nominal_hak_investor: investor_bagi_hasil.nominal_hak_investor,
+      metode_penyelesaian: investor_bagi_hasil.metode_penyelesaian,
+      nominal_transfer: investor_bagi_hasil.nominal_transfer,
+      nominal_reinvestasi: investor_bagi_hasil.nominal_reinvestasi,
+      status: investor_bagi_hasil.status,
+      tanggal_persetujuan: investor_bagi_hasil.tanggal_persetujuan,
+      created_at: investor_bagi_hasil.created_at,
+      catatan: investor_bagi_hasil.catatan,
+      nama_bank_sumber: rekening_kas.nama,
+      nomor_rekening_sumber: rekening_kas.kode,
+      nama_pengaju: users.nama_user,
+    })
+    .from(investor_bagi_hasil)
+    .leftJoin(rekening_kas, eq(investor_bagi_hasil.id_rekening_kas, rekening_kas.id))
+    .leftJoin(users, eq(investor_bagi_hasil.diajukan_oleh, users.id))
+    .where(eq(investor_bagi_hasil.id, id))
+    .limit(1);
+
+  if (!bagiHasil) return null;
+
+  const [profil] = await db.select().from(investor_profil).limit(1);
+
+  // Ambil rincian cabang
+  const cabangDetails = await db
+    .select({
+      id_cabang: investor_bagi_hasil_cabang.id_cabang,
+      kode_cabang: cabang.kode_cabang,
+      nama_cabang: cabang.nama_cabang,
+      penjualan_bersih: investor_bagi_hasil_cabang.penjualan_bersih,
+      hpp: investor_bagi_hasil_cabang.hpp,
+      laba_kotor: investor_bagi_hasil_cabang.laba_kotor,
+      beban_operasional: investor_bagi_hasil_cabang.beban_operasional,
+      laba_operasional: investor_bagi_hasil_cabang.laba_operasional,
+    })
+    .from(investor_bagi_hasil_cabang)
+    .leftJoin(cabang, eq(investor_bagi_hasil_cabang.id_cabang, cabang.id_cabang))
+    .where(eq(investor_bagi_hasil_cabang.id_bagi_hasil, id))
+    .orderBy(cabang.nama_cabang);
+
+  // Ambil rincian snapshot pemodal konsorsium (Time-Weighted Capital)
+  const members = await db
+    .select()
+    .from(investor_bagi_hasil_member)
+    .where(eq(investor_bagi_hasil_member.id_bagi_hasil, id))
+    .orderBy(desc(investor_bagi_hasil_member.bobot_waktu_modal));
+
+  return {
+    bagi_hasil: bagiHasil,
+    profil,
+    cabang_details: cabangDetails,
+    members,
+  };
+}
+
 investorRoutes.get("/slip/:id", async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
-
-    const [bagiHasil] = await db
-      .select({
-        id: investor_bagi_hasil.id,
-        nomor_rekap: investor_bagi_hasil.nomor_rekap,
-        periode_bulan: investor_bagi_hasil.periode_bulan,
-        periode_tahun: investor_bagi_hasil.periode_tahun,
-        tanggal_mulai: investor_bagi_hasil.tanggal_mulai,
-        tanggal_selesai: investor_bagi_hasil.tanggal_selesai,
-        total_penjualan_bruto: investor_bagi_hasil.total_penjualan_bruto,
-        total_diskon_retur: investor_bagi_hasil.total_diskon_retur,
-        total_penjualan_bersih: investor_bagi_hasil.total_penjualan_bersih,
-        total_hpp: investor_bagi_hasil.total_hpp,
-        total_laba_kotor: investor_bagi_hasil.total_laba_kotor,
-        total_beban_operasional: investor_bagi_hasil.total_beban_operasional,
-        laba_konsolidasi_kotor: investor_bagi_hasil.laba_konsolidasi_kotor,
-        defisit_bulan_lalu: investor_bagi_hasil.defisit_bulan_lalu,
-        laba_kena_bagi_hasil: investor_bagi_hasil.laba_kena_bagi_hasil,
-        defisit_terbawa_berikutnya: investor_bagi_hasil.defisit_terbawa_berikutnya,
-        nisbah_pengelola_persen: investor_bagi_hasil.nisbah_pengelola_persen,
-        nisbah_investor_persen: investor_bagi_hasil.nisbah_investor_persen,
-        nominal_hak_pengelola: investor_bagi_hasil.nominal_hak_pengelola,
-        nominal_hak_investor: investor_bagi_hasil.nominal_hak_investor,
-        metode_penyelesaian: investor_bagi_hasil.metode_penyelesaian,
-        nominal_transfer: investor_bagi_hasil.nominal_transfer,
-        nominal_reinvestasi: investor_bagi_hasil.nominal_reinvestasi,
-        status: investor_bagi_hasil.status,
-        tanggal_persetujuan: investor_bagi_hasil.tanggal_persetujuan,
-        created_at: investor_bagi_hasil.created_at,
-        catatan: investor_bagi_hasil.catatan,
-        nama_bank_sumber: rekening_kas.nama,
-        nomor_rekening_sumber: rekening_kas.kode,
-        nama_pengaju: users.nama_user,
-      })
-      .from(investor_bagi_hasil)
-      .leftJoin(rekening_kas, eq(investor_bagi_hasil.id_rekening_kas, rekening_kas.id))
-      .leftJoin(users, eq(investor_bagi_hasil.diajukan_oleh, users.id))
-      .where(eq(investor_bagi_hasil.id, id))
-      .limit(1);
-
-    if (!bagiHasil) {
+    const data = await getBagiHasilDetail(id);
+    if (!data) {
       return c.json({ success: false, error: "Data bagi hasil tidak ditemukan" }, 404);
     }
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
 
-    const [profil] = await db.select().from(investor_profil).limit(1);
+investorRoutes.get("/bagi-hasil/:id", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const data = await getBagiHasilDetail(id);
+    if (!data) {
+      return c.json({ success: false, error: "Data bagi hasil tidak ditemukan" }, 404);
+    }
+    return c.json({ success: true, data });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
 
-    // Ambil rincian cabang
-    const cabangDetails = await db
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. KONSORSIUM MULTI-INVESTOR (DAFTAR SEMUA PEMODAL)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper fungsi untuk sinkronisasi porsi kepemilikan saham & modal konsorsium
+async function syncConsortiumEquity() {
+  // 1. Ambil seluruh investor aktif
+  const allActive = await db
+    .select({
+      id: cabang_investor.id_cabang_investor,
+      nilai: sql<number>`CAST(${cabang_investor.nilai_investasi} AS NUMERIC)`,
+    })
+    .from(cabang_investor)
+    .where(eq(cabang_investor.status, "AKTIF"));
+
+  const grandTotalModal = allActive.reduce((acc, curr) => acc + Number(curr.nilai || 0), 0);
+
+  // 2. Update porsi_kepemilikan tiap pemodal aktif
+  for (const inv of allActive) {
+    const porsi = grandTotalModal > 0 ? ((Number(inv.nilai || 0) / grandTotalModal) * 100).toFixed(2) : "0.00";
+    await db
+      .update(cabang_investor)
+      .set({ porsi_kepemilikan: porsi })
+      .where(eq(cabang_investor.id_cabang_investor, inv.id));
+  }
+
+  // 3. Sinkronkan saldo modal ke profil konsorsium (investor_profil)
+  await db
+    .update(investor_profil)
+    .set({ saldo_modal_saat_ini: String(grandTotalModal) });
+
+  // 4. Sinkronkan total_modal_investor ke seluruh cabang bertipe INVESTOR
+  await db
+    .update(cabang)
+    .set({ total_modal_investor: String(grandTotalModal) })
+    .where(eq(cabang.jenis_cabang, "INVESTOR"));
+
+  return grandTotalModal;
+}
+
+// GET /daftar-semua: Mengambil daftar seluruh pemodal konsorsium
+investorRoutes.get("/daftar-semua", async (c) => {
+  try {
+    const status = c.req.query("status");
+    const search = c.req.query("q")?.toLowerCase();
+
+    // Ambil daftar cabang bertipe INVESTOR yang dinaungi bersama
+    const branches = await db
       .select({
-        id_cabang: investor_bagi_hasil_cabang.id_cabang,
+        id_cabang: cabang.id_cabang,
         kode_cabang: cabang.kode_cabang,
         nama_cabang: cabang.nama_cabang,
-        penjualan_bersih: investor_bagi_hasil_cabang.penjualan_bersih,
-        hpp: investor_bagi_hasil_cabang.hpp,
-        laba_kotor: investor_bagi_hasil_cabang.laba_kotor,
-        beban_operasional: investor_bagi_hasil_cabang.beban_operasional,
-        laba_operasional: investor_bagi_hasil_cabang.laba_operasional,
+        alamat: cabang.alamat,
       })
-      .from(investor_bagi_hasil_cabang)
-      .leftJoin(cabang, eq(investor_bagi_hasil_cabang.id_cabang, cabang.id_cabang))
-      .where(eq(investor_bagi_hasil_cabang.id_bagi_hasil, id))
+      .from(cabang)
+      .where(eq(cabang.jenis_cabang, "INVESTOR"))
       .orderBy(cabang.nama_cabang);
+
+    const list = await db
+      .select({
+        id_cabang_investor: cabang_investor.id_cabang_investor,
+        nama_investor: cabang_investor.nama_investor,
+        telepon: cabang_investor.telepon,
+        email: cabang_investor.email,
+        nilai_investasi: sql<number>`CAST(${cabang_investor.nilai_investasi} AS NUMERIC)`,
+        porsi_kepemilikan: sql<number>`CAST(${cabang_investor.porsi_kepemilikan} AS NUMERIC)`,
+        nama_bank: cabang_investor.nama_bank,
+        no_rekening: cabang_investor.no_rekening,
+        atas_nama_rekening: cabang_investor.atas_nama_rekening,
+        tanggal_bergabung: cabang_investor.tanggal_bergabung,
+        status: cabang_investor.status,
+        catatan: cabang_investor.catatan,
+        created_at: cabang_investor.created_at,
+      })
+      .from(cabang_investor)
+      .orderBy(desc(cabang_investor.nilai_investasi), asc(cabang_investor.nama_investor));
+
+    let filtered = list;
+    if (status && status !== "ALL") {
+      filtered = filtered.filter((i) => i.status === status);
+    }
+    if (search) {
+      filtered = filtered.filter(
+        (i) =>
+          i.nama_investor.toLowerCase().includes(search) ||
+          (i.telepon && i.telepon.toLowerCase().includes(search)) ||
+          (i.no_rekening && i.no_rekening.includes(search)) ||
+          (i.nama_bank && i.nama_bank.toLowerCase().includes(search))
+      );
+    }
+
+    const totalModal = filtered.reduce((acc, curr) => acc + Number(curr.nilai_investasi || 0), 0);
+    const avgModal = filtered.length > 0 ? Math.round(totalModal / filtered.length) : 0;
 
     return c.json({
       success: true,
       data: {
-        bagi_hasil: bagiHasil,
-        profil,
-        cabang_details: cabangDetails,
+        list: filtered,
+        investor_branches: branches,
+        summary: {
+          total_investor: filtered.length,
+          total_modal: totalModal,
+          rata_rata_modal: avgModal,
+          total_cabang_investor: branches.length,
+        },
       },
     });
   } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
+    return c.json({ success: false, error: "Gagal memuat daftar investor: " + error.message }, 500);
+  }
+});
+
+// POST /daftar-semua: Tambah investor baru ke konsorsium (tanpa memilih cabang)
+investorRoutes.post("/daftar-semua", async (c) => {
+  try {
+    const activeUser = c.get("user");
+    const body = await c.req.json();
+    if (!body.nama_investor?.trim()) {
+      return c.json({ success: false, error: "Nama investor wajib diisi" }, 400);
+    }
+
+    const nilaiModal = String(body.nilai_investasi || "0");
+    const nominal = Math.round(parseFloat(nilaiModal));
+
+    const [newInv] = await db
+      .insert(cabang_investor)
+      .values({
+        id_cabang: null as any,
+        nama_investor: body.nama_investor.trim(),
+        telepon: body.telepon?.trim() || null,
+        email: body.email?.trim() || null,
+        nilai_investasi: nilaiModal,
+        porsi_kepemilikan: "0",
+        nama_bank: body.nama_bank?.trim() || null,
+        no_rekening: body.no_rekening?.trim() || null,
+        atas_nama_rekening: body.atas_nama_rekening?.trim() || null,
+        tanggal_bergabung: body.tanggal_bergabung || new Date().toISOString().slice(0, 10),
+        status: body.status || "AKTIF",
+        catatan: body.catatan?.trim() || null,
+      })
+      .returning();
+
+    // Sinkronisasi otomatis porsi saham dan saldo modal konsorsium
+    await syncConsortiumEquity();
+
+    // Jika user memilih rekening kas/bank penampung modal masuk, catat transaksi & mutasi kas
+    const idRekening = body.id_rekening_kas ? parseInt(body.id_rekening_kas) : null;
+    if (idRekening && nominal > 0) {
+      const [rek] = await db
+        .select()
+        .from(rekening_kas)
+        .where(eq(rekening_kas.id, idRekening))
+        .limit(1);
+
+      if (rek) {
+        const [profil] = await db.select().from(investor_profil).limit(1);
+        const tgl = body.tanggal_bergabung || new Date().toISOString().slice(0, 10);
+        const nomorRef = generateRef("INV-CAP-SETOR");
+
+        // 1. Catat transaksi modal
+        const [trxModal] = await db
+          .insert(investor_transaksi_modal)
+          .values({
+            nomor_referensi: nomorRef,
+            id_investor: profil?.id || 1,
+            jenis_transaksi: "SETORAN_AWAL",
+            tanggal_transaksi: tgl,
+            nominal: String(nominal),
+            id_rekening_kas: idRekening,
+            keterangan: `Setoran Modal Awal Pemodal: ${body.nama_investor.trim()} [${nomorRef}]`,
+            status: "APPROVED",
+            diajukan_oleh: activeUser?.id || 1,
+            disetujui_oleh: activeUser?.id || 1,
+            tanggal_persetujuan: new Date().toISOString(),
+            catatan_persetujuan: "Otomatis dibuat saat penambahan pemodal baru",
+          })
+          .returning();
+
+        // 2. Mutasi Kas Masuk
+        const nomorKasTrx = generateRef("KAS-INV-SETOR");
+        const [kasTrx] = await db
+          .insert(kas_transaksi)
+          .values({
+            nomor_transaksi: nomorKasTrx,
+            id_rekening: rek.id,
+            id_cabang: rek.id_cabang,
+            tipe: "MASUK",
+            kategori: "LAIN",
+            nominal: nominal,
+            tanggal: tgl,
+            keterangan: `Setoran Modal Pemodal Konsorsium: ${body.nama_investor.trim()} [${nomorRef}]`,
+            referensi_type: "MANUAL",
+            referensi_id: trxModal.id,
+            status: "APPROVED",
+            created_by: activeUser?.id || 1,
+            approved_by: activeUser?.id || 1,
+          })
+          .returning();
+
+        // 3. Update Saldo Kas
+        await db
+          .update(rekening_kas)
+          .set({ saldo: rek.saldo + nominal })
+          .where(eq(rekening_kas.id, rek.id));
+
+        // 4. Jurnal Umum
+        let [akunModal] = await db
+          .select()
+          .from(daftar_akun)
+          .where(eq(daftar_akun.kode_akun, "3.101.01"))
+          .limit(1);
+
+        if (!akunModal) {
+          [akunModal] = await db
+            .select()
+            .from(daftar_akun)
+            .where(eq(daftar_akun.tipe_akun_id, 3))
+            .limit(1);
+        }
+
+        if (akunModal && rek.id_akun_coa) {
+          const deskripsiJurnal = `Setoran Modal Pemodal: ${body.nama_investor.trim()} [${nomorRef}]`;
+          const [j1] = await db
+            .insert(jurnal_umum)
+            .values({
+              tanggal_transaksi: tgl,
+              no_referensi_bukti: nomorRef,
+              deskripsi: deskripsiJurnal,
+              akun_id: rek.id_akun_coa,
+              cabang_id: rek.id_cabang,
+              debit: nominal,
+              kredit: 0,
+              dibuat_oleh: activeUser?.id || 1,
+            })
+            .returning();
+
+          await db.insert(jurnal_umum).values({
+            tanggal_transaksi: tgl,
+            no_referensi_bukti: nomorRef,
+            deskripsi: deskripsiJurnal,
+            akun_id: akunModal.id,
+            cabang_id: rek.id_cabang,
+            debit: 0,
+            kredit: nominal,
+            dibuat_oleh: activeUser?.id || 1,
+          });
+
+          await db
+            .update(investor_transaksi_modal)
+            .set({ id_kas_transaksi: kasTrx.id, id_jurnal: j1.id })
+            .where(eq(investor_transaksi_modal.id, trxModal.id));
+        }
+      }
+    }
+
+    return c.json({ success: true, data: newInv }, 201);
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal menambah investor: " + error.message }, 500);
+  }
+});
+
+// PUT /daftar-semua/:id: Update data investor
+investorRoutes.put("/daftar-semua/:id", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ success: false, error: "ID Investor tidak valid" }, 400);
+
+    const body = await c.req.json();
+    if (!body.nama_investor?.trim()) {
+      return c.json({ success: false, error: "Nama investor wajib diisi" }, 400);
+    }
+
+    const [existing] = await db
+      .select()
+      .from(cabang_investor)
+      .where(eq(cabang_investor.id_cabang_investor, id));
+
+    if (!existing) {
+      return c.json({ success: false, error: "Investor tidak ditemukan" }, 404);
+    }
+
+    const [updated] = await db
+      .update(cabang_investor)
+      .set({
+        nama_investor: body.nama_investor.trim(),
+        telepon: body.telepon !== undefined ? (body.telepon?.trim() || null) : undefined,
+        email: body.email !== undefined ? (body.email?.trim() || null) : undefined,
+        nilai_investasi: body.nilai_investasi !== undefined ? String(body.nilai_investasi) : undefined,
+        nama_bank: body.nama_bank !== undefined ? (body.nama_bank?.trim() || null) : undefined,
+        no_rekening: body.no_rekening !== undefined ? (body.no_rekening?.trim() || null) : undefined,
+        atas_nama_rekening: body.atas_nama_rekening !== undefined ? (body.atas_nama_rekening?.trim() || null) : undefined,
+        status: body.status || undefined,
+        tanggal_bergabung: body.tanggal_bergabung !== undefined ? body.tanggal_bergabung : undefined,
+        catatan: body.catatan !== undefined ? (body.catatan?.trim() || null) : undefined,
+        updated_at: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(cabang_investor.id_cabang_investor, id))
+      .returning();
+
+    // Sinkronisasi otomatis porsi saham dan saldo modal konsorsium
+    await syncConsortiumEquity();
+
+    return c.json({ success: true, data: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal memperbarui investor: " + error.message }, 500);
+  }
+});
+
+// DELETE /daftar-semua/:id: Hapus investor
+investorRoutes.delete("/daftar-semua/:id", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ success: false, error: "ID Investor tidak valid" }, 400);
+
+    const [existing] = await db
+      .select()
+      .from(cabang_investor)
+      .where(eq(cabang_investor.id_cabang_investor, id));
+
+    if (!existing) {
+      return c.json({ success: false, error: "Investor tidak ditemukan" }, 404);
+    }
+
+    await db
+      .delete(cabang_investor)
+      .where(eq(cabang_investor.id_cabang_investor, id));
+
+    // Sinkronisasi otomatis porsi saham dan saldo modal konsorsium
+    await syncConsortiumEquity();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: "Gagal menghapus investor: " + error.message }, 500);
   }
 });

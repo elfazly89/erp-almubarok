@@ -41,7 +41,8 @@ import {
   Receipt,
   Landmark,
   PieChart,
-  ClipboardCheck
+  ClipboardCheck,
+  DatabaseBackup
 } from "lucide-react";
 import { useAppSettings } from "@/components/providers/AppSettingsProvider";
 
@@ -158,10 +159,11 @@ const NAV_ITEMS: NavItem[] = [
     icon: <Landmark className="w-5 h-5 text-amber-500" />,
     children: [
       { label: "Dasbor Investor", href: "/investor", icon: <LayoutDashboard className="w-4 h-4" /> },
-      { label: "Profil & Pengaturan", href: "/investor/profil", icon: <Sliders className="w-4 h-4" /> },
+      { label: "Daftar Para Pemodal", href: "/investor/daftar", icon: <Users className="w-4 h-4 text-primary" /> },
       { label: "Transaksi Modal", href: "/investor/transaksi", icon: <Wallet className="w-4 h-4" /> },
       { label: "Pembagian Bagi Hasil", href: "/investor/bagi-hasil", icon: <TrendingUp className="w-4 h-4 text-emerald-500" /> },
       { label: "Buku Pembantu Modal", href: "/investor/buku-pembantu", icon: <FileText className="w-4 h-4" /> },
+      { label: "Profil & Pengaturan", href: "/investor/profil", icon: <Sliders className="w-4 h-4" /> },
     ],
   },
   {
@@ -176,6 +178,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Role Menu", href: "/pengaturan/role-menu", icon: <Settings className="w-4 h-4" /> },
       { label: "Pengaturan Aplikasi", href: "/pengaturan/aplikasi", icon: <Sliders className="w-4 h-4" /> },
       { label: "Pengaturan Struk / Nota", href: "/pengaturan/nota", icon: <Receipt className="w-4 h-4" /> },
+      { label: "Migrasi Data", href: "/pengaturan/migrasi", icon: <DatabaseBackup className="w-4 h-4" /> },
     ],
   },
 ];

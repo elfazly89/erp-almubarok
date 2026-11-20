@@ -49,3 +49,8 @@ next-env.d.ts
 # local sqlite database
 *.db-shm
 *.db-wal
+
+# temporary migration storage
+temp_migrasi/
+**/temp_migrasi/
+

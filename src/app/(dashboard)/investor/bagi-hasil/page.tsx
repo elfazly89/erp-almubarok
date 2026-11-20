@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   TrendingUp,
@@ -21,15 +21,43 @@ import {
   ArrowRight,
   FileText,
   DollarSign,
+  Users,
+  Percent,
+  Layers,
+  Sparkles,
+  Info,
+  Check,
+  CreditCard,
+  Sliders,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
+
+interface MemberBreakdownItem {
+  id_cabang_investor: number;
+  nama_investor: string;
+  modal_disetor: number;
+  tanggal_bergabung: string | null;
+  bulan_aktif: number;
+  bobot_waktu_modal: number;
+  porsi_persen: number;
+  nominal_hak_dividen: number;
+  nominal_transfer: number;
+  nominal_reinvestasi: number;
+  metode_pencairan: "TRANSFER" | "REINVESTASI";
+  nama_bank: string | null;
+  no_rekening: string | null;
+  atas_nama_rekening: string | null;
+}
 
 interface KalkulasiData {
   periode: {
+    jenis_periode: "TAHUNAN" | "BULANAN";
     bulan: number;
     tahun: number;
     tanggal_mulai: string;
     tanggal_selesai: string;
+    jadwal_pencairan_bulan: number;
+    jadwal_pencairan_tahun: number;
   };
   profil: {
     nama_investor: string;
@@ -52,6 +80,7 @@ interface KalkulasiData {
     defisit_terbawa_berikutnya: number;
     nominal_hak_pengelola: number;
     nominal_hak_investor: number;
+    total_bobot_konsorsium?: number;
   };
   breakdown_cabang: Array<{
     id_cabang: number;
@@ -65,6 +94,7 @@ interface KalkulasiData {
     beban_operasional: number;
     laba_operasional: number;
   }>;
+  member_breakdown: MemberBreakdownItem[];
 }
 
 interface RekapBagiHasil {
@@ -72,6 +102,9 @@ interface RekapBagiHasil {
   nomor_rekap: string;
   periode_bulan: number;
   periode_tahun: number;
+  jenis_periode?: "TAHUNAN" | "BULANAN";
+  jadwal_pencairan_bulan?: number;
+  jadwal_pencairan_tahun?: number;
   tanggal_mulai: string;
   tanggal_selesai: string;
   total_penjualan_bersih: string;
@@ -80,7 +113,7 @@ interface RekapBagiHasil {
   laba_kena_bagi_hasil: string;
   nominal_hak_investor: string;
   nominal_hak_pengelola: string;
-  metode_penyelesaian: "TRANSFER_BANK" | "REINVESTASI_MODAL";
+  metode_penyelesaian: string;
   nominal_transfer: string;
   nominal_reinvestasi: string;
   status: "PENDING" | "APPROVED" | "DIBAYARKAN" | "REJECTED";
@@ -98,12 +131,19 @@ interface RekeningKas {
   nama_cabang: string;
 }
 
+const NAMA_BULAN = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+];
+
 export default function BagiHasilInvestorPage() {
   const now = new Date();
+  const [jenisPeriode, setJenisPeriode] = useState<"TAHUNAN" | "BULANAN">("TAHUNAN");
   const [selectedBulan, setSelectedBulan] = useState(now.getMonth() + 1);
   const [selectedTahun, setSelectedTahun] = useState(now.getFullYear());
 
   const [kalkulasi, setKalkulasi] = useState<KalkulasiData | null>(null);
+  const [members, setMembers] = useState<MemberBreakdownItem[]>([]);
   const [rekapList, setRekapList] = useState<RekapBagiHasil[]>([]);
   const [rekeningList, setRekeningList] = useState<RekeningKas[]>([]);
   const [loadingKalkulasi, setLoadingKalkulasi] = useState(false);
@@ -112,9 +152,6 @@ export default function BagiHasilInvestorPage() {
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Settlement Form State
-  const [metodePenyelesaian, setMetodePenyelesaian] = useState<"TRANSFER_BANK" | "REINVESTASI_MODAL">(
-    "TRANSFER_BANK"
-  );
   const [selectedRekeningKas, setSelectedRekeningKas] = useState<string>("");
   const [catatanPengajuan, setCatatanPengajuan] = useState("");
 
@@ -150,12 +187,17 @@ export default function BagiHasilInvestorPage() {
   const handleHitungKalkulasi = async () => {
     setLoadingKalkulasi(true);
     try {
-      const res = await fetch(
-        `/api/investor/bagi-hasil/kalkulasi?bulan=${selectedBulan}&tahun=${selectedTahun}`
-      );
+      const url =
+        jenisPeriode === "TAHUNAN"
+          ? `/api/investor/bagi-hasil/kalkulasi?jenis_periode=TAHUNAN&tahun=${selectedTahun}`
+          : `/api/investor/bagi-hasil/kalkulasi?jenis_periode=BULANAN&bulan=${selectedBulan}&tahun=${selectedTahun}`;
+
+      const res = await fetch(url);
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || "Gagal menghitung bagi hasil");
+
       setKalkulasi(json.data);
+      setMembers(json.data.member_breakdown || []);
     } catch (err: any) {
       setToast({ type: "error", text: err.message });
     } finally {
@@ -163,12 +205,51 @@ export default function BagiHasilInvestorPage() {
     }
   };
 
+  // Toggle individual member payout preference
+  const handleToggleMemberPayout = (id_cabang_investor: number) => {
+    setMembers((prev) =>
+      prev.map((m) => {
+        if (m.id_cabang_investor === id_cabang_investor) {
+          const newMetode = m.metode_pencairan === "TRANSFER" ? "REINVESTASI" : "TRANSFER";
+          return {
+            ...m,
+            metode_pencairan: newMetode,
+            nominal_transfer: newMetode === "TRANSFER" ? m.nominal_hak_dividen : 0,
+            nominal_reinvestasi: newMetode === "REINVESTASI" ? m.nominal_hak_dividen : 0,
+          };
+        }
+        return m;
+      })
+    );
+  };
+
+  // Bulk set member payout preference
+  const handleBulkSetPayout = (metode: "TRANSFER" | "REINVESTASI") => {
+    setMembers((prev) =>
+      prev.map((m) => ({
+        ...m,
+        metode_pencairan: metode,
+        nominal_transfer: metode === "TRANSFER" ? m.nominal_hak_dividen : 0,
+        nominal_reinvestasi: metode === "REINVESTASI" ? m.nominal_hak_dividen : 0,
+      }))
+    );
+  };
+
+  // Totals for Transfer vs Reinvestment from Members
+  const totalTransferRequired = useMemo(() => {
+    return members.reduce((acc, curr) => acc + curr.nominal_transfer, 0);
+  }, [members]);
+
+  const totalReinvestRequired = useMemo(() => {
+    return members.reduce((acc, curr) => acc + curr.nominal_reinvestasi, 0);
+  }, [members]);
+
   // 3. Maker: Ajukan Penetapan Bagi Hasil
   const handleAjukanBagiHasil = async () => {
     if (!kalkulasi) return;
 
-    if (metodePenyelesaian === "TRANSFER_BANK" && !selectedRekeningKas && kalkulasi.konsolidasi.nominal_hak_investor > 0) {
-      alert("Harap pilih rekening kas/bank sumber pembayaran bagi hasil.");
+    if (totalTransferRequired > 0 && !selectedRekeningKas) {
+      alert("Terdapat dividen yang dicairkan via Transfer Bank. Harap pilih rekening kas/bank sumber pembayaran.");
       return;
     }
 
@@ -178,8 +259,11 @@ export default function BagiHasilInvestorPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          periode_bulan: selectedBulan,
+          jenis_periode: jenisPeriode,
+          periode_bulan: jenisPeriode === "TAHUNAN" ? 12 : selectedBulan,
           periode_tahun: selectedTahun,
+          jadwal_pencairan_bulan: 2, // Februari
+          jadwal_pencairan_tahun: jenisPeriode === "TAHUNAN" ? selectedTahun + 1 : selectedTahun,
           tanggal_mulai: kalkulasi.periode.tanggal_mulai,
           tanggal_selesai: kalkulasi.periode.tanggal_selesai,
           total_penjualan_bruto: kalkulasi.konsolidasi.total_penjualan_bruto,
@@ -196,10 +280,11 @@ export default function BagiHasilInvestorPage() {
           nisbah_investor_persen: kalkulasi.profil.nisbah_investor,
           nominal_hak_pengelola: kalkulasi.konsolidasi.nominal_hak_pengelola,
           nominal_hak_investor: kalkulasi.konsolidasi.nominal_hak_investor,
-          metode_penyelesaian: metodePenyelesaian,
+          metode_penyelesaian: totalReinvestRequired > 0 && totalTransferRequired > 0 ? "MEMBER_CHOICE" : totalReinvestRequired > 0 ? "REINVESTASI_MODAL" : "TRANSFER_BANK",
           id_rekening_kas: selectedRekeningKas || null,
           catatan: catatanPengajuan,
           breakdown_cabang: kalkulasi.breakdown_cabang,
+          member_breakdown: members,
         }),
       });
 
@@ -208,7 +293,7 @@ export default function BagiHasilInvestorPage() {
 
       setToast({
         type: "success",
-        text: `Bagi hasil periode ${selectedBulan}/${selectedTahun} berhasil diajukan dan menunggu persetujuan (Checker).`,
+        text: `Penetapan Tutup Buku Bagi Hasil Tahun ${selectedTahun} berhasil diajukan dan membekukan snapshot pemodal (Pending Checker).`,
       });
       fetchRekap();
     } catch (err: any) {
@@ -220,7 +305,7 @@ export default function BagiHasilInvestorPage() {
 
   // 4. Checker: Approve Bagi Hasil
   const handleApprove = async (id: number) => {
-    if (!confirm("Konfirmasi persetujuan (Approve) bagi hasil ini? Sistem akan memposting jurnal umum dan memotong kas/menambah modal.")) {
+    if (!confirm("Konfirmasi persetujuan (Approve) bagi hasil ini? Sistem akan memposting jurnal umum, mencairkan kas/mengeksekusi reinvestasi modal pemodal.")) {
       return;
     }
     try {
@@ -272,51 +357,70 @@ export default function BagiHasilInvestorPage() {
   };
 
   return (
-    <div className="space-y-6 p-4 md:p-8">
-      {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-outline-variant/40 pb-5">
-        <div className="flex items-center gap-3">
+    <div className="space-y-6 p-4 md:p-8 max-w-7xl mx-auto">
+      {/* ─────────────────────────────────────────────────────────────
+          1. HEADER SECTION
+      ───────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-outline-variant/30 pb-5">
+        <div className="flex items-start sm:items-center gap-3">
           <Link
             href="/investor"
-            className="p-2 rounded-lg border border-outline-variant/40 bg-surface hover:bg-surface-container text-on-surface-variant transition-colors"
+            className="p-2.5 rounded-xl border border-outline-variant/40 bg-surface hover:bg-surface-container text-on-surface-variant transition-colors shadow-xs"
+            title="Kembali ke Dasbor Investor"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="text-xl md:text-2xl font-bold tracking-tight text-on-surface">
-              Pembagian Bagi Hasil (Dividen)
-            </h1>
-            <p className="text-xs md:text-sm text-on-surface-variant">
-              Kalkulasi laba konsolidasi seluruh cabang investor, kompensasi defisit rugi, dan eksekusi pembayaran
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-on-surface">
+                Tutup Buku & Pembagian Bagi Hasil
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Siklus Tahunan (Pencairan Februari)
+              </span>
+            </div>
+            <p className="text-xs md:text-sm text-on-surface-variant mt-0.5">
+              Konsolidasi laba 1 tahun buku penuh, pembobotan modal tengah tahun (Time-Weighted Capital), dan freeze snapshot pemodal
             </p>
           </div>
         </div>
 
-        <button
-          onClick={fetchRekap}
-          disabled={loadingList}
-          className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-outline-variant/60 bg-surface text-on-surface hover:bg-surface-container transition-all active:scale-95 disabled:opacity-50 self-start sm:self-auto"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loadingList ? "animate-spin" : ""}`} />
-          Muat Ulang
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/investor/daftar"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-outline-variant/40 bg-surface text-on-surface hover:bg-surface-container transition-all active:scale-95 shadow-xs"
+          >
+            <Users className="w-3.5 h-3.5 text-primary" />
+            <span>Daftar Pemodal</span>
+          </Link>
+
+          <button
+            onClick={fetchRekap}
+            disabled={loadingList}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-outline-variant/60 bg-surface text-on-surface hover:bg-surface-container transition-all active:scale-95 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingList ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">Segarkan</span>
+          </button>
+        </div>
       </div>
 
+      {/* FEEDBACK TOAST BANNER */}
       {toast && (
         <div
-          className={`p-4 rounded-xl text-xs md:text-sm flex items-center justify-between gap-3 ${
+          className={`p-4 rounded-2xl text-xs md:text-sm flex items-center justify-between gap-3 animate-in fade-in ${
             toast.type === "success"
-              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
-              : "bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-400"
+              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
+              : "bg-rose-500/10 border border-rose-500/30 text-rose-800 dark:text-rose-300"
           }`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {toast.type === "success" ? (
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             ) : (
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
             )}
-            <span>{toast.text}</span>
+            <span className="font-semibold">{toast.text}</span>
           </div>
           <button onClick={() => setToast(null)} className="text-xs opacity-60 hover:opacity-100">
             ✕
@@ -324,96 +428,148 @@ export default function BagiHasilInvestorPage() {
         </div>
       )}
 
-      {/* KALKULATOR PENETAPAN PERIODE */}
-      <div className="p-5 md:p-6 rounded-2xl border border-outline-variant/30 bg-surface shadow-sm space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-outline-variant/30 pb-4">
+      {/* ─────────────────────────────────────────────────────────────
+          2. KALKULATOR CLOSING BAGI HASIL KONSOLIDASI
+      ───────────────────────────────────────────────────────────── */}
+      <div className="p-5 md:p-6 rounded-3xl border border-outline-variant/30 bg-surface shadow-xs space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-outline-variant/20 pb-5">
           <div>
-            <h2 className="font-bold text-sm md:text-base text-on-surface flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-600" /> Kalkulator Closing Bagi Hasil Konsolidasi
+            <h2 className="font-extrabold text-base md:text-lg text-on-surface flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-emerald-600" />
+              <span>Kalkulator Closing Bagi Hasil Konsolidasi</span>
             </h2>
-            <p className="text-xs text-on-surface-variant">
-              Tarik data penjualan, HPP, beban dari seluruh cabang bertipe INVESTOR untuk dihitung bagi hasilnya
+            <p className="text-xs text-on-surface-variant mt-0.5">
+              Pilih mode periode tutup buku untuk mengkonsolidasi laba seluruh cabang bertipe INVESTOR
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedBulan}
-              onChange={(e) => setSelectedBulan(parseInt(e.target.value))}
-              className="px-3 py-1.5 rounded-lg border border-outline-variant/50 bg-surface text-xs font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              {[
-                "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-                "Juli", "Agustus", "September", "Oktober", "November", "Desember"
-              ].map((m, idx) => (
-                <option key={idx + 1} value={idx + 1}>
-                  Bulan {m}
-                </option>
-              ))}
-            </select>
+          {/* Mode Switcher & Filter Controls */}
+          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+            {/* Mode Switcher */}
+            <div className="p-1 rounded-xl bg-surface-container-low border border-outline-variant/30 flex items-center gap-1 text-xs font-bold">
+              <button
+                onClick={() => setJenisPeriode("TAHUNAN")}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  jenisPeriode === "TAHUNAN"
+                    ? "bg-primary text-on-primary shadow-xs"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Tutup Buku Tahunan
+              </button>
+              <button
+                onClick={() => setJenisPeriode("BULANAN")}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  jenisPeriode === "BULANAN"
+                    ? "bg-primary text-on-primary shadow-xs"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Bulanan (Interim)
+              </button>
+            </div>
 
+            {/* Bulan Selector (If Bulanan) */}
+            {jenisPeriode === "BULANAN" && (
+              <select
+                value={selectedBulan}
+                onChange={(e) => setSelectedBulan(parseInt(e.target.value))}
+                className="px-3 py-2 rounded-xl border border-outline-variant/50 bg-surface text-xs font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                {NAMA_BULAN.map((m, idx) => (
+                  <option key={idx + 1} value={idx + 1}>
+                    Bulan {m}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Tahun Selector */}
             <select
               value={selectedTahun}
               onChange={(e) => setSelectedTahun(parseInt(e.target.value))}
-              className="px-3 py-1.5 rounded-lg border border-outline-variant/50 bg-surface text-xs font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="px-3.5 py-2 rounded-xl border border-outline-variant/50 bg-surface text-xs font-bold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
-              {[2024, 2025, 2026, 2027].map((y) => (
+              {[2024, 2025, 2026, 2027, 2028].map((y) => (
                 <option key={y} value={y}>
                   Tahun {y}
                 </option>
               ))}
             </select>
 
+            {/* Action Hitung */}
             <button
               onClick={handleHitungKalkulasi}
               disabled={loadingKalkulasi}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+              className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingKalkulasi ? "animate-spin" : ""}`} />
-              {loadingKalkulasi ? "Menghitung..." : "Hitung Laba"}
+              <span>{loadingKalkulasi ? "Menghitung..." : "Kalkulasi Laba"}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Notice Siklus Tahunan & Pencairan Februari */}
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-on-surface block">
+                {jenisPeriode === "TAHUNAN"
+                  ? `Siklus Tutup Buku Tahunan Buku ${selectedTahun}`
+                  : `Closing Bulanan Bulan ${NAMA_BULAN[selectedBulan - 1]} ${selectedTahun}`}
+              </span>
+              <span className="text-on-surface-variant block mt-0.5 leading-relaxed">
+                {jenisPeriode === "TAHUNAN"
+                  ? `Konsolidasi laba 1 tahun penuh (1 Jan - 31 Des ${selectedTahun}). Realisasi pencairan dividen dijadwalkan pada bulan Februari ${selectedTahun + 1}. Setiap investor baru dihitung prorata bobot bulan aktif (Time-Weighted Capital).`
+                  : `Closing bulanan sementara (interim) untuk evaluasi performa kas konsorsium.`}
+              </span>
+            </div>
+          </div>
+          <div className="px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 font-bold text-xs whitespace-nowrap self-start sm:self-center">
+            Jadwal Pencairan: Februari {jenisPeriode === "TAHUNAN" ? selectedTahun + 1 : selectedTahun}
           </div>
         </div>
 
         {/* HASIL KALKULASI PREVIEW */}
         {kalkulasi && (
-          <div className="space-y-5 animate-in fade-in duration-200">
+          <div className="space-y-6 animate-in fade-in duration-200">
             {/* Konsolidasi Financial Summary */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <div className="p-3.5 rounded-xl border border-outline-variant/20 bg-surface-container-low">
-                <span className="text-on-surface-variant/70 block text-[11px]">Penjualan Bersih</span>
-                <span className="font-bold text-sm font-mono text-on-surface mt-1 block">
+              <div className="p-4 rounded-2xl border border-outline-variant/20 bg-surface-container-low">
+                <span className="text-on-surface-variant block text-[11px] font-medium">Penjualan Bersih</span>
+                <span className="font-extrabold text-base font-mono text-on-surface mt-1 block">
                   {formatCurrency(kalkulasi.konsolidasi.total_penjualan_bersih)}
                 </span>
-                <span className="text-[10px] text-on-surface-variant block mt-0.5">
+                <span className="text-[10px] text-on-surface-variant block mt-0.5 opacity-70">
                   Bruto: {formatCurrency(kalkulasi.konsolidasi.total_penjualan_bruto)}
                 </span>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-outline-variant/20 bg-surface-container-low">
-                <span className="text-on-surface-variant/70 block text-[11px]">Total HPP</span>
-                <span className="font-bold text-sm font-mono text-rose-600 dark:text-rose-400 mt-1 block">
+              <div className="p-4 rounded-2xl border border-outline-variant/20 bg-surface-container-low">
+                <span className="text-on-surface-variant block text-[11px] font-medium">Total HPP</span>
+                <span className="font-extrabold text-base font-mono text-rose-600 dark:text-rose-400 mt-1 block">
                   - {formatCurrency(kalkulasi.konsolidasi.total_hpp)}
                 </span>
-                <span className="text-[10px] text-on-surface-variant block mt-0.5">
+                <span className="text-[10px] text-on-surface-variant block mt-0.5 opacity-70">
                   Laba Kotor: {formatCurrency(kalkulasi.konsolidasi.total_laba_kotor)}
                 </span>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-outline-variant/20 bg-surface-container-low">
-                <span className="text-on-surface-variant/70 block text-[11px]">Beban Operasional</span>
-                <span className="font-bold text-sm font-mono text-rose-600 dark:text-rose-400 mt-1 block">
+              <div className="p-4 rounded-2xl border border-outline-variant/20 bg-surface-container-low">
+                <span className="text-on-surface-variant block text-[11px] font-medium">Beban Operasional</span>
+                <span className="font-extrabold text-base font-mono text-rose-600 dark:text-rose-400 mt-1 block">
                   - {formatCurrency(kalkulasi.konsolidasi.total_beban_operasional)}
                 </span>
-                <span className="text-[10px] text-on-surface-variant block mt-0.5">
-                  Dari Jurnal Akun Tipe 6
+                <span className="text-[10px] text-on-surface-variant block mt-0.5 opacity-70">
+                  Dari Akun Beban (Tipe 6)
                 </span>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-outline-variant/20 bg-surface-container-low">
-                <span className="text-on-surface-variant/70 block text-[11px]">Laba Konsolidasi</span>
+              <div className="p-4 rounded-2xl border border-outline-variant/20 bg-surface-container-low">
+                <span className="text-on-surface-variant block text-[11px] font-medium">Laba Konsolidasi Bersih</span>
                 <span
-                  className={`font-bold text-base font-mono mt-1 block ${
+                  className={`font-extrabold text-lg font-mono mt-1 block ${
                     kalkulasi.konsolidasi.laba_konsolidasi_kotor >= 0
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-rose-600 dark:text-rose-400"
@@ -421,61 +577,208 @@ export default function BagiHasilInvestorPage() {
                 >
                   {formatCurrency(kalkulasi.konsolidasi.laba_konsolidasi_kotor)}
                 </span>
-                <span className="text-[10px] text-on-surface-variant block mt-0.5">
-                  {kalkulasi.konsolidasi.laba_konsolidasi_kotor >= 0 ? "Surplus Bersih" : "Defisit (Rugi)"}
+                <span className="text-[10px] text-on-surface-variant block mt-0.5 opacity-70">
+                  {kalkulasi.konsolidasi.laba_konsolidasi_kotor >= 0 ? "Surplus Bersih" : "Defisit (Rugi Operasional)"}
                 </span>
               </div>
             </div>
 
             {/* DEFICIT CARRYFORWARD & NISBAH CALCULATION BOX */}
-            <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-3">
+            <div className="p-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 space-y-3">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                  <span className="font-bold text-on-surface">
-                    Perhitungan Kompensasi Defisit & Dasar Bagi Hasil
+                  <span className="font-bold text-on-surface text-sm">
+                    Kompensasi Defisit & Alokasi Dividen Syariah
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[11px] text-on-surface-variant">
-                    Nisbah: <strong>Al-Mubarok {kalkulasi.profil.nisbah_pengelola}%</strong> :{" "}
-                    <strong>Investor {kalkulasi.profil.nisbah_investor}%</strong>
+                  <span className="text-xs text-on-surface-variant font-medium">
+                    Ketentuan Nisbah: <strong>Pengelola {kalkulasi.profil.nisbah_pengelola}%</strong> :{" "}
+                    <strong>Konsorsium Investor {kalkulasi.profil.nisbah_investor}%</strong>
                   </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
-                <div className="bg-surface p-3 rounded-lg border border-outline-variant/30">
-                  <span className="text-[10px] text-on-surface-variant block">Defisit Periode Sebelumnya:</span>
+                <div className="bg-surface p-3.5 rounded-xl border border-outline-variant/30">
+                  <span className="text-[10px] text-on-surface-variant block">Kompensasi Defisit Lalu:</span>
                   <span className="font-bold font-mono text-rose-600 dark:text-rose-400 block mt-0.5">
                     {formatCurrency(kalkulasi.konsolidasi.defisit_bulan_lalu)}
                   </span>
                 </div>
 
-                <div className="bg-surface p-3 rounded-lg border border-outline-variant/30">
+                <div className="bg-surface p-3.5 rounded-xl border border-outline-variant/30">
                   <span className="text-[10px] text-on-surface-variant block">Laba Dasar Kena Bagi Hasil:</span>
-                  <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400 block mt-0.5 text-sm">
+                  <span className="font-extrabold font-mono text-emerald-600 dark:text-emerald-400 block mt-0.5 text-base">
                     {formatCurrency(kalkulasi.konsolidasi.laba_kena_bagi_hasil)}
                   </span>
                 </div>
 
-                <div className="bg-surface p-3 rounded-lg border border-outline-variant/30">
-                  <span className="text-[10px] text-on-surface-variant block">Hak Dividen Investor ({kalkulasi.profil.nisbah_investor}%):</span>
-                  <span className="font-bold font-mono text-amber-600 dark:text-amber-400 block mt-0.5 text-sm">
+                <div className="bg-surface p-3.5 rounded-xl border border-outline-variant/30">
+                  <span className="text-[10px] text-on-surface-variant block">
+                    Hak Dividen Konsorsium Investor ({kalkulasi.profil.nisbah_investor}%):
+                  </span>
+                  <span className="font-extrabold font-mono text-amber-600 dark:text-amber-400 block mt-0.5 text-base">
                     {formatCurrency(kalkulasi.konsolidasi.nominal_hak_investor)}
                   </span>
                 </div>
               </div>
             </div>
 
+            {/* ─────────────────────────────────────────────────────────────
+                3. TABEL TIME-WEIGHTED CAPITAL (SNAPSHOT INDIVIDUAL PEMODAL)
+            ───────────────────────────────────────────────────────────── */}
+            <div className="border border-outline-variant/30 rounded-2xl overflow-hidden shadow-xs">
+              <div className="bg-surface-container-low px-5 py-3.5 border-b border-outline-variant/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="font-extrabold text-sm text-on-surface flex items-center gap-2">
+                    <Users className="w-4 h-4 text-primary" />
+                    <span>Rincian Hak Dividen Pemodal (Time-Weighted Capital)</span>
+                  </span>
+                  <p className="text-[11px] text-on-surface-variant mt-0.5">
+                    Pembagian dividen proporsional berdasarkan bobot: <strong>Modal Disetor × Bulan Aktif Bekerja</strong>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-on-surface-variant font-medium">Set Semua:</span>
+                  <button
+                    onClick={() => handleBulkSetPayout("TRANSFER")}
+                    className="px-2.5 py-1 rounded-lg border border-outline-variant/40 hover:bg-surface text-[10px] font-bold text-on-surface transition-colors"
+                  >
+                    Transfer Kas
+                  </button>
+                  <button
+                    onClick={() => handleBulkSetPayout("REINVESTASI")}
+                    className="px-2.5 py-1 rounded-lg border border-indigo-500/40 hover:bg-indigo-500/10 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 transition-colors"
+                  >
+                    Reinvestasi (Compounding)
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-surface-container-lowest text-on-surface-variant font-semibold border-b border-outline-variant/20">
+                    <tr>
+                      <th className="px-4 py-3">Nama Pemodal</th>
+                      <th className="px-4 py-3 text-right">Modal Disetor</th>
+                      <th className="px-4 py-3 text-center">Bulan Aktif</th>
+                      <th className="px-4 py-3 text-right">Bobot Modal</th>
+                      <th className="px-4 py-3 text-right">Porsi Hak</th>
+                      <th className="px-4 py-3 text-right">Hak Dividen (Rp)</th>
+                      <th className="px-4 py-3 text-center">Pilihan Realisasi</th>
+                      <th className="px-4 py-3">Rekening Bank</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/20">
+                    {members.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="text-center py-8 text-on-surface-variant">
+                          Belum ada data pemodal aktif. Silakan tambahkan pemodal di menu Daftar Pemodal.
+                        </td>
+                      </tr>
+                    ) : (
+                      members.map((m) => (
+                        <tr key={m.id_cabang_investor} className="hover:bg-surface-container/20 transition-colors">
+                          <td className="px-4 py-3 font-bold text-on-surface">
+                            {m.nama_investor}
+                            {m.tanggal_bergabung && (
+                              <span className="text-[10px] text-on-surface-variant font-normal block">
+                                Gabung: {formatDate(m.tanggal_bergabung)}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-right font-mono font-semibold">
+                            {formatCurrency(m.modal_disetor)}
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                m.bulan_aktif === 12
+                                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+                                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+                              }`}
+                            >
+                              {m.bulan_aktif} / 12 bln
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3 text-right font-mono text-on-surface-variant">
+                            {m.bobot_waktu_modal.toLocaleString("id-ID")}
+                          </td>
+
+                          <td className="px-4 py-3 text-right font-mono font-bold text-primary">
+                            {m.porsi_persen.toFixed(2)}%
+                          </td>
+
+                          <td className="px-4 py-3 text-right font-mono font-extrabold text-amber-600 dark:text-amber-400 text-sm">
+                            {formatCurrency(m.nominal_hak_dividen)}
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => handleToggleMemberPayout(m.id_cabang_investor)}
+                              className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition-all border ${
+                                m.metode_pencairan === "TRANSFER"
+                                  ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/20"
+                                  : "bg-indigo-500/10 text-indigo-700 border-indigo-500/30 hover:bg-indigo-500/20"
+                              }`}
+                              title="Klik untuk beralih antara Transfer Bank vs Reinvestasi"
+                            >
+                              {m.metode_pencairan === "TRANSFER" ? "💳 Transfer Kas" : "📈 Reinvestasi Modal"}
+                            </button>
+                          </td>
+
+                          <td className="px-4 py-3 text-on-surface-variant text-[11px]">
+                            {m.nama_bank ? (
+                              <span>
+                                {m.nama_bank} • {m.no_rekening}
+                              </span>
+                            ) : (
+                              <span className="italic opacity-60">Belum diset</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {members.length > 0 && (
+                    <tfoot className="bg-surface-container-low font-bold text-xs border-t-2 border-outline-variant/30">
+                      <tr>
+                        <td className="px-4 py-3">Total Konsorsium ({members.length} Pemodal)</td>
+                        <td className="px-4 py-3 text-right font-mono">
+                          {formatCurrency(members.reduce((acc, curr) => acc + curr.modal_disetor, 0))}
+                        </td>
+                        <td className="px-4 py-3 text-center">-</td>
+                        <td className="px-4 py-3 text-right font-mono">
+                          {members.reduce((acc, curr) => acc + curr.bobot_waktu_modal, 0).toLocaleString("id-ID")}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono">100.00%</td>
+                        <td className="px-4 py-3 text-right font-mono text-amber-600 dark:text-amber-400">
+                          {formatCurrency(kalkulasi.konsolidasi.nominal_hak_investor)}
+                        </td>
+                        <td colSpan={2} className="px-4 py-3 text-center text-[10px] text-on-surface-variant font-normal">
+                          Transfer: <strong>{formatCurrency(totalTransferRequired)}</strong> | Reinvestasi: <strong>{formatCurrency(totalReinvestRequired)}</strong>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
             {/* TABEL BREAKDOWN PER CABANG INVESTOR */}
-            <div className="border border-outline-variant/30 rounded-xl overflow-hidden">
-              <div className="bg-surface-container-low px-4 py-2 border-b border-outline-variant/30 flex justify-between items-center text-xs">
+            <div className="border border-outline-variant/30 rounded-2xl overflow-hidden">
+              <div className="bg-surface-container-low px-4 py-2.5 border-b border-outline-variant/30 flex justify-between items-center text-xs">
                 <span className="font-bold text-on-surface flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-primary" /> Rincian Kontribusi Seluruh Cabang Investor
+                  <Building2 className="w-3.5 h-3.5 text-primary" /> Kontribusi Performa Seluruh Cabang Bertipe INVESTOR
                 </span>
                 <span className="text-on-surface-variant font-mono">
-                  {kalkulasi.breakdown_cabang.length} Cabang Terkonsolidasi
+                  {kalkulasi.breakdown_cabang.length} Cabang Konsolidasi
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -521,69 +824,21 @@ export default function BagiHasilInvestorPage() {
               </div>
             </div>
 
-            {/* SETTLEMENT OPTION (TRANSFER VS REINVEST) & SUBMIT */}
-            <div className="p-4 rounded-xl border border-outline-variant/30 bg-surface-container-low space-y-4 text-xs">
+            {/* SETTLEMENT & SUBMIT BOX */}
+            <div className="p-5 rounded-2xl border border-outline-variant/30 bg-surface-container-low space-y-4 text-xs">
               <h3 className="font-bold text-sm text-on-surface flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-primary" /> Metode Realisasi Penyelesaian Dividen
+                <Wallet className="w-4 h-4 text-primary" /> Pengesahan Realisasi Pembayaran Dividen
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label
-                  className={`p-3.5 rounded-xl border cursor-pointer flex items-start gap-3 transition-colors ${
-                    metodePenyelesaian === "TRANSFER_BANK"
-                      ? "border-primary bg-primary/5"
-                      : "border-outline-variant/40 bg-surface"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="metode"
-                    checked={metodePenyelesaian === "TRANSFER_BANK"}
-                    onChange={() => setMetodePenyelesaian("TRANSFER_BANK")}
-                    className="mt-0.5 accent-primary"
-                  />
-                  <div>
-                    <span className="font-bold text-on-surface block">Transfer ke Rekening Bank Investor</span>
-                    <span className="text-[11px] text-on-surface-variant block mt-0.5">
-                      Uang tunai dicairkan dari rekening kas perusahaan ke rekening investor (
-                      <strong>{kalkulasi.profil.nama_bank} - {kalkulasi.profil.nomor_rekening}</strong>).
-                    </span>
-                  </div>
-                </label>
-
-                <label
-                  className={`p-3.5 rounded-xl border cursor-pointer flex items-start gap-3 transition-colors ${
-                    metodePenyelesaian === "REINVESTASI_MODAL"
-                      ? "border-indigo-600 bg-indigo-500/5"
-                      : "border-outline-variant/40 bg-surface"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="metode"
-                    checked={metodePenyelesaian === "REINVESTASI_MODAL"}
-                    onChange={() => setMetodePenyelesaian("REINVESTASI_MODAL")}
-                    className="mt-0.5 accent-indigo-600"
-                  />
-                  <div>
-                    <span className="font-bold text-on-surface block">Reinvestasi ke Modal (Compounding)</span>
-                    <span className="text-[11px] text-on-surface-variant block mt-0.5">
-                      Dividen tidak dicairkan tunai, melainkan otomatis dikonversi menambah saldo modal pokok
-                      investor di buku besar ekuitas.
-                    </span>
-                  </div>
-                </label>
-              </div>
-
-              {metodePenyelesaian === "TRANSFER_BANK" && kalkulasi.konsolidasi.nominal_hak_investor > 0 && (
-                <div>
-                  <label className="font-semibold text-on-surface-variant block mb-1">
-                    Rekening Kas / Bank Pembayar *
+              {totalTransferRequired > 0 && (
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-on-surface-variant block">
+                    Rekening Kas / Bank Pembayar (Diperlukan Rp {totalTransferRequired.toLocaleString("id-ID")} untuk transfer kas) *
                   </label>
                   <select
                     value={selectedRekeningKas}
                     onChange={(e) => setSelectedRekeningKas(e.target.value)}
-                    className="w-full md:w-96 px-3 py-2 rounded-lg border border-outline-variant/50 bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="w-full md:w-96 px-3 py-2.5 rounded-xl border border-outline-variant/50 bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30 font-semibold"
                   >
                     <option value="">-- Pilih Rekening Kas / Bank Sumber --</option>
                     {rekeningList.map((r) => (
@@ -595,16 +850,29 @@ export default function BagiHasilInvestorPage() {
                 </div>
               )}
 
+              <div className="space-y-1">
+                <label className="font-semibold text-on-surface-variant block">
+                  Catatan Pengesahan Tutup Buku (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={catatanPengajuan}
+                  onChange={(e) => setCatatanPengajuan(e.target.value)}
+                  placeholder="Contoh: Tutup buku tahunan telah diverifikasi bersama tim akuntansi"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-outline-variant/50 bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   onClick={handleAjukanBagiHasil}
                   disabled={submitting}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-on-primary font-bold hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-50 shadow-md"
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-on-primary font-bold hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-50 shadow-md"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   {submitting
-                    ? "Mengajukan..."
-                    : `Ajukan Bagi Hasil Periode ${selectedBulan}/${selectedTahun} (Draft/Pending)`}
+                    ? "Membekukan Snapshot & Mengajukan..."
+                    : `Ajukan & Bekukan Snapshot Bagi Hasil ${jenisPeriode} ${selectedTahun} (Draft)`}
                 </button>
               </div>
             </div>
@@ -612,21 +880,24 @@ export default function BagiHasilInvestorPage() {
         )}
       </div>
 
-      {/* RIWAYAT PENETAPAN BAGI HASIL */}
-      <div className="rounded-2xl border border-outline-variant/30 bg-surface shadow-sm overflow-hidden space-y-3 p-5">
-        <h2 className="font-bold text-sm md:text-base text-on-surface flex items-center gap-2">
-          <Clock className="w-4 h-4 text-primary" /> Riwayat Rekapitulasi & Pembayaran Bagi Hasil
+      {/* ─────────────────────────────────────────────────────────────
+          4. RIWAYAT PENETAPAN BAGI HASIL
+      ───────────────────────────────────────────────────────────── */}
+      <div className="rounded-3xl border border-outline-variant/30 bg-surface shadow-xs overflow-hidden space-y-4 p-5 md:p-6">
+        <h2 className="font-extrabold text-base md:text-lg text-on-surface flex items-center gap-2">
+          <Clock className="w-5 h-5 text-primary" />
+          <span>Riwayat Rekapitulasi & Pembayaran Bagi Hasil</span>
         </h2>
 
-        <div className="overflow-x-auto border border-outline-variant/20 rounded-xl">
+        <div className="overflow-x-auto border border-outline-variant/20 rounded-2xl">
           <table className="w-full text-left text-xs">
             <thead className="bg-surface-container-low border-b border-outline-variant/30 text-on-surface-variant font-semibold">
               <tr>
                 <th className="px-4 py-3">No. Rekap / Periode</th>
+                <th className="px-4 py-3">Jenis Periode</th>
                 <th className="px-4 py-3 text-right">Laba Konsolidasi</th>
-                <th className="px-4 py-3 text-right">Hak Investor</th>
-                <th className="px-4 py-3 text-right">Hak Pengelola</th>
-                <th className="px-4 py-3">Metode Penyelesaian</th>
+                <th className="px-4 py-3 text-right">Hak Konsorsium</th>
+                <th className="px-4 py-3">Jadwal Pencairan</th>
                 <th className="px-4 py-3 text-center">Status</th>
                 <th className="px-4 py-3 text-right">Aksi</th>
               </tr>
@@ -653,7 +924,19 @@ export default function BagiHasilInvestorPage() {
                         {item.nomor_rekap}
                       </span>
                       <span className="text-[10px] text-on-surface-variant font-semibold">
-                        Periode: {item.periode_bulan}/{item.periode_tahun}
+                        Tahun: {item.periode_tahun}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          item.jenis_periode === "TAHUNAN"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+                        }`}
+                      >
+                        {item.jenis_periode === "TAHUNAN" ? "Tahunan (1 Jan - 31 Des)" : `Bulan ${item.periode_bulan}`}
                       </span>
                     </td>
 
@@ -661,23 +944,17 @@ export default function BagiHasilInvestorPage() {
                       {formatCurrency(Number(item.laba_konsolidasi_kotor))}
                     </td>
 
-                    <td className="px-4 py-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                    <td className="px-4 py-3 text-right font-mono font-extrabold text-amber-600 dark:text-amber-400">
                       {formatCurrency(Number(item.nominal_hak_investor))}
                     </td>
 
-                    <td className="px-4 py-3 text-right font-mono text-primary font-semibold">
-                      {formatCurrency(Number(item.nominal_hak_pengelola))}
-                    </td>
-
                     <td className="px-4 py-3">
-                      <span className="text-[11px] font-semibold text-on-surface block">
-                        {item.metode_penyelesaian === "REINVESTASI_MODAL"
-                          ? "Reinvestasi Modal"
-                          : "Transfer Bank"}
+                      <span className="font-semibold text-on-surface text-[11px] block">
+                        Februari {item.jadwal_pencairan_tahun || item.periode_tahun + 1}
                       </span>
                       {item.nama_rekening_kas && (
                         <span className="text-[10px] text-on-surface-variant/70 block">
-                          Sumber: {item.nama_rekening_kas}
+                          Kas: {item.nama_rekening_kas}
                         </span>
                       )}
                     </td>
@@ -701,14 +978,14 @@ export default function BagiHasilInvestorPage() {
                         <div className="inline-flex items-center gap-1">
                           <button
                             onClick={() => handleApprove(item.id)}
-                            className="px-2.5 py-1 rounded bg-emerald-600 text-white font-bold text-[10px] hover:bg-emerald-700 transition-colors shadow-xs"
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-[10px] hover:bg-emerald-700 transition-colors shadow-xs"
                             title="Approve & Eksekusi Bagi Hasil"
                           >
                             Approve
                           </button>
                           <button
                             onClick={() => handleReject(item.id)}
-                            className="px-2 py-1 rounded border border-rose-500/40 text-rose-600 font-bold text-[10px] hover:bg-rose-500/10 transition-colors"
+                            className="px-2.5 py-1.5 rounded-lg border border-rose-500/40 text-rose-600 font-bold text-[10px] hover:bg-rose-500/10 transition-colors"
                           >
                             Tolak
                           </button>
@@ -716,10 +993,10 @@ export default function BagiHasilInvestorPage() {
                       ) : (
                         <button
                           onClick={() => handleViewSlip(item.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-outline-variant/60 bg-surface hover:bg-surface-container font-semibold text-[11px] text-on-surface transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-outline-variant/60 bg-surface hover:bg-surface-container font-semibold text-[11px] text-on-surface transition-colors"
                         >
-                          <Printer className="w-3 h-3 text-emerald-600" />
-                          Slip Resmi
+                          <Printer className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Slip & Snapshot</span>
                         </button>
                       )}
                     </td>
@@ -731,12 +1008,14 @@ export default function BagiHasilInvestorPage() {
         </div>
       </div>
 
-      {/* SLIP BAGI HASIL MODAL VIEW (OFFICIAL PRINT) */}
+      {/* ─────────────────────────────────────────────────────────────
+          5. SLIP BAGI HASIL & SNAPSHOT PEMODAL (OFFICIAL PRINT)
+      ───────────────────────────────────────────────────────────── */}
       {slipData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-surface rounded-2xl border border-outline-variant/40 shadow-2xl max-w-2xl w-full overflow-hidden p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-surface rounded-3xl border border-outline-variant/40 shadow-2xl max-w-3xl w-full overflow-hidden p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             {/* Slip Paper Container */}
-            <div id="slip-print-area" className="p-6 border-2 border-dashed border-outline-variant/50 rounded-xl bg-surface-container-lowest space-y-4 text-xs">
+            <div id="slip-print-area" className="p-6 border-2 border-dashed border-outline-variant/50 rounded-2xl bg-surface-container-lowest space-y-5 text-xs">
               {/* Slip Header */}
               <div className="flex justify-between items-start border-b-2 border-outline-variant/60 pb-4">
                 <div>
@@ -744,7 +1023,7 @@ export default function BagiHasilInvestorPage() {
                     AL-MUBAROK RETAIL GROUP
                   </h2>
                   <p className="text-[11px] text-on-surface-variant">
-                    Kantor Pusat Manajemen & Konsolidasi Cabang
+                    Kantor Pusat Manajemen & Konsolidasi Cabang Pemodal
                   </p>
                   <p className="text-[10px] text-on-surface-variant/70">
                     Jember, Jawa Timur • Telp: (0331) 489-xxxx
@@ -752,21 +1031,21 @@ export default function BagiHasilInvestorPage() {
                 </div>
                 <div className="text-right">
                   <span className="font-black text-sm uppercase text-on-surface block tracking-wide">
-                    SLIP PEMBAGIAN BAGI HASIL
+                    SLIP & SNAPSHOT TUTUP BUKU BAGI HASIL
                   </span>
                   <span className="font-mono text-xs font-bold text-amber-600 block mt-0.5">
                     {slipData.bagi_hasil.nomor_rekap}
                   </span>
                   <span className="text-[10px] text-on-surface-variant block mt-0.5">
-                    Periode: Bulan {slipData.bagi_hasil.periode_bulan} / {slipData.bagi_hasil.periode_tahun}
+                    Periode: {slipData.bagi_hasil.jenis_periode || "TAHUNAN"} • Tahun {slipData.bagi_hasil.periode_tahun}
                   </span>
                 </div>
               </div>
 
-              {/* Data Pemodal */}
-              <div className="grid grid-cols-2 gap-4 p-3 rounded-lg bg-surface-container-low border border-outline-variant/20">
+              {/* Data Konsorsium */}
+              <div className="grid grid-cols-2 gap-4 p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/20">
                 <div>
-                  <span className="text-[10px] text-on-surface-variant block">Penerima Hak Bagi Hasil:</span>
+                  <span className="text-[10px] text-on-surface-variant block">Entitas Konsorsium:</span>
                   <span className="font-bold text-sm text-on-surface block">
                     {slipData.profil.nama_investor}
                   </span>
@@ -775,12 +1054,12 @@ export default function BagiHasilInvestorPage() {
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-on-surface-variant block">Ketentuan Nisbah:</span>
+                  <span className="text-[10px] text-on-surface-variant block">Kebijakan Nisbah:</span>
                   <span className="font-bold text-xs text-on-surface block">
                     Pengelola {slipData.bagi_hasil.nisbah_pengelola_persen}% : Investor {slipData.bagi_hasil.nisbah_investor_persen}%
                   </span>
                   <span className="text-[10px] text-emerald-600 font-semibold block">
-                    Metode: {slipData.bagi_hasil.metode_penyelesaian === "REINVESTASI_MODAL" ? "Reinvestasi ke Modal" : "Transfer Kas/Bank"}
+                    Jadwal Pencairan: Februari {slipData.bagi_hasil.jadwal_pencairan_tahun || slipData.bagi_hasil.periode_tahun + 1}
                   </span>
                 </div>
               </div>
@@ -820,7 +1099,7 @@ export default function BagiHasilInvestorPage() {
                   </div>
                 )}
                 <div className="flex justify-between font-bold pt-1 border-t border-outline-variant/20 text-sm">
-                  <span>Laba Bersih Dasar Pembagian Bagi Hasil:</span>
+                  <span>Laba Bersih Dasar Pembagian Dividen:</span>
                   <span className="font-mono text-primary">
                     {formatCurrency(Number(slipData.bagi_hasil.laba_kena_bagi_hasil))}
                   </span>
@@ -828,42 +1107,69 @@ export default function BagiHasilInvestorPage() {
               </div>
 
               {/* Total Hak Investor */}
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex justify-between items-center">
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex justify-between items-center">
                 <div>
                   <span className="font-bold text-xs uppercase text-amber-800 dark:text-amber-300 block">
-                    TOTAL HAK BAGI HASIL INVESTOR
+                    TOTAL HAK BAGI HASIL KONSORSIUM
                   </span>
                   <span className="text-[10px] text-amber-700/80 dark:text-amber-400">
-                    Sesuai nisbah {slipData.bagi_hasil.nisbah_investor_persen}% dari laba dasar
+                    Sesuai nisbah {slipData.bagi_hasil.nisbah_investor_persen}% dari laba dasar konsolidasi
                   </span>
                 </div>
-                <span className="font-mono font-black text-lg text-amber-700 dark:text-amber-400">
+                <span className="font-mono font-black text-xl text-amber-700 dark:text-amber-400">
                   {formatCurrency(Number(slipData.bagi_hasil.nominal_hak_investor))}
                 </span>
               </div>
 
-              {/* Rincian Cabang Ringkas */}
-              <div className="pt-2">
-                <span className="text-[10px] font-bold text-on-surface-variant block uppercase mb-1">
-                  Kontribusi per Cabang Terkonsolidasi ({slipData.cabang_details.length} Cabang)
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
-                  {slipData.cabang_details.map((c: any) => (
-                    <div key={c.id_cabang} className="p-2 rounded bg-surface border border-outline-variant/20">
-                      <span className="font-bold block truncate">{c.nama_cabang}</span>
-                      <span className="font-mono text-emerald-600 font-semibold block">
-                        Profit: {formatCurrency(Number(c.laba_operasional))}
-                      </span>
-                    </div>
-                  ))}
+              {/* Immutable Snapshot Table of Members */}
+              {slipData.members && slipData.members.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block">
+                      Snapshot Permanen Anggota Pemodal ({slipData.members.length} Pemodal)
+                    </span>
+                    <span className="text-[9px] font-mono text-emerald-600 font-bold">
+                      Immutable Historical Record
+                    </span>
+                  </div>
+                  <div className="border border-outline-variant/30 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-surface-container-low font-semibold text-on-surface-variant border-b border-outline-variant/20">
+                        <tr>
+                          <th className="px-3 py-2">Nama Pemodal</th>
+                          <th className="px-3 py-2 text-right">Modal</th>
+                          <th className="px-3 py-2 text-center">Bulan</th>
+                          <th className="px-3 py-2 text-right">Porsi</th>
+                          <th className="px-3 py-2 text-right">Hak Dividen</th>
+                          <th className="px-3 py-2 text-center">Penyelesaian</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant/20">
+                        {slipData.members.map((mem: any) => (
+                          <tr key={mem.id}>
+                            <td className="px-3 py-1.5 font-bold">{mem.nama_investor}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{formatCurrency(Number(mem.modal_disetor))}</td>
+                            <td className="px-3 py-1.5 text-center">{mem.bulan_aktif} bln</td>
+                            <td className="px-3 py-1.5 text-right font-mono font-bold text-primary">{Number(mem.porsi_persen).toFixed(2)}%</td>
+                            <td className="px-3 py-1.5 text-right font-mono font-bold text-amber-600">{formatCurrency(Number(mem.nominal_hak_dividen))}</td>
+                            <td className="px-3 py-1.5 text-center">
+                              <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-surface border border-outline-variant/30">
+                                {mem.status_pencairan || mem.metode_pencairan}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Tanda Tangan */}
-              <div className="pt-8 grid grid-cols-2 text-center text-[10px] border-t border-outline-variant/30">
+              <div className="pt-6 grid grid-cols-2 text-center text-[10px] border-t border-outline-variant/30">
                 <div>
                   <span className="text-on-surface-variant block">Disahkan Oleh (Pengelola):</span>
-                  <span className="mt-10 font-bold text-on-surface block underline">
+                  <span className="mt-8 font-bold text-on-surface block underline">
                     Direksi Keuangan Al-Mubarok
                   </span>
                   <span className="text-[9px] text-on-surface-variant/70">
@@ -871,11 +1177,11 @@ export default function BagiHasilInvestorPage() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-on-surface-variant block">Diterima Oleh (Investor):</span>
-                  <span className="mt-10 font-bold text-on-surface block underline">
+                  <span className="text-on-surface-variant block">Diterima Oleh (Konsorsium Pemodal):</span>
+                  <span className="mt-8 font-bold text-on-surface block underline">
                     {slipData.profil.atas_nama_rekening}
                   </span>
-                  <span className="text-[9px] text-on-surface-variant/70">Pemodal Utama</span>
+                  <span className="text-[9px] text-on-surface-variant/70">Perwakilan Dewan Investor</span>
                 </div>
               </div>
             </div>
@@ -884,15 +1190,16 @@ export default function BagiHasilInvestorPage() {
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setSlipData(null)}
-                className="px-4 py-2 rounded-lg border border-outline-variant/60 text-xs font-semibold hover:bg-surface-container"
+                className="px-4 py-2 rounded-xl border border-outline-variant/60 text-xs font-semibold hover:bg-surface-container"
               >
                 Tutup
               </button>
               <button
                 onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm"
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm"
               >
-                <Printer className="w-3.5 h-3.5" /> Cetak Slip Resmi PDF
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak Slip Resmi PDF</span>
               </button>
             </div>
           </div>

@@ -1,5 +1,17 @@
-import { pgTable, text, integer, serial, boolean, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, serial, boolean, numeric, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+export const numericNum = customType<{ data: number; driverData: string }>({
+  dataType() {
+    return "numeric(15, 2)";
+  },
+  fromDriver(value: string | number): number {
+    return Number(value) || 0;
+  },
+  toDriver(value: number): string {
+    return String(value ?? 0);
+  },
+});
 
 // ─── JABATAN ─────────────────────────────────────────────────────────────────
 export const jabatan = pgTable("jabatan", {
@@ -31,7 +43,7 @@ export const cabang = pgTable("cabang", {
 // ─── CABANG INVESTOR (KONSORSIUM MULTI-INVESTOR) ─────────────────────────────
 export const cabang_investor = pgTable("cabang_investor", {
   id_cabang_investor: serial("id_cabang_investor").primaryKey(),
-  id_cabang: integer("id_cabang").notNull(),
+  id_cabang: integer("id_cabang"),
   nama_investor: text("nama_investor").notNull(),
   telepon: text("telepon"),
   email: text("email"),
@@ -267,17 +279,17 @@ export const barang = pgTable("barang", {
   isi_1: integer("isi_1"),
   isi_2: integer("isi_2"),
   isi_3: integer("isi_3"),
-  harga_beli: integer("harga_beli"),
-  harga_rata: integer("harga_rata"),
-  harga_jual_1_1: integer("harga_jual_1_1"),
-  harga_jual_1_2: integer("harga_jual_1_2"),
-  harga_jual_1_3: integer("harga_jual_1_3"),
-  harga_jual_2_1: integer("harga_jual_2_1"),
-  harga_jual_2_2: integer("harga_jual_2_2"),
-  harga_jual_2_3: integer("harga_jual_2_3"),
-  harga_jual_3_1: integer("harga_jual_3_1"),
-  harga_jual_3_2: integer("harga_jual_3_2"),
-  harga_jual_3_3: integer("harga_jual_3_3"),
+  harga_beli: numericNum("harga_beli"),
+  harga_rata: numericNum("harga_rata"),
+  harga_jual_1_1: numericNum("harga_jual_1_1"),
+  harga_jual_1_2: numericNum("harga_jual_1_2"),
+  harga_jual_1_3: numericNum("harga_jual_1_3"),
+  harga_jual_2_1: numericNum("harga_jual_2_1"),
+  harga_jual_2_2: numericNum("harga_jual_2_2"),
+  harga_jual_2_3: numericNum("harga_jual_2_3"),
+  harga_jual_3_1: numericNum("harga_jual_3_1"),
+  harga_jual_3_2: numericNum("harga_jual_3_2"),
+  harga_jual_3_3: numericNum("harga_jual_3_3"),
   jual_rugi: integer("jual_rugi").default(0),
   status: text("status").default("Aktif"),
   status_pajak: text("status_pajak"),
@@ -332,14 +344,14 @@ export const penjualan = pgTable("penjualan", {
   nama_pelanggan: text("nama_pelanggan"),
   id_user: integer("id_user").references(() => users.id),
   id_cabang: integer("id_cabang").references(() => cabang.id_cabang),
-  subtotal: integer("subtotal").notNull(),
-  diskon: integer("diskon").default(0),
+  subtotal: numericNum("subtotal").notNull(),
+  diskon: numericNum("diskon").default(0),
   nominal_voucher: integer("nominal_voucher").default(0),
   potongan_poin: integer("potongan_poin").default(0),
   infaq: integer("infaq").default(0),
-  total_akhir: integer("total_akhir").notNull(),
+  total_akhir: numericNum("total_akhir").notNull(),
   jenis_pembayaran: text("jenis_pembayaran").notNull(),
-  jumlah_bayar: integer("jumlah_bayar").default(0),
+  jumlah_bayar: numericNum("jumlah_bayar").default(0),
   id_voucher: integer("id_voucher"),
   poin_didapat: integer("poin_didapat").default(0),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
@@ -354,10 +366,10 @@ export const penjualan_detail = pgTable("penjualan_detail", {
   jumlah: integer("jumlah").notNull(),
   satuan: text("satuan").notNull(),
   isi_satuan: integer("isi_satuan").notNull(),
-  harga_jual: integer("harga_jual").notNull(),
-  harga_rata_saat_transaksi: integer("harga_rata_saat_transaksi").notNull(),
-  diskon: integer("diskon").default(0),
-  subtotal: integer("subtotal").notNull(),
+  harga_jual: numericNum("harga_jual").notNull(),
+  harga_rata_saat_transaksi: numericNum("harga_rata_saat_transaksi").notNull(),
+  diskon: numericNum("diskon").default(0),
+  subtotal: numericNum("subtotal").notNull(),
   jenis_item: text("jenis_item").default("TRANSAKSI"),
 });
 
@@ -1128,8 +1140,8 @@ export const kartu_stok = pgTable("kartu_stok", {
   masuk: integer("masuk").default(0).notNull(),
   keluar: integer("keluar").default(0).notNull(),
   saldo_akhir: integer("saldo_akhir").notNull(),
-  hpp_satuan: integer("hpp_satuan").default(0).notNull(),
-  total_nilai: integer("total_nilai").default(0).notNull(),
+  hpp_satuan: numericNum("hpp_satuan").default(0).notNull(),
+  total_nilai: numericNum("total_nilai").default(0).notNull(),
   keterangan: text("keterangan"),
   id_user: integer("id_user").references(() => users.id).notNull(),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
@@ -1267,9 +1279,35 @@ export const investor_bagi_hasil = pgTable("investor_bagi_hasil", {
   id_jurnal: integer("id_jurnal"),
   
   status: text("status").default("PENDING").notNull(), // 'PENDING' | 'APPROVED' | 'DIBAYARKAN' | 'REJECTED'
+  jenis_periode: text("jenis_periode").default("BULANAN").notNull(), // 'BULANAN' | 'TAHUNAN'
+  jadwal_pencairan_bulan: integer("jadwal_pencairan_bulan").default(2), // Bulan Februari
+  jadwal_pencairan_tahun: integer("jadwal_pencairan_tahun"), // e.g. 2027
   diajukan_oleh: integer("diajukan_oleh").references(() => users.id).notNull(),
   disetujui_oleh: integer("disetujui_oleh").references(() => users.id),
   tanggal_persetujuan: text("tanggal_persetujuan"),
+  catatan: text("catatan"),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const investor_bagi_hasil_member = pgTable("investor_bagi_hasil_member", {
+  id: serial("id").primaryKey(),
+  id_bagi_hasil: integer("id_bagi_hasil").references(() => investor_bagi_hasil.id).notNull(),
+  id_cabang_investor: integer("id_cabang_investor").references(() => cabang_investor.id_cabang_investor),
+  nama_investor: text("nama_investor").notNull(),
+  modal_disetor: numeric("modal_disetor").default("0").notNull(),
+  tanggal_bergabung: text("tanggal_bergabung"),
+  bulan_aktif: integer("bulan_aktif").default(12).notNull(),
+  bobot_waktu_modal: numeric("bobot_waktu_modal").default("0").notNull(),
+  porsi_persen: numeric("porsi_persen").default("0").notNull(),
+  nominal_hak_dividen: numeric("nominal_hak_dividen").default("0").notNull(),
+  nominal_transfer: numeric("nominal_transfer").default("0").notNull(),
+  nominal_reinvestasi: numeric("nominal_reinvestasi").default("0").notNull(),
+  metode_pencairan: text("metode_pencairan").default("TRANSFER"), // 'TRANSFER' | 'REINVESTASI' | 'SPLIT'
+  nama_bank: text("nama_bank"),
+  no_rekening: text("no_rekening"),
+  atas_nama_rekening: text("atas_nama_rekening"),
+  status_pencairan: text("status_pencairan").default("PENDING").notNull(), // 'PENDING' | 'DIBAYARKAN' | 'DIREINVESTASIKAN'
+  tanggal_realisasi: text("tanggal_realisasi"),
   catatan: text("catatan"),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
@@ -1288,7 +1326,26 @@ export const investor_bagi_hasil_cabang = pgTable("investor_bagi_hasil_cabang", 
 export type InvestorProfil = typeof investor_profil.$inferSelect;
 export type InvestorTransaksiModal = typeof investor_transaksi_modal.$inferSelect;
 export type InvestorBagiHasil = typeof investor_bagi_hasil.$inferSelect;
+export type InvestorBagiHasilMember = typeof investor_bagi_hasil_member.$inferSelect;
 export type InvestorBagiHasilCabang = typeof investor_bagi_hasil_cabang.$inferSelect;
+
+// ─── LOG MIGRASI DATA SISTEM LAMA ────────────────────────────────────────────
+export const migrasi_log = pgTable("migrasi_log", {
+  id: serial("id").primaryKey(),
+  id_cabang: integer("id_cabang").references(() => cabang.id_cabang).notNull(),
+  id_user: integer("id_user").references(() => users.id).notNull(),
+  nama_file: text("nama_file").notNull(),
+  tipe_migrasi: text("tipe_migrasi").default("ALL").notNull(),
+  total_baris: integer("total_baris").default(0).notNull(),
+  berhasil: integer("berhasil").default(0).notNull(),
+  gagal: integer("gagal").default(0).notNull(),
+  detail_error: text("detail_error"),
+  detail_summary: text("detail_summary"),
+  status: text("status").default("SUCCESS").notNull(),
+  created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export type MigrasiLog = typeof migrasi_log.$inferSelect;
 
 
 
