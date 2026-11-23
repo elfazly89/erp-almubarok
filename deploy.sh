@@ -336,6 +336,29 @@ CREATE INDEX IF NOT EXISTS idx_stok_level_cabang ON stok_barang (level_cabang);
 CREATE INDEX IF NOT EXISTS idx_penjualan_id_cabang ON penjualan (id_cabang);
 CREATE INDEX IF NOT EXISTS idx_kartu_stok_barang ON kartu_stok (id_barang, id_cabang);
 CREATE INDEX IF NOT EXISTS idx_barang_batch_cabang ON barang_batch (id_barang, id_cabang);
+
+-- Tabel Migrasi Log & Penyesuaian Kolom Numeric (Mencegah Integer Overflow)
+CREATE TABLE IF NOT EXISTS migrasi_log (
+  id serial PRIMARY KEY,
+  id_cabang integer NOT NULL,
+  id_user integer NOT NULL,
+  nama_file text NOT NULL,
+  tipe_migrasi text DEFAULT 'ALL' NOT NULL,
+  total_baris integer DEFAULT 0 NOT NULL,
+  berhasil integer DEFAULT 0 NOT NULL,
+  gagal integer DEFAULT 0 NOT NULL,
+  detail_error text,
+  detail_summary text,
+  status text DEFAULT 'SUCCESS' NOT NULL,
+  created_at text DEFAULT CURRENT_TIMESTAMP::text
+);
+CREATE INDEX IF NOT EXISTS idx_migrasi_log_cabang ON migrasi_log (id_cabang);
+CREATE INDEX IF NOT EXISTS idx_migrasi_log_user ON migrasi_log (id_user);
+
+ALTER TABLE kartu_stok ALTER COLUMN hpp_satuan TYPE numeric(15,2), ALTER COLUMN total_nilai TYPE numeric(15,2);
+ALTER TABLE barang ALTER COLUMN harga_beli TYPE numeric(15,2), ALTER COLUMN harga_jual TYPE numeric(15,2);
+ALTER TABLE penjualan_detail ALTER COLUMN harga_satuan TYPE numeric(15,2), ALTER COLUMN subtotal TYPE numeric(15,2), ALTER COLUMN hpp TYPE numeric(15,2);
+ALTER TABLE penjualan ALTER COLUMN total_harga TYPE numeric(15,2), ALTER COLUMN subtotal TYPE numeric(15,2), ALTER COLUMN total_bayar TYPE numeric(15,2), ALTER COLUMN kembalian TYPE numeric(15,2);
 EOF
 echo -e "${GREEN}✓ Skema dan indeks database PostgreSQL siap.${NC}"
 
