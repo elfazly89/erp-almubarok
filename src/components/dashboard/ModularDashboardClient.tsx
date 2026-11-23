@@ -53,6 +53,12 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
     isSuperOrOwner ? "all" : (user.id_cabang ? String(user.id_cabang) : "all")
   );
   const [selectedPeriod, setSelectedPeriod] = useState<string>("today");
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0, 10);
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -140,9 +146,11 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
       setErrorMsg("");
 
       try {
-        const res = await fetch(
-          `/api/dashboard/stats?id_cabang=${selectedCabang}&period=${selectedPeriod}`
-        );
+        let url = `/api/dashboard/stats?id_cabang=${selectedCabang}&period=${selectedPeriod}`;
+        if (selectedPeriod === "custom") {
+          url += `&start_date=${customStartDate}&end_date=${customEndDate}`;
+        }
+        const res = await fetch(url);
         const resData = await res.json();
 
         if (res.ok && resData.success) {
@@ -171,7 +179,7 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
         setIsRefreshing(false);
       }
     },
-    [selectedCabang, selectedPeriod]
+    [selectedCabang, selectedPeriod, customStartDate, customEndDate]
   );
 
   useEffect(() => {
@@ -248,6 +256,14 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
         isBranchLocked={!isSuperOrOwner}
         selectedPeriod={selectedPeriod}
         onPeriodChange={setSelectedPeriod}
+        customStartDate={customStartDate}
+        customEndDate={customEndDate}
+        onCustomDateChange={(start, end) => {
+          setCustomStartDate(start);
+          setCustomEndDate(end);
+          setSelectedPeriod("custom");
+        }}
+        activePeriodLabel={stats?.meta?.periodLabel}
         onRefresh={() => fetchStats(true)}
         isRefreshing={isRefreshing}
         lastUpdated={lastUpdated}
@@ -297,7 +313,12 @@ export function ModularDashboardClient({ user }: ModularDashboardClientProps) {
                   <CompanyGrowthAnalyticsWidget initialData={stats.growthStats} />
                 )}
                 {id === "sales_cashflow_chart" && (
-                  <SalesCashFlowChartWidget data={stats.salesTrend || []} />
+                  <SalesCashFlowChartWidget
+                    data={stats.salesTrend || []}
+                    title={stats.trendMeta?.trendTitle}
+                    granularity={stats.trendMeta?.granularity}
+                    periodLabel={stats.meta?.periodLabel}
+                  />
                 )}
                 {id === "actionable_critical_stock" && (
                   <ActionableCriticalStockWidget data={stats.stokKritis || []} />

@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, CheckCircle2, Clock, AlertTriangle, CheckCircle, XCircle, Sparkles, Inbox } from "lucide-react";
+import { FileText, Plus, Search, RefreshCw, Eye, ArrowLeft, Trash2, CheckCircle2, Clock, AlertTriangle, CheckCircle, XCircle, Sparkles, Inbox, ChevronDown, Check, Filter } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 import { formatCurrency } from "@/lib/utils";
+import SupplierSearchSelect from "@/components/ui/SupplierSearchSelect";
 
 interface PO {
   id_pesan_beli: number;
@@ -34,6 +35,8 @@ interface Barang {
   isi_3: number | null;
   harga_beli: number | null;
   level_barang?: string | null;
+  id_supplier?: number | null;
+  nama_supplier?: string | null;
 }
 
 interface POItem {
@@ -45,6 +48,7 @@ interface POItem {
   isi_satuan: number;
   harga_satuan: number; // price per unit selected
   subtotal: number;
+  level_barang?: string | null;
 }
 
 export default function PoPage() {
@@ -72,6 +76,13 @@ export default function PoPage() {
 
   // Search product autocomplete inside create form
   const [searchProd, setSearchProd] = useState("");
+
+  // Searchable supplier dropdown state
+  const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
+  const [showConfirmSupplierChange, setShowConfirmSupplierChange] = useState(false);
+
+  // Filter products by selected supplier
+  const [filterBySupplierOnly, setFilterBySupplierOnly] = useState(true);
 
   // Smart Reorder suggestions for selected supplier
   const [smartSuggestions, setSmartSuggestions] = useState<any[]>([]);
@@ -109,22 +120,53 @@ export default function PoPage() {
   const handleApplySmartSuggestions = () => {
     if (smartSuggestions.length === 0) return;
 
-    const newItems: POItem[] = smartSuggestions.map((it) => ({
-      id_barang: it.id_barang,
-      nama_barang: it.nama_barang,
-      barcode: it.barcode,
-      qty: it.saran_qty_kemasan,
-      satuan: it.nama_kemasan,
-      isi_satuan: it.isi_kemasan,
-      harga_satuan: it.harga_beli_kemasan,
-      subtotal: it.estimasi_subtotal,
-    }));
+    const newItems: POItem[] = smartSuggestions.map((it) => {
+      const matchedProd = products.find((prod) => prod.id_barang === it.id_barang);
+      return {
+        id_barang: it.id_barang,
+        nama_barang: it.nama_barang,
+        barcode: it.barcode,
+        qty: it.saran_qty_kemasan,
+        satuan: it.nama_kemasan,
+        isi_satuan: it.isi_kemasan,
+        harga_satuan: it.harga_beli_kemasan,
+        subtotal: it.estimasi_subtotal,
+        level_barang: matchedProd?.level_barang || it.level_barang,
+      };
+    });
 
     setCart(newItems);
     if (!keterangan) {
       setKeterangan("Dibuat otomatis dari Saran Order Cerdas (Sales Velocity & Min Stock)");
     }
     showToast(`${newItems.length} item saran order berhasil dimuat ke keranjang!`, "success");
+  };
+
+  const handleSelectSupplier = (newSupplierId: string) => {
+    if (newSupplierId === supplierId) return;
+
+    // Jika keranjang ada isinya, konfirmasi dulu sebelum ganti supplier
+    if (cart.length > 0) {
+      setPendingSupplierId(newSupplierId);
+      setShowConfirmSupplierChange(true);
+    } else {
+      setSupplierId(newSupplierId);
+    }
+  };
+
+  const confirmSupplierChange = () => {
+    if (pendingSupplierId !== null) {
+      setSupplierId(pendingSupplierId);
+      setCart([]);
+      setPendingSupplierId(null);
+      showToast("Supplier berhasil diganti. Keranjang PO telah dikosongkan.", "success");
+    }
+    setShowConfirmSupplierChange(false);
+  };
+
+  const cancelSupplierChange = () => {
+    setPendingSupplierId(null);
+    setShowConfirmSupplierChange(false);
   };
 
   // Toast state
@@ -199,6 +241,7 @@ export default function PoPage() {
           isi_satuan: defaultIsi,
           harga_satuan: defaultPrice,
           subtotal: defaultPrice,
+          level_barang: p.level_barang,
         },
       ]);
     }
@@ -302,11 +345,19 @@ export default function PoPage() {
     return formatCurrency(val);
   };
 
-  const filteredCatalog = products.filter(
-    (p) =>
+  const selectedSupplier = suppliers.find((s) => s.id_supplier.toString() === supplierId);
+
+  const filteredCatalog = products.filter((p) => {
+    const matchesSearch =
       p.nama_barang.toLowerCase().includes(searchProd.toLowerCase()) ||
-      p.barcode.includes(searchProd)
-  );
+      p.barcode.includes(searchProd);
+    if (!matchesSearch) return false;
+
+    if (filterBySupplierOnly && supplierId) {
+      return p.id_supplier === Number(supplierId);
+    }
+    return true;
+  });
 
   if (!permissionsLoading && !can_read) {
     return (
@@ -504,17 +555,13 @@ export default function PoPage() {
             <div className="md:col-span-4 bg-surface border border-outline-variant/30 p-5 rounded-2xl space-y-4 shadow-sm">
               <div>
                 <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">Pilih Supplier *</label>
-                <select
+                <SupplierSearchSelect
+                  suppliers={suppliers}
                   value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
-                  className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  onChange={(val) => handleSelectSupplier(val)}
+                  placeholder="-- Cari atau Pilih Supplier --"
                   required
-                >
-                  <option value="" className="bg-surface text-on-surface-variant">-- Pilih Supplier --</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id_supplier} value={s.id_supplier} className="bg-surface text-on-surface">{s.nama_supplier}</option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div>
@@ -587,49 +634,92 @@ export default function PoPage() {
               )}
 
               {/* Product Autocomplete Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-3 w-4 h-4 text-on-surface-variant" />
-                <input
-                  type="text"
-                  value={searchProd}
-                  onChange={(e) => setSearchProd(e.target.value)}
-                  placeholder="Ketik nama barang / barcode untuk menambah..."
-                  className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl pl-9 pr-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs px-1">
+                  <span className="font-semibold text-on-surface flex items-center gap-1.5">
+                    <Search className="w-3.5 h-3.5 text-primary" /> Cari & Tambah Produk
+                  </span>
+                  {supplierId && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterBySupplierOnly(!filterBySupplierOnly)}
+                      className={`text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
+                        filterBySupplierOnly
+                          ? "bg-primary/10 border-primary/30 text-primary font-semibold shadow-xs"
+                          : "bg-surface-container-low border-outline-variant/40 text-on-surface-variant hover:text-on-surface"
+                      }`}
+                      title={filterBySupplierOnly ? "Klik untuk menampilkan seluruh katalog" : "Klik untuk memfilter sesuai supplier"}
+                    >
+                      <Filter className="w-3 h-3" />
+                      <span>{filterBySupplierOnly ? `Hanya produk: ${selectedSupplier?.nama_supplier || "Supplier"}` : "Semua produk katalog"}</span>
+                    </button>
+                  )}
+                </div>
 
-                {searchProd.trim() && (
-                  <div className="absolute left-0 right-0 top-11 bg-surface border border-outline-variant rounded-xl max-h-60 overflow-y-auto z-40 p-2 shadow-2xl space-y-1 divide-y divide-outline-variant/20">
-                    {filteredCatalog.length === 0 ? (
-                      <div className="p-3 text-center text-on-surface-variant text-xs">Produk tidak ditemukan</div>
-                    ) : (
-                      filteredCatalog.map((p) => (
-                        <button
-                          key={p.id_barang}
-                          onClick={() => handleAddProduct(p)}
-                          className="w-full bg-surface hover:bg-surface-container-high/50 p-2 rounded-lg flex items-center justify-between text-left text-xs transition-colors"
-                        >
-                          <div>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-on-surface font-semibold">{p.nama_barang}</span>
-                              {p.level_barang === "DEAD" && (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-500 border border-rose-500/25 font-bold">
-                                  DEAD STOCK
-                                </span>
-                              )}
-                              {p.level_barang === "FAST" && (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/25 font-bold">
-                                  FAST MOVING
-                                </span>
-                              )}
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-on-surface-variant" />
+                  <input
+                    type="text"
+                    value={searchProd}
+                    onChange={(e) => setSearchProd(e.target.value)}
+                    placeholder={
+                      supplierId && filterBySupplierOnly
+                        ? `Ketik nama/barcode barang (${selectedSupplier?.nama_supplier || "supplier"})...`
+                        : "Ketik nama barang / barcode untuk menambah..."
+                    }
+                    className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl pl-9 pr-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                  />
+
+                  {searchProd.trim() && (
+                    <div className="absolute left-0 right-0 top-11 bg-surface border border-outline-variant rounded-xl max-h-64 overflow-y-auto z-40 p-2 shadow-2xl space-y-1 divide-y divide-outline-variant/20 scrollbar-thin">
+                      {filteredCatalog.length === 0 ? (
+                        <div className="p-4 text-center text-on-surface-variant text-xs space-y-1">
+                          <p>Produk tidak ditemukan</p>
+                          {supplierId && filterBySupplierOnly && (
+                            <p className="text-[10px] text-on-surface-variant/70">
+                              (Difilter khusus supplier: <strong>{selectedSupplier?.nama_supplier}</strong>. Anda dapat mengganti ke mode &apos;Semua produk katalog&apos; pada tombol di atas).
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        filteredCatalog.map((p) => (
+                          <button
+                            key={p.id_barang}
+                            type="button"
+                            onClick={() => handleAddProduct(p)}
+                            className="w-full bg-surface hover:bg-surface-container-high/60 p-2.5 rounded-lg flex items-center justify-between text-left text-xs transition-colors cursor-pointer group"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-on-surface font-semibold group-hover:text-primary transition-colors">{p.nama_barang}</span>
+                                {p.level_barang === "DEAD" && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-bold">
+                                    <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                    DEAD STOCK
+                                  </span>
+                                )}
+                                {p.level_barang === "FAST" && (
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 font-bold">
+                                    FAST MOVING
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-on-surface-variant">
+                                <span className="font-mono">{p.barcode}</span>
+                                {p.nama_supplier && (
+                                  <span className="bg-surface-container-high/80 px-1.5 py-0.2 rounded text-[10px] text-on-surface-variant font-medium">
+                                    Vendor: {p.nama_supplier}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <span className="text-on-surface-variant block font-mono text-[10px]">{p.barcode}</span>
-                          </div>
-                          <span className="text-primary font-bold font-mono">{formatRupiah(p.harga_beli || 0)}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
+                            <span className="text-primary font-bold font-mono ml-3 shrink-0">{formatRupiah(p.harga_beli || 0)}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Cart Table */}
@@ -646,11 +736,20 @@ export default function PoPage() {
                   <div className="space-y-3">
                     {cart.map((item, idx) => {
                       const p = products.find((prod) => prod.id_barang === item.id_barang);
+                      const isDeadStock = item.level_barang === "DEAD" || p?.level_barang === "DEAD";
                       return (
-                        <div key={`${item.id_barang}-${item.satuan}`} className="bg-surface-container-low border border-outline-variant/30 p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-sm">
+                        <div key={`${item.id_barang}-${item.satuan}`} className={`bg-surface-container-low border ${isDeadStock ? "border-rose-500/40 bg-rose-500/[0.02]" : "border-outline-variant/30"} p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-sm`}>
                           
                           <div className="flex-1">
-                            <span className="text-on-surface font-semibold block">{item.nama_barang}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-on-surface font-semibold">{item.nama_barang}</span>
+                              {isDeadStock && (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-bold">
+                                  <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                  DEAD STOCK
+                                </span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-1.5 mt-1">
                               <span className="text-[10px] text-on-surface-variant font-mono">{item.barcode}</span>
                               {p && (p.satuan_2 || p.satuan_3) ? (
@@ -842,6 +941,42 @@ export default function PoPage() {
           </div>
         </div>
       )}
+      {/* Modal Konfirmasi Ganti Supplier */}
+      {showConfirmSupplierChange && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-500">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-on-surface">Ganti Supplier?</h3>
+                <p className="text-xs text-on-surface-variant">Keranjang saat ini berisi {cart.length} barang.</p>
+              </div>
+            </div>
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              Mengganti supplier akan <strong>mengosongkan keranjang PO</strong> agar item pesanan tidak tercampur antar vendor. Apakah Anda yakin ingin melanjutkan?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-outline-variant/30">
+              <button
+                type="button"
+                onClick={cancelSupplierChange}
+                className="px-3.5 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface bg-surface-container hover:bg-surface-container-high rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmSupplierChange}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-error hover:bg-error/90 rounded-xl shadow-sm transition-colors cursor-pointer"
+              >
+                Ganti & Kosongkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toast && (
         <div

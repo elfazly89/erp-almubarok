@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sliders, Save, RefreshCw, CheckCircle2, XCircle, Info, Globe, Building } from "lucide-react";
+import { Sliders, Save, RefreshCw, CheckCircle2, XCircle, Info, Globe, Building, Zap, Clock, TrendingUp, ShieldCheck } from "lucide-react";
 import { useAppSettings } from "@/components/providers/AppSettingsProvider";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 
@@ -18,6 +18,14 @@ export default function PengaturanAplikasiPage() {
   const [coaGaji, setCoaGaji] = useState("8");
   const [coaPembelian, setCoaPembelian] = useState("5");
   const [coaList, setCoaList] = useState<any[]>([]);
+
+  // FSN & Procurement Buffer Settings
+  const [fsnFastDays, setFsnFastDays] = useState("3");
+  const [fsnMediumDays, setFsnMediumDays] = useState("14");
+  const [fsnSlowDays, setFsnSlowDays] = useState("60");
+  const [fsnIncubationDays, setFsnIncubationDays] = useState("30");
+  const [fsnFastBufferPct, setFsnFastBufferPct] = useState("20");
+  const [fsnSlowBufferPct, setFsnSlowBufferPct] = useState("30");
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,6 +55,12 @@ export default function PengaturanAplikasiPage() {
           setCoaOperasional(result.data.coa_kategori_operasional || "10");
           setCoaGaji(result.data.coa_kategori_gaji || "8");
           setCoaPembelian(result.data.coa_kategori_pembelian || "5");
+          setFsnFastDays(result.data.fsn_fast_days || "3");
+          setFsnMediumDays(result.data.fsn_medium_days || "14");
+          setFsnSlowDays(result.data.fsn_slow_days || "60");
+          setFsnIncubationDays(result.data.fsn_incubation_days || "30");
+          setFsnFastBufferPct(result.data.fsn_fast_buffer_pct || "20");
+          setFsnSlowBufferPct(result.data.fsn_slow_buffer_pct || "30");
         } else {
           showToast("Gagal memuat pengaturan aplikasi", "error");
         }
@@ -85,12 +99,26 @@ export default function PengaturanAplikasiPage() {
           coa_kategori_operasional: coaOperasional,
           coa_kategori_gaji: coaGaji,
           coa_kategori_pembelian: coaPembelian,
+          fsn_fast_days: fsnFastDays,
+          fsn_medium_days: fsnMediumDays,
+          fsn_slow_days: fsnSlowDays,
+          fsn_incubation_days: fsnIncubationDays,
+          fsn_fast_buffer_pct: fsnFastBufferPct,
+          fsn_slow_buffer_pct: fsnSlowBufferPct,
         }),
       });
 
       const result = await res.json();
       if (res.ok && result.success) {
-        showToast("Pengaturan aplikasi berhasil disimpan!", "success");
+        if (result.recalculateResult) {
+          const r = result.recalculateResult;
+          showToast(
+            `Pengaturan disimpan & Level FSN disinkronkan (${r.fast} Fast, ${r.medium} Medium, ${r.slow} Slow, ${r.dead} Dead Stock)`,
+            "success"
+          );
+        } else {
+          showToast("Pengaturan aplikasi berhasil disimpan!", "success");
+        }
         // Refresh the global AppSettingsProvider context
         await refreshSettings();
       } else {
@@ -136,7 +164,7 @@ export default function PengaturanAplikasiPage() {
       </div>
 
       {/* Main Settings Card */}
-      <div className="bg-surface border border-outline-variant/30 rounded-2xl max-w-xl shadow-xl overflow-hidden flex flex-col">
+      <div className="bg-surface border border-outline-variant/30 rounded-2xl max-w-3xl shadow-xl overflow-hidden flex flex-col">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-on-surface-variant">
             <RefreshCw className="w-6 h-6 animate-spin mr-3 text-primary" /> Memuat pengaturan...
@@ -271,6 +299,156 @@ export default function PengaturanAplikasiPage() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* FSN & Procurement Buffer Settings */}
+              <div className="pt-6 border-t border-outline-variant/20 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-500" /> Analisis Perputaran Barang (FSN) & Buffer Pengadaan
+                  </h3>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    Otomatis Sinkron Database
+                  </span>
+                </div>
+                <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                  Konfigurasikan batas hari sejak penjualan terakhir untuk klasifikasi produk (Fast, Medium, Slow Moving, Dead Stock) serta penyesuaian otomatis safety buffer pada modul Saran Order Pembelian PO.
+                </p>
+
+                {/* Sub-grid 1: Ambang Batas Hari */}
+                <div className="bg-surface-container-low/60 border border-outline-variant/30 rounded-xl p-4 space-y-3.5">
+                  <h4 className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-primary" /> Ambang Batas Hari Penjualan Terakhir (Days Since Last Sale)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Fast Moving (&le; Hari)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="30"
+                        value={fsnFastDays}
+                        onChange={(e) => setFsnFastDays(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 text-center"
+                        placeholder="3"
+                        disabled={!can_update}
+                      />
+                      <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Default: 3 hari</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-sky-600 dark:text-sky-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-sky-500"></span> Medium Moving (&le; Hari)
+                      </label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="60"
+                        value={fsnMediumDays}
+                        onChange={(e) => setFsnMediumDays(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 text-center"
+                        placeholder="14"
+                        disabled={!can_update}
+                      />
+                      <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Default: 14 hari</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-amber-600 dark:text-amber-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-amber-500"></span> Slow Moving (&le; Hari)
+                      </label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="180"
+                        value={fsnSlowDays}
+                        onChange={(e) => setFsnSlowDays(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 text-center"
+                        placeholder="60"
+                        disabled={!can_update}
+                      />
+                      <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Default: 60 hari (&gt;60 = Dead Stock)</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-outline-variant/20">
+                    <label className="block text-[11px] font-semibold text-on-surface mb-1 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-primary" /> Masa Inkubasi Produk Baru
+                    </label>
+                    <div className="flex items-center gap-2 max-w-xs">
+                      <input
+                        type="number"
+                        min="7"
+                        max="90"
+                        value={fsnIncubationDays}
+                        onChange={(e) => setFsnIncubationDays(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 text-center"
+                        placeholder="30"
+                        disabled={!can_update}
+                      />
+                      <span className="text-xs text-on-surface-variant shrink-0 font-medium">Hari</span>
+                    </div>
+                    <span className="text-[10px] text-on-surface-variant/70 mt-1 block">
+                      Produk baru terdaftar dalam rentang ini dipertahankan sebagai Medium dan tidak langsung dicap Dead Stock meskipun belum ada penjualan.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sub-grid 2: Safety Buffer Factor Pembelian */}
+                <div className="bg-surface-container-low/60 border border-outline-variant/30 rounded-xl p-4 space-y-3.5">
+                  <h4 className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-primary" /> Safety Buffer Pengadaan (Modul Saran Order PO)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
+                        ⚡ Ekstra Buffer Fast Moving (%)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-emerald-500">+</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={fsnFastBufferPct}
+                          onChange={(e) => setFsnFastBufferPct(e.target.value)}
+                          className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 text-center"
+                          placeholder="20"
+                          disabled={!can_update}
+                        />
+                        <span className="text-xs text-on-surface-variant font-semibold">%</span>
+                      </div>
+                      <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Default: +20% (Safety factor 1.20)</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-amber-600 dark:text-amber-400 mb-1 flex items-center gap-1">
+                        ⏳ Perampingan Buffer Slow Moving (%)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-amber-500">-</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="80"
+                          value={fsnSlowBufferPct}
+                          onChange={(e) => setFsnSlowBufferPct(e.target.value)}
+                          className="w-full bg-surface border border-outline-variant text-on-surface rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 text-center"
+                          placeholder="30"
+                          disabled={!can_update}
+                        />
+                        <span className="text-xs text-on-surface-variant font-semibold">%</span>
+                      </div>
+                      <span className="text-[10px] text-on-surface-variant/70 mt-1 block">Default: -30% (Safety factor 0.70)</span>
+                    </div>
+                  </div>
+                  <div className="bg-rose-500/10 border border-rose-500/25 rounded-lg p-2.5 flex items-center gap-2 text-[11px] text-rose-600 dark:text-rose-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                    <span><strong>Dead Stock:</strong> Diberlakukan buffer 0% dan otomatis diblokir dari saran pemesanan PO untuk melindungi modal kerja.</span>
                   </div>
                 </div>
               </div>

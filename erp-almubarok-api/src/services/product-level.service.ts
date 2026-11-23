@@ -1,5 +1,5 @@
 import { db } from "../lib/db";
-import { barang, stok_barang } from "../lib/db/schema";
+import { barang, stok_barang, pengaturan_aplikasi } from "../lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 
 export interface RecalculateResult {
@@ -11,21 +11,59 @@ export interface RecalculateResult {
   timestamp: string;
 }
 
+export interface FsnSettings {
+  fastDays: number;
+  mediumDays: number;
+  slowDays: number;
+  incubationDays: number;
+  fastBufferPct: number;
+  slowBufferPct: number;
+}
+
+export const DEFAULT_FSN_SETTINGS: FsnSettings = {
+  fastDays: 3,
+  mediumDays: 14,
+  slowDays: 60,
+  incubationDays: 30,
+  fastBufferPct: 20,
+  slowBufferPct: 30,
+};
+
+/**
+ * Mengambil konfigurasi parameter FSN dari tabel pengaturan_aplikasi.
+ * Menggunakan default bila belum tersimpan di database.
+ */
+export async function getFsnSettings(): Promise<FsnSettings> {
+  const settings: FsnSettings = { ...DEFAULT_FSN_SETTINGS };
+  try {
+    const rows = await db
+      .select()
+      .from(pengaturan_aplikasi)
+      .where(sql`${pengaturan_aplikasi.key} LIKE 'fsn_%'`);
+
+    for (const row of rows) {
+      const val = parseInt(row.value, 10);
+      if (!isNaN(val)) {
+        if (row.key === "fsn_fast_days") settings.fastDays = val;
+        else if (row.key === "fsn_medium_days") settings.mediumDays = val;
+        else if (row.key === "fsn_slow_days") settings.slowDays = val;
+        else if (row.key === "fsn_incubation_days") settings.incubationDays = val;
+        else if (row.key === "fsn_fast_buffer_pct") settings.fastBufferPct = val;
+        else if (row.key === "fsn_slow_buffer_pct") settings.slowBufferPct = val;
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load FSN settings from DB, using defaults:", err);
+  }
+  return settings;
+}
+
 /**
  * Menghitung ulang level perputaran (FSN: FAST, MEDIUM, SLOW, DEAD)
- * untuk seluruh master barang dan stok barang cabang.
- * 
- * Aturan Days Since Last Sale:
- * - < 3 hari     => FAST
- * - 4 - 14 hari  => MEDIUM
- * - 15 - 60 hari => SLOW
- * - > 60 hari    => DEAD
- * 
- * Proteksi Produk Baru:
- * - Produk yang belum pernah ada transaksi penjualan tetapi umur produk < 30 hari
- *   tetap dipertahankan status awalnya (default: MEDIUM) dan tidak langsung dicap DEAD.
+ * untuk seluruh master barang dan stok barang cabang berdasarkan ambang batas dinamis.
  */
-export async function recalculateProductLevels(): Promise<RecalculateResult> {
+export async function recalculateProductLevels(customConfig?: Partial<FsnSettings>): Promise<RecalculateResult> {
+  const fsnConfig: FsnSettings = { ...(await getFsnSettings()), ...customConfig };
   const now = new Date();
   const nowStr = now.toISOString().replace("T", " ").substring(0, 19);
 
@@ -100,24 +138,24 @@ export async function recalculateProductLevels(): Promise<RecalculateResult> {
       const diffTime = now.getTime() - saleDate.getTime();
       const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
 
-      if (diffDays < 3) {
+      if (diffDays <= fsnConfig.fastDays) {
         calculatedLevel = "FAST";
-      } else if (diffDays <= 14) {
+      } else if (diffDays <= fsnConfig.mediumDays) {
         calculatedLevel = "MEDIUM";
-      } else if (diffDays <= 60) {
+      } else if (diffDays <= fsnConfig.slowDays) {
         calculatedLevel = "SLOW";
       } else {
         calculatedLevel = "DEAD";
       }
     } else {
       // Belum pernah ada transaksi
-      // Cek apakah produk baru (< 30 hari sejak created_at)
+      // Cek apakah produk baru (<= incubationDays sejak created_at)
       let isNewProduct = false;
       if (b.created_at) {
         const createdDate = new Date(b.created_at);
         if (!isNaN(createdDate.getTime())) {
           const ageDays = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (ageDays <= 30) {
+          if (ageDays <= fsnConfig.incubationDays) {
             isNewProduct = true;
           }
         }
@@ -193,9 +231,9 @@ export async function recalculateProductLevels(): Promise<RecalculateResult> {
       const saleDate = new Date(branchSale.lastSaleDate);
       const diffDays = Math.max(0, Math.floor((now.getTime() - saleDate.getTime()) / (1000 * 60 * 60 * 24)));
 
-      if (diffDays < 3) branchLevel = "FAST";
-      else if (diffDays <= 14) branchLevel = "MEDIUM";
-      else if (diffDays <= 60) branchLevel = "SLOW";
+      if (diffDays <= fsnConfig.fastDays) branchLevel = "FAST";
+      else if (diffDays <= fsnConfig.mediumDays) branchLevel = "MEDIUM";
+      else if (diffDays <= fsnConfig.slowDays) branchLevel = "SLOW";
       else branchLevel = "DEAD";
     } else {
       branchLevel = "DEAD";

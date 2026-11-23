@@ -358,6 +358,8 @@ dashboardRoutes.get("/stats", async (c) => {
     const user = c.get("user");
     const queryCabang = c.req.query("id_cabang");
     const period = c.req.query("period") || "today";
+    const queryStartDate = c.req.query("start_date");
+    const queryEndDate = c.req.query("end_date");
 
     // Branch authorization scoping
     let idCabangFilter: number | null = null;
@@ -385,28 +387,90 @@ dashboardRoutes.get("/stats", async (c) => {
       idCabangFilter = user.id_cabang;
     }
 
-    // Helper dates
+    // Helper dates & multi-period resolution
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
 
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().slice(0, 10);
-
     let startDate = todayStr;
-    const endDate = todayStr;
+    let endDate = todayStr;
+    let periodLabel = "Hari Ini";
 
     if (period === "7days") {
       const past7 = new Date(now);
       past7.setDate(now.getDate() - 6);
       startDate = past7.toISOString().slice(0, 10);
+      endDate = todayStr;
+      periodLabel = "7 Hari Terakhir";
     } else if (period === "30days") {
       const past30 = new Date(now);
       past30.setDate(now.getDate() - 29);
       startDate = past30.toISOString().slice(0, 10);
+      endDate = todayStr;
+      periodLabel = "30 Hari Terakhir";
     } else if (period === "this_month") {
-      startDate = `${todayStr.slice(0, 7)}-01`;
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const firstDay = new Date(year, month, 1);
+      startDate = firstDay.toISOString().slice(0, 10);
+      endDate = todayStr;
+      periodLabel = "Bulan Ini";
+    } else if (period === "last_month") {
+      const year = now.getFullYear();
+      const month = now.getMonth() - 1;
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      startDate = firstDay.toISOString().slice(0, 10);
+      endDate = lastDay.toISOString().slice(0, 10);
+      periodLabel = "Bulan Lalu";
+    } else if (period === "this_year") {
+      const year = now.getFullYear();
+      startDate = `${year}-01-01`;
+      endDate = todayStr;
+      periodLabel = `Tahun Ini (${year})`;
+    } else if (period === "1year" || period === "365days") {
+      const pastYear = new Date(now);
+      pastYear.setDate(now.getDate() - 364);
+      startDate = pastYear.toISOString().slice(0, 10);
+      endDate = todayStr;
+      periodLabel = "1 Tahun Terakhir";
+    } else if (period === "custom" || (queryStartDate && queryEndDate)) {
+      if (queryStartDate && /^\d{4}-\d{2}-\d{2}$/.test(queryStartDate)) {
+        startDate = queryStartDate;
+      }
+      if (queryEndDate && /^\d{4}-\d{2}-\d{2}$/.test(queryEndDate)) {
+        endDate = queryEndDate;
+      }
+      if (startDate > endDate) {
+        const temp = startDate;
+        startDate = endDate;
+        endDate = temp;
+      }
+      // Validasi batas maksimal 365 hari / 1 tahun
+      const sDateObj = new Date(startDate);
+      const eDateObj = new Date(endDate);
+      const diffMs = eDateObj.getTime() - sDateObj.getTime();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays > 365) {
+        const cappedDate = new Date(sDateObj);
+        cappedDate.setDate(sDateObj.getDate() + 365);
+        endDate = cappedDate.toISOString().slice(0, 10);
+      }
+      periodLabel = `${startDate} s/d ${endDate}`;
     }
+
+    // Durasi hari periode terpilih
+    const sDate = new Date(startDate);
+    const eDate = new Date(endDate);
+    const durationDays = Math.max(1, Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    // Hitung periode pembanding yang setara (Previous Equivalent Period)
+    const prevEnd = new Date(sDate);
+    prevEnd.setDate(sDate.getDate() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevEnd.getDate() - (durationDays - 1));
+
+    const prevStartDate = prevStart.toISOString().slice(0, 10);
+    const prevEndDate = prevEnd.toISOString().slice(0, 10);
 
     // ----------------------------------------------------
     // A. Task: KPI OMZET & TRANSAKSI
@@ -429,24 +493,30 @@ dashboardRoutes.get("/stats", async (c) => {
           .from(penjualan)
           .where(and(...salesConditions));
 
-        // Omzet Kemarin
-        const yesterdayConditions = [eq(penjualan.tanggal_invoice, yesterdayStr)];
+        // Omzet Periode Pembanding (Previous Equivalent Period)
+        const prevConditions = [
+          gte(penjualan.tanggal_invoice, prevStartDate),
+          lte(penjualan.tanggal_invoice, prevEndDate),
+        ];
         if (idCabangFilter !== null) {
-          yesterdayConditions.push(eq(penjualan.id_cabang, idCabangFilter));
+          prevConditions.push(eq(penjualan.id_cabang, idCabangFilter));
         }
-        const [salesKemarin] = await db
+        const [salesPrev] = await db
           .select({
-            omzetKemarin: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+            omzetPrev: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+            totalTransaksiPrev: sql<number>`COUNT(*)::int`,
           })
           .from(penjualan)
-          .where(and(...yesterdayConditions));
+          .where(and(...prevConditions));
 
         const omzet = Number(salesKpi?.omzet || 0);
         const totalTransaksi = Number(salesKpi?.totalTransaksi || 0);
-        const omzetKemarin = Number(salesKemarin?.omzetKemarin || 0);
+        const omzetKemarin = Number(salesPrev?.omzetPrev || 0);
         const growthPercent =
           omzetKemarin > 0
             ? Number((((omzet - omzetKemarin) / omzetKemarin) * 100).toFixed(1))
+            : omzet > 0
+            ? 100
             : 0;
         const basketSize = totalTransaksi > 0 ? Math.round(omzet / totalTransaksi) : 0;
 
@@ -618,83 +688,232 @@ dashboardRoutes.get("/stats", async (c) => {
     };
 
     // ----------------------------------------------------
-    // D. Task: SALES & CASH FLOW TREND (7 Hari Terakhir)
+    // D. Task: SALES & CASH FLOW TREND (Adaptif Cerdas Sesuai Rentang Waktu)
     // ----------------------------------------------------
     const fetchTrends = async () => {
       try {
-        const trendPastDate = new Date(now);
-        trendPastDate.setDate(now.getDate() - 6);
-        const trendStartStr = trendPastDate.toISOString().slice(0, 10);
-
         const trendSalesCond = [
-          gte(penjualan.tanggal_invoice, trendStartStr),
-          lte(penjualan.tanggal_invoice, todayStr),
+          gte(penjualan.tanggal_invoice, startDate),
+          lte(penjualan.tanggal_invoice, endDate),
         ];
         if (idCabangFilter !== null) {
           trendSalesCond.push(eq(penjualan.id_cabang, idCabangFilter));
         }
 
-        const dailySales = await db
-          .select({
-            tanggal: penjualan.tanggal_invoice,
-            omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-            transaksi: sql<number>`COUNT(*)::int`,
-          })
-          .from(penjualan)
-          .where(and(...trendSalesCond))
-          .groupBy(penjualan.tanggal_invoice);
-
-        const salesMap = new Map(dailySales.map((s) => [s.tanggal, s]));
-
-        // Mutasi Kas Masuk & Keluar Harian
         const trendKasCond = [
-          gte(kas_transaksi.tanggal, trendStartStr),
-          lte(kas_transaksi.tanggal, todayStr),
+          gte(kas_transaksi.tanggal, startDate),
+          lte(kas_transaksi.tanggal, endDate),
         ];
         if (idCabangFilter !== null) {
           trendKasCond.push(eq(kas_transaksi.id_cabang, idCabangFilter));
         }
 
-        const dailyKas = await db
-          .select({
-            tanggal: kas_transaksi.tanggal,
-            tipe: kas_transaksi.tipe,
-            total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
-          })
-          .from(kas_transaksi)
-          .where(and(...trendKasCond))
-          .groupBy(kas_transaksi.tanggal, kas_transaksi.tipe);
+        // Tentukan granulasi: Harian (<= 31 hari), Mingguan (32 - 90 hari), Bulanan (> 90 hari s/d 1 tahun)
+        const granularity: "daily" | "weekly" | "monthly" =
+          durationDays <= 31 ? "daily" : durationDays <= 90 ? "weekly" : "monthly";
 
-        const kasMap = new Map<string, { masuk: number; keluar: number }>();
-        for (const k of dailyKas) {
-          const entry = kasMap.get(k.tanggal) || { masuk: 0, keluar: 0 };
-          if (k.tipe === "MASUK") entry.masuk += Number(k.total);
-          if (k.tipe === "KELUAR") entry.keluar += Number(k.total);
-          kasMap.set(k.tanggal, entry);
+        const trendTitle = `Tren Penjualan & Arus Kas (${periodLabel})`;
+
+        if (granularity === "monthly") {
+          // Agregasi Bulanan (SUBSTRING YYYY-MM)
+          const monthlySales = await db
+            .select({
+              ym: sql<string>`SUBSTRING(${penjualan.tanggal_invoice}, 1, 7)`,
+              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+              transaksi: sql<number>`COUNT(*)::int`,
+            })
+            .from(penjualan)
+            .where(and(...trendSalesCond))
+            .groupBy(sql`SUBSTRING(${penjualan.tanggal_invoice}, 1, 7)`);
+
+          const salesMap = new Map(monthlySales.map((s) => [s.ym, s]));
+
+          const monthlyKas = await db
+            .select({
+              ym: sql<string>`SUBSTRING(${kas_transaksi.tanggal}, 1, 7)`,
+              tipe: kas_transaksi.tipe,
+              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+            })
+            .from(kas_transaksi)
+            .where(and(...trendKasCond))
+            .groupBy(sql`SUBSTRING(${kas_transaksi.tanggal}, 1, 7)`, kas_transaksi.tipe);
+
+          const kasMap = new Map<string, { masuk: number; keluar: number }>();
+          for (const k of monthlyKas) {
+            const entry = kasMap.get(k.ym) || { masuk: 0, keluar: 0 };
+            if (k.tipe === "MASUK") entry.masuk += Number(k.total);
+            if (k.tipe === "KELUAR") entry.keluar += Number(k.total);
+            kasMap.set(k.ym, entry);
+          }
+
+          // Loop per bulan dari startDate sampai endDate
+          const [sY, sM] = startDate.slice(0, 7).split("-").map(Number);
+          const [eY, eM] = endDate.slice(0, 7).split("-").map(Number);
+
+          const salesTrend = [];
+          const cur = new Date(sY, sM - 1, 1);
+          const endLimit = new Date(eY, eM - 1, 1);
+
+          while (cur <= endLimit) {
+            const ym = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
+            const label = cur.toLocaleDateString("id-ID", { month: "short", year: "2-digit" });
+            const sale = salesMap.get(ym);
+            const kas = kasMap.get(ym) || { masuk: 0, keluar: 0 };
+
+            salesTrend.push({
+              date: ym,
+              label,
+              omzet: Number(sale?.omzet || 0),
+              transaksi: Number(sale?.transaksi || 0),
+              kasMasuk: kas.masuk,
+              kasKeluar: kas.keluar,
+            });
+
+            cur.setMonth(cur.getMonth() + 1);
+          }
+
+          return { granularity, trendTitle, points: salesTrend };
+        } else if (granularity === "weekly") {
+          // Agregasi Mingguan: Pecah rentang menjadi interval 7 hari
+          const dailySales = await db
+            .select({
+              tanggal: penjualan.tanggal_invoice,
+              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+              transaksi: sql<number>`COUNT(*)::int`,
+            })
+            .from(penjualan)
+            .where(and(...trendSalesCond))
+            .groupBy(penjualan.tanggal_invoice);
+
+          const salesMap = new Map(dailySales.map((s) => [s.tanggal, s]));
+
+          const dailyKas = await db
+            .select({
+              tanggal: kas_transaksi.tanggal,
+              tipe: kas_transaksi.tipe,
+              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+            })
+            .from(kas_transaksi)
+            .where(and(...trendKasCond))
+            .groupBy(kas_transaksi.tanggal, kas_transaksi.tipe);
+
+          const kasMap = new Map<string, { masuk: number; keluar: number }>();
+          for (const k of dailyKas) {
+            const entry = kasMap.get(k.tanggal) || { masuk: 0, keluar: 0 };
+            if (k.tipe === "MASUK") entry.masuk += Number(k.total);
+            if (k.tipe === "KELUAR") entry.keluar += Number(k.total);
+            kasMap.set(k.tanggal, entry);
+          }
+
+          const salesTrend = [];
+          let currentStart = new Date(startDate);
+          const finalEnd = new Date(endDate);
+          let weekIndex = 1;
+
+          while (currentStart <= finalEnd) {
+            const currentEnd = new Date(currentStart);
+            currentEnd.setDate(currentStart.getDate() + 6);
+            const actualEnd = currentEnd > finalEnd ? finalEnd : currentEnd;
+
+            let weekOmzet = 0;
+            let weekTransaksi = 0;
+            let weekKasMasuk = 0;
+            let weekKasKeluar = 0;
+
+            const temp = new Date(currentStart);
+            while (temp <= actualEnd) {
+              const dStr = temp.toISOString().slice(0, 10);
+              const sale = salesMap.get(dStr);
+              const kas = kasMap.get(dStr) || { masuk: 0, keluar: 0 };
+              weekOmzet += Number(sale?.omzet || 0);
+              weekTransaksi += Number(sale?.transaksi || 0);
+              weekKasMasuk += kas.masuk;
+              weekKasKeluar += kas.keluar;
+              temp.setDate(temp.getDate() + 1);
+            }
+
+            const startLbl = currentStart.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+            const endLbl = actualEnd.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+            const label = `M${weekIndex} (${startLbl}-${endLbl})`;
+
+            salesTrend.push({
+              date: currentStart.toISOString().slice(0, 10),
+              label,
+              omzet: weekOmzet,
+              transaksi: weekTransaksi,
+              kasMasuk: weekKasMasuk,
+              kasKeluar: weekKasKeluar,
+            });
+
+            weekIndex++;
+            currentStart = new Date(actualEnd);
+            currentStart.setDate(actualEnd.getDate() + 1);
+          }
+
+          return { granularity, trendTitle, points: salesTrend };
+        } else {
+          // Harian (Daily) untuk durationDays <= 31
+          const dailySales = await db
+            .select({
+              tanggal: penjualan.tanggal_invoice,
+              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+              transaksi: sql<number>`COUNT(*)::int`,
+            })
+            .from(penjualan)
+            .where(and(...trendSalesCond))
+            .groupBy(penjualan.tanggal_invoice);
+
+          const salesMap = new Map(dailySales.map((s) => [s.tanggal, s]));
+
+          const dailyKas = await db
+            .select({
+              tanggal: kas_transaksi.tanggal,
+              tipe: kas_transaksi.tipe,
+              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+            })
+            .from(kas_transaksi)
+            .where(and(...trendKasCond))
+            .groupBy(kas_transaksi.tanggal, kas_transaksi.tipe);
+
+          const kasMap = new Map<string, { masuk: number; keluar: number }>();
+          for (const k of dailyKas) {
+            const entry = kasMap.get(k.tanggal) || { masuk: 0, keluar: 0 };
+            if (k.tipe === "MASUK") entry.masuk += Number(k.total);
+            if (k.tipe === "KELUAR") entry.keluar += Number(k.total);
+            kasMap.set(k.tanggal, entry);
+          }
+
+          const salesTrend = [];
+          const cur = new Date(startDate);
+          const endLimit = new Date(endDate);
+
+          while (cur <= endLimit) {
+            const dateStr = cur.toISOString().slice(0, 10);
+            const dayName = cur.toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "numeric" });
+            const sale = salesMap.get(dateStr);
+            const kas = kasMap.get(dateStr) || { masuk: 0, keluar: 0 };
+
+            salesTrend.push({
+              date: dateStr,
+              label: dayName,
+              omzet: Number(sale?.omzet || 0),
+              transaksi: Number(sale?.transaksi || 0),
+              kasMasuk: kas.masuk,
+              kasKeluar: kas.keluar,
+            });
+
+            cur.setDate(cur.getDate() + 1);
+          }
+
+          return { granularity, trendTitle, points: salesTrend };
         }
-
-        const salesTrend = [];
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(now.getDate() - i);
-          const dateStr = d.toISOString().slice(0, 10);
-          const dayName = d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "numeric" });
-          const sale = salesMap.get(dateStr);
-          const kas = kasMap.get(dateStr) || { masuk: 0, keluar: 0 };
-
-          salesTrend.push({
-            date: dateStr,
-            label: dayName,
-            omzet: Number(sale?.omzet || 0),
-            transaksi: Number(sale?.transaksi || 0),
-            kasMasuk: kas.masuk,
-            kasKeluar: kas.keluar,
-          });
-        }
-        return salesTrend;
       } catch (err: any) {
         console.error("⚠️ [Dashboard] Error in fetchTrends:", err.cause || err.message);
-        return [];
+        return {
+          granularity: "daily" as const,
+          trendTitle: `Tren Penjualan & Arus Kas (${periodLabel})`,
+          points: [],
+        };
       }
     };
 
@@ -989,7 +1208,7 @@ dashboardRoutes.get("/stats", async (c) => {
       kpiData,
       kasData,
       hutangData,
-      salesTrend,
+      trendData,
       leaderboardData,
       stokKritis,
       batchExpired,
@@ -1014,13 +1233,27 @@ dashboardRoutes.get("/stats", async (c) => {
     return c.json({
       success: true,
       data: {
+        meta: {
+          startDate,
+          endDate,
+          period,
+          periodLabel,
+          durationDays,
+          prevStartDate,
+          prevEndDate,
+        },
         kpi: {
           ...kpiData,
+          comparisonLabel: `${prevStartDate} s/d ${prevEndDate}`,
           totalSaldoKasBank: kasData.totalSaldoKasBank,
           hutangJatuhTempo: hutangData.hutangJatuhTempo,
           hutangCount: hutangData.hutangCount,
         },
-        salesTrend,
+        salesTrend: trendData.points,
+        trendMeta: {
+          granularity: trendData.granularity,
+          trendTitle: trendData.trendTitle,
+        },
         cabangLeaderboard: leaderboardData.all,
         top3Cabang: leaderboardData.top3,
         bottom3Cabang: leaderboardData.bottom3,

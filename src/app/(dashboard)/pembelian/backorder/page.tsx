@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 import { formatCurrency } from "@/lib/utils";
+import SupplierSearchSelect from "@/components/ui/SupplierSearchSelect";
 
 interface BackorderItem {
   id: number;
@@ -347,21 +348,14 @@ export default function BackorderPage() {
         </div>
 
         <div className="w-full md:w-72">
-          <div className="relative">
-            <Building2 className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
-            <select
-              value={supplierFilter}
-              onChange={(e) => setSupplierFilter(e.target.value)}
-              className="w-full pl-9 pr-8 py-2.5 bg-surface-container-low border border-outline-variant text-on-surface rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
-            >
-              <option value="all">-- Semua Supplier --</option>
-              {suppliers.map((s) => (
-                <option key={s.id_supplier} value={s.id_supplier}>
-                  {s.nama_supplier}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SupplierSearchSelect
+            suppliers={suppliers}
+            value={supplierFilter}
+            onChange={(val) => setSupplierFilter(val)}
+            allowAll
+            allLabel="-- Semua Supplier --"
+            allValue="all"
+          />
         </div>
       </div>
 

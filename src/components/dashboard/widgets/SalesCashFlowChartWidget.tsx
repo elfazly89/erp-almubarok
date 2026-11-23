@@ -27,9 +27,17 @@ interface SalesTrendItem {
 
 interface SalesCashFlowChartProps {
   data: SalesTrendItem[];
+  title?: string;
+  granularity?: "daily" | "weekly" | "monthly";
+  periodLabel?: string;
 }
 
-export function SalesCashFlowChartWidget({ data }: SalesCashFlowChartProps) {
+export function SalesCashFlowChartWidget({
+  data,
+  title,
+  granularity,
+  periodLabel,
+}: SalesCashFlowChartProps) {
   const [activeTab, setActiveTab] = useState<"omzet" | "kas">("omzet");
 
   const totalOmzetPeriod = data.reduce((acc, curr) => acc + curr.omzet, 0);
@@ -68,11 +76,11 @@ export function SalesCashFlowChartWidget({ data }: SalesCashFlowChartProps) {
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
-            Tren Penjualan & Arus Kas (7 Hari Terakhir)
+            {title || "Tren Penjualan & Arus Kas"}
           </h2>
           <p className="text-xs text-on-surface-variant/70 mt-0.5">
             {activeTab === "omzet"
-              ? `Total 7 Hari: ${formatCurrency(totalOmzetPeriod)}`
+              ? `Total Periode (${periodLabel || "Terpilih"}): ${formatCurrency(totalOmzetPeriod)}`
               : `Masuk: ${formatCurrency(totalKasMasuk)} | Keluar: ${formatCurrency(totalKasKeluar)}`}
           </p>
         </div>

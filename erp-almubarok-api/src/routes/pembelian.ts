@@ -17,6 +17,7 @@ import {
 } from "../lib/db/schema";
 import { eq, and, or, desc, asc, sql, inArray } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
+import { getFsnSettings } from "../services/product-level.service";
 
 export const pembelianRoutes = new Hono<{
   Variables: {
@@ -866,6 +867,10 @@ pembelianRoutes.get("/saran-order", async (c) => {
       ORDER BY sg.total_qty_sold DESC NULLS LAST, b.nama_barang ASC
     `);
 
+    const fsnSettings = await getFsnSettings();
+    const fastSafetyFactor = 1 + (fsnSettings.fastBufferPct / 100);
+    const slowSafetyFactor = Math.max(0.1, 1 - (fsnSettings.slowBufferPct / 100));
+
     let items = (rawData.rows as any[]).map((row) => {
       const totalQtySold = parseFloat(row.total_qty_sold) || 0;
       const adsGlobal = Math.round((totalQtySold / lookbackDays) * 100) / 100;
@@ -875,16 +880,16 @@ pembelianRoutes.get("/saran-order", async (c) => {
       const hargaBeliPcs = parseInt(row.harga_beli) || 0;
       const levelBarang = (row.level_barang || "MEDIUM").toUpperCase();
 
-      // Safety Factor adaptif sesuai Level Barang
+      // Safety Factor adaptif sesuai Level Barang & Konfigurasi FSN Dinamis
       let safetyFactor = 1.0;
       let warningNote = "";
       if (levelBarang === "FAST") {
-        safetyFactor = 1.20; // +20% proteksi stok cepat habis
+        safetyFactor = fastSafetyFactor; // Proteksi stok cepat habis dinamis
       } else if (levelBarang === "SLOW") {
-        safetyFactor = 0.70; // -30% rampingkan agar tidak mengendap modal
+        safetyFactor = slowSafetyFactor; // Rampingkan agar tidak mengendap modal dinamis
       } else if (levelBarang === "DEAD") {
         safetyFactor = 0.0;  // Blokir order ulang
-        warningNote = "Produk Dead Moving (>60 hari tidak terjual). Order ulang dicegah otomatis.";
+        warningNote = `Produk Dead Moving (>${fsnSettings.slowDays} hari tidak terjual). Order ulang dicegah otomatis.`;
       }
 
       // Ketahanan stok global (runout days)
@@ -1022,6 +1027,14 @@ pembelianRoutes.get("/saran-order", async (c) => {
       perhatian_count: items.filter((i) => i.status_urgensi === "PERHATIAN").length,
       aman_count: items.filter((i) => i.status_urgensi === "AMAN").length,
       estimasi_total_anggaran: items.reduce((sum, it) => sum + it.estimasi_subtotal, 0),
+      fsn_config: {
+        fast_days: fsnSettings.fastDays,
+        medium_days: fsnSettings.mediumDays,
+        slow_days: fsnSettings.slowDays,
+        incubation_days: fsnSettings.incubationDays,
+        fast_buffer_pct: fsnSettings.fastBufferPct,
+        slow_buffer_pct: fsnSettings.slowBufferPct,
+      },
     };
 
     return c.json({ success: true, summary, items });
@@ -1033,7 +1046,7 @@ pembelianRoutes.get("/saran-order", async (c) => {
 // POST /saran-order/generate-po - Mengonversi item terpilih menjadi dokumen Purchase Order resmi
 pembelianRoutes.post("/saran-order/generate-po", async (c) => {
   const user = c.get("user");
-  let idCabang = user.id_cabang;
+  let idCabang = user?.id_cabang;
 
   if (!idCabang) {
     const [dcCabang] = await db.select().from(cabang).where(eq(cabang.kode_cabang, "DC-001")).limit(1);
@@ -1048,12 +1061,22 @@ pembelianRoutes.post("/saran-order/generate-po", async (c) => {
       return c.json({ error: "Pilih minimal 1 barang untuk membuat PO" }, 400);
     }
 
+    // Filter hanya barang dengan jumlah pesan > 0
+    const validItems = items.filter((it: any) => {
+      const qty = parseInt(String(it.jumlah_barang || "0"), 10);
+      return !isNaN(qty) && qty > 0;
+    });
+
+    if (validItems.length === 0) {
+      return c.json({ error: "Semua barang yang dipilih memiliki jumlah pesan 0. Harap masukkan jumlah pesanan yang valid." }, 400);
+    }
+
     // Group items by supplier
     const groupsBySupplier = new Map<number, any[]>();
-    for (const item of items) {
+    for (const item of validItems) {
       const sId = parseInt(item.id_supplier || id_supplier);
       if (!sId || isNaN(sId)) {
-        return c.json({ error: `Barang ${item.nama_barang} tidak memiliki supplier yang valid` }, 400);
+        return c.json({ error: `Barang "${item.nama_barang}" belum memiliki data pemasok (supplier). Harap lengkapi supplier di Master Barang.` }, 400);
       }
       if (!groupsBySupplier.has(sId)) {
         groupsBySupplier.set(sId, []);
@@ -1064,34 +1087,40 @@ pembelianRoutes.post("/saran-order/generate-po", async (c) => {
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const result = await db.transaction(async (tx) => {
-      // 1. Get branch info
+      // 1. Lock branch record to serialize concurrent PO sequence numbering
+      await tx.execute(sql`SELECT id_cabang FROM cabang WHERE id_cabang = ${idCabang} FOR UPDATE`);
+
+      // Get branch info
       const [cb] = await tx.select().from(cabang).where(eq(cabang.id_cabang, idCabang));
       const kodeCabang = cb ? cb.kode_cabang : "CBG";
       const datePart = todayStr.replace(/-/g, "");
 
-      // Sequence numbering base
+      // Sequence numbering base: cari urutan tertinggi pada hari ini untuk mencegah tabrakan sequence
       const pattern = `PO-${kodeCabang}-${datePart}-%`;
-      const [lastPo] = await tx
+      const existingToday = await tx
         .select({ nomor_pesan_beli: pesan_beli.nomor_pesan_beli })
         .from(pesan_beli)
-        .where(and(eq(pesan_beli.id_cabang, idCabang), sql`${pesan_beli.nomor_pesan_beli} LIKE ${pattern}`))
-        .orderBy(desc(pesan_beli.id_pesan_beli))
-        .limit(1);
+        .where(and(eq(pesan_beli.id_cabang, idCabang), sql`${pesan_beli.nomor_pesan_beli} LIKE ${pattern}`));
 
-      let seq = 1;
-      if (lastPo && lastPo.nomor_pesan_beli) {
-        const parts = lastPo.nomor_pesan_beli.split("-");
-        const lastSeq = parseInt(parts[parts.length - 1]);
-        if (!isNaN(lastSeq)) seq = lastSeq + 1;
+      let maxSeq = 0;
+      for (const row of existingToday) {
+        if (row.nomor_pesan_beli) {
+          const parts = row.nomor_pesan_beli.split("-");
+          const n = parseInt(parts[parts.length - 1], 10);
+          if (!isNaN(n) && n > maxSeq) {
+            maxSeq = n;
+          }
+        }
       }
 
+      let seq = maxSeq + 1;
       const createdPos = [];
 
       for (const [suppId, suppItems] of groupsBySupplier.entries()) {
         const newPoNo = `PO-${kodeCabang}-${datePart}-${String(seq).padStart(3, "0")}`;
         seq += 1;
 
-        const totalHarga = suppItems.reduce((sum: number, it: any) => sum + parseInt(it.subtotal || "0"), 0);
+        const totalHarga = suppItems.reduce((sum: number, it: any) => sum + (Math.round(Number(it.subtotal || 0)) || 0), 0);
 
         const [newPo] = await tx
           .insert(pesan_beli)
@@ -1109,11 +1138,11 @@ pembelianRoutes.post("/saran-order/generate-po", async (c) => {
         for (const item of suppItems) {
           await tx.insert(pesan_beli_detail).values({
             id_pesan_beli: newPo.id_pesan_beli,
-            id_barang: parseInt(item.id_barang),
+            id_barang: parseInt(String(item.id_barang), 10),
             nama_barang: item.nama_barang,
-            jumlah_barang: parseInt(item.jumlah_barang), // in pcs
-            harga_satuan: parseInt(item.harga_satuan),   // in pcs
-            subtotal: parseInt(item.subtotal),
+            jumlah_barang: Math.round(Number(item.jumlah_barang || 0)), // in pcs
+            harga_satuan: Math.round(Number(item.harga_satuan || 0)),   // in pcs
+            subtotal: Math.round(Number(item.subtotal || 0)),
           });
         }
 

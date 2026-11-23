@@ -30,6 +30,7 @@ import { useMenuPermissions } from "@/components/providers/PermissionProvider";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import TablePagination from "@/components/ui/TablePagination";
+import SupplierSearchSelect from "@/components/ui/SupplierSearchSelect";
 
 interface Kategori {
   id_kategori: number;
@@ -1336,16 +1337,13 @@ export default function BarangPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-on-surface-variant mb-1">Supplier</label>
-                  <select
+                  <SupplierSearchSelect
+                    suppliers={suppliers}
                     value={supplierId}
-                    onChange={(e) => setSupplierId(e.target.value)}
-                    className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                  >
-                    <option value="" className="bg-surface text-on-surface-variant">-- Pilih Supplier --</option>
-                    {suppliers.map((s) => (
-                      <option key={s.id_supplier} value={s.id_supplier} className="bg-surface text-on-surface">{s.nama_supplier}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setSupplierId(val)}
+                    placeholder="-- Pilih Supplier --"
+                    buttonClassName="rounded-lg"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-on-surface-variant mb-1">Status Pajak</label>

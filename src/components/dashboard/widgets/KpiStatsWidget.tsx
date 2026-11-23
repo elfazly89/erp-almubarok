@@ -17,6 +17,7 @@ interface KpiStatsProps {
     omzet: number;
     omzetKemarin?: number;
     growthPercent?: number;
+    comparisonLabel?: string;
     totalTransaksi?: number;
     basketSize?: number;
     marginKotor: number;
@@ -86,7 +87,7 @@ export function KpiStatsWidget({ data }: KpiStatsProps) {
               )}
               {Math.abs(growthPercent)}%
             </span>
-            <span className="text-on-surface-variant/70 text-[11px]">vs periode lalu</span>
+            <span className="text-on-surface-variant/70 text-[11px]">{data.comparisonLabel || "vs periode lalu"}</span>
           </div>
           {data.totalTransaksi !== undefined && (
             <span className="text-on-surface-variant/70 text-[11px] flex items-center gap-1">

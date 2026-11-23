@@ -12,6 +12,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { comparePassword, hashPassword } from "../lib/auth/password";
 import type { JWTPayload } from "../lib/auth/jwt";
+import { recalculateProductLevels } from "../services/product-level.service";
 
 export const pengaturanRoutes = new Hono<{
   Variables: {
@@ -803,6 +804,12 @@ pengaturanRoutes.get("/aplikasi", async (c) => {
       coa_kategori_infaq: "57",
       coa_kategori_hpp: "36",
       coa_kategori_persediaan: "10",
+      fsn_fast_days: "3",
+      fsn_medium_days: "14",
+      fsn_slow_days: "60",
+      fsn_incubation_days: "30",
+      fsn_fast_buffer_pct: "20",
+      fsn_slow_buffer_pct: "30",
     };
     for (const item of settings) {
       config[item.key] = item.value;
@@ -827,12 +834,24 @@ pengaturanRoutes.put("/aplikasi", async (c) => {
       "coa_kategori_diskon",
       "coa_kategori_infaq",
       "coa_kategori_hpp",
-      "coa_kategori_persediaan"
+      "coa_kategori_persediaan",
+      "fsn_fast_days",
+      "fsn_medium_days",
+      "fsn_slow_days",
+      "fsn_incubation_days",
+      "fsn_fast_buffer_pct",
+      "fsn_slow_buffer_pct",
     ];
+
+    let fsnUpdated = false;
 
     // Update or insert each key
     for (const key of keys) {
       if (body[key] !== undefined) {
+        if (key.startsWith("fsn_")) {
+          fsnUpdated = true;
+        }
+
         // Check if exists
         const [exists] = await db
           .select()
@@ -853,7 +872,21 @@ pengaturanRoutes.put("/aplikasi", async (c) => {
       }
     }
 
-    return c.json({ success: true, message: "Pengaturan aplikasi berhasil disimpan" });
+    // Rekalkulasi FSN otomatis seketika bila ada pengaturan FSN yang diubah
+    let recalculateResult = null;
+    if (fsnUpdated || body.recalculate_fsn) {
+      try {
+        recalculateResult = await recalculateProductLevels();
+      } catch (recErr: any) {
+        console.error("Auto recalculate FSN after settings update failed:", recErr);
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: "Pengaturan aplikasi berhasil disimpan",
+      recalculateResult,
+    });
   } catch (err: any) {
     return c.json({ success: false, message: "Gagal menyimpan pengaturan aplikasi: " + err.message }, 500);
   }
