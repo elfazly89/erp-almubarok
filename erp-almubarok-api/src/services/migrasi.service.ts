@@ -643,8 +643,8 @@ export function mapRowToBarang(raw: Record<string, any>): ParsedBarangItem | nul
   const dept = (lookup["departement"] || lookup["departemen"] || lookup["dept"] || lookup["kategori"] || "").toString().trim() || undefined;
   const supp = (lookup["supplier"] || lookup["suplier"] || lookup["pemasok"] || "").toString().trim() || undefined;
 
-  const hrgBeli = parseNumberSafe(lookup["hrgbeli"] || lookup["hargabeli"] || lookup["beli"] || lookup["hpp"] || 0);
-  const hbt = parseNumberSafe(lookup["hbt"] || lookup["hargabeliterakhir"] || 0);
+  const hrgBeli = Math.round(parseNumberSafe(lookup["hrgbeli"] || lookup["hargabeli"] || lookup["beli"] || lookup["hpp"] || 0));
+  const hbt = Math.round(parseNumberSafe(lookup["hbt"] || lookup["hargabeliterakhir"] || 0));
   const finalHrgBeli = hbt > 0 ? hbt : hrgBeli;
 
   const tglBeliTerakhir = lookup["pembelianterakhir"] || lookup["tglbeliterakhir"] || undefined;
@@ -748,10 +748,10 @@ export function groupTransaksiRows(rawRows: Record<string, any>[]): TransaksiGro
       const jumlah = parseIntSafe(it["jumlah"] || it["qty"] || 1);
       const sat = (it["sat"] || it["satuan"] || "PCS").toString().trim();
       const isi = parseIntSafe(it["isi"] || 1) || 1;
-      const harga = parseNumberSafe(it["harga"] || it["hargajual"] || 0);
-      const hbt = parseNumberSafe(it["hbt"] || 0);
-      const disc = parseNumberSafe(it["disc"] || it["diskon"] || 0);
-      const total = parseNumberSafe(it["total"] || it["subtotal"] || (jumlah * harga - disc));
+      const harga = Math.round(parseNumberSafe(it["harga"] || it["hargajual"] || 0));
+      const hbt = Math.round(parseNumberSafe(it["hbt"] || 0));
+      const disc = Math.round(parseNumberSafe(it["disc"] || it["diskon"] || 0));
+      const total = Math.round(parseNumberSafe(it["total"] || it["subtotal"] || (jumlah * harga - disc)));
       const jasaRaw = (it["jasa"] || "").toString().trim().toUpperCase();
       const isJasa = jasaRaw === "1" || jasaRaw === "Y" || jasaRaw === "JASA";
 
@@ -771,10 +771,10 @@ export function groupTransaksiRows(rawRows: Record<string, any>[]): TransaksiGro
       };
     });
 
-    const subtotalHeader = parseNumberSafe(first["subtotal"] || calculatedSubtotal);
-    const potonganRp = parseNumberSafe(first["potonganrp"] || first["potongan"] || 0);
+    const subtotalHeader = Math.round(parseNumberSafe(first["subtotal"] || calculatedSubtotal));
+    const potonganRp = Math.round(parseNumberSafe(first["potonganrp"] || first["potongan"] || 0));
     const totalAkhir = Math.max(0, subtotalHeader - potonganRp);
-    const bayar = parseNumberSafe(first["bayar"] || totalAkhir);
+    const bayar = Math.round(parseNumberSafe(first["bayar"] || totalAkhir));
 
     // Format invoice with MIG- prefix
     const cleanInvoice = noJual.toUpperCase().startsWith("MIG-") ? noJual.toUpperCase() : `MIG-${noJual}`;
@@ -1127,7 +1127,7 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
                 satuan_3: item.satuan_3 || null,
                 isi_2: item.isi_2 || null,
                 isi_3: item.isi_3 || null,
-                harga_beli: item.harga_beli,
+                harga_beli: Math.round(item.harga_beli),
                 level_barang: item.level,
                 lapor_pajak: item.lapor_pajak,
                 terakhir_terjual: item.penjualan_terakhir || null,
@@ -1156,9 +1156,9 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
                 isi_1: 1,
                 isi_2: item.isi_2 || null,
                 isi_3: item.isi_3 || null,
-                harga_beli: item.harga_beli,
-                harga_rata: item.harga_beli,
-                harga_jual_1_1: Math.round(item.harga_beli * 1.15 * 100) / 100, // Default +15% margin if not set
+                harga_beli: Math.round(item.harga_beli),
+                harga_rata: Math.round(item.hbt || item.harga_beli),
+                harga_jual_1_1: Math.round(item.harga_beli * 1.15), // Default +15% margin if not set
                 level_barang: item.level,
                 lapor_pajak: item.lapor_pajak,
                 terakhir_terjual: item.penjualan_terakhir || null,
@@ -1231,14 +1231,14 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
         }
 
         // Determine safe HPP
-        let hpp = item.harga_beli;
+        let hpp = Math.round(item.harga_beli || 0);
         if (!hpp || hpp <= 0) {
-          hpp = dbPriceMap.get(idBarang) || 0;
+          hpp = Math.round(dbPriceMap.get(idBarang) || 0);
         }
 
         // Catat ke kartu_stok HANYA jika stok > 0 (sesuai keputusan user)
         if (item.stock > 0) {
-          const totalNilai = Math.round(item.stock * hpp * 100) / 100;
+          const totalNilai = Math.round(item.stock * hpp);
           await tx.insert(kartu_stok).values({
             id_barang: idBarang,
             id_cabang: id_cabang,
@@ -1310,11 +1310,11 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
             nama_pelanggan: tr.nama_pelanggan,
             id_user: userId,
             id_cabang: id_cabang,
-            subtotal: tr.subtotal,
-            diskon: tr.diskon,
-            total_akhir: tr.total_akhir,
+            subtotal: Math.round(tr.subtotal),
+            diskon: Math.round(tr.diskon),
+            total_akhir: Math.round(tr.total_akhir),
             jenis_pembayaran: tr.jenis_pembayaran,
-            jumlah_bayar: tr.jumlah_bayar,
+            jumlah_bayar: Math.round(tr.jumlah_bayar),
             created_at: `${tr.tanggal_invoice} ${tr.jam_invoice}`,
           })
           .returning();
@@ -1333,10 +1333,10 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
             jumlah: item.jumlah,
             satuan: item.satuan,
             isi_satuan: item.isi_satuan,
-            harga_jual: item.harga_jual,
-            harga_rata_saat_transaksi: item.harga_rata,
-            diskon: item.diskon,
-            subtotal: item.subtotal,
+            harga_jual: Math.round(item.harga_jual),
+            harga_rata_saat_transaksi: Math.round(item.harga_rata),
+            diskon: Math.round(item.diskon),
+            subtotal: Math.round(item.subtotal),
             jenis_item: item.jenis_item,
           });
         }

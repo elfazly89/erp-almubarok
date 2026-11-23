@@ -36,6 +36,7 @@ export const cabang = pgTable("cabang", {
   nisbah_pengelola: numeric("nisbah_pengelola").default("0"),
   nisbah_investor: numeric("nisbah_investor").default("0"),
   total_modal_investor: numeric("total_modal_investor").default("0"),
+  is_active: boolean("is_active").default(true).notNull(),
   created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
   updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 });

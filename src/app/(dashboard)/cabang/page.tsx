@@ -53,6 +53,7 @@ interface Cabang {
   nisbah_investor?: string | number | null;
   total_modal_investor?: string | number | null;
   jumlah_investor?: number;
+  is_active?: boolean;
 }
 
 interface CabangInvestor {
@@ -103,9 +104,11 @@ export default function CabangManagementPage() {
   const [formJenisCabang, setFormJenisCabang] = useState<"INTERNAL" | "INVESTOR">("INTERNAL");
   const [formNisbahPengelola, setFormNisbahPengelola] = useState("40");
   const [formNisbahInvestor, setFormNisbahInvestor] = useState("60");
+  const [formIsActive, setFormIsActive] = useState<boolean>(true);
 
   // Filter state
   const [filterJenis, setFilterJenis] = useState<"ALL" | "INTERNAL" | "INVESTOR" | "DC">("ALL");
+  const [includeInactive, setIncludeInactive] = useState<boolean>(true);
 
   // Konsorsium Investor Modal States
   const [investorModalCabang, setInvestorModalCabang] = useState<Cabang | null>(null);
@@ -130,13 +133,6 @@ export default function CabangManagementPage() {
 
   // Toast Notification State
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-
-  // Custom Delete Confirm State
-  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; id: number | null; nama: string }>({
-    show: false,
-    id: null,
-    nama: "",
-  });
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -179,7 +175,7 @@ export default function CabangManagementPage() {
     setLoading(true);
     setErrorMsg("");
     try {
-      const cabRes = await fetch("/api/cabang");
+      const cabRes = await fetch("/api/cabang?all=true");
       const userRes = await fetch("/api/hrd/users?limit=100");
 
       if (cabRes.ok) {
@@ -223,6 +219,7 @@ export default function CabangManagementPage() {
       setFormJenisCabang(item.jenis_cabang || "INTERNAL");
       setFormNisbahPengelola(item.nisbah_pengelola ? String(item.nisbah_pengelola) : "40");
       setFormNisbahInvestor(item.nisbah_investor ? String(item.nisbah_investor) : "60");
+      setFormIsActive(item.is_active !== false);
     } else {
       setEditItem(null);
       setFormKode("");
@@ -237,6 +234,7 @@ export default function CabangManagementPage() {
       setFormJenisCabang("INTERNAL");
       setFormNisbahPengelola("40");
       setFormNisbahInvestor("60");
+      setFormIsActive(true);
     }
     setErrorMsg("");
     setIsModalFullscreen(false);
@@ -265,6 +263,7 @@ export default function CabangManagementPage() {
         jenis_cabang: formJenisCabang,
         nisbah_pengelola: formJenisCabang === "INVESTOR" ? formNisbahPengelola : "0",
         nisbah_investor: formJenisCabang === "INVESTOR" ? formNisbahInvestor : "0",
+        is_active: formIsActive,
       };
 
       let res;
@@ -423,30 +422,6 @@ export default function CabangManagementPage() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    const cabangItem = list.find((c) => c.id_cabang === id);
-    if (cabangItem) {
-      setDeleteConfirm({
-        show: true,
-        id,
-        nama: cabangItem.nama_cabang,
-      });
-    }
-  };
-
-  const confirmDelete = async (id: number) => {
-    setDeleteConfirm({ show: false, id: null, nama: "" });
-    try {
-      const res = await fetch(`/api/cabang/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || "Gagal menghapus cabang");
-      showToast("Cabang berhasil dihapus.", "success");
-      fetchData();
-    } catch (e: any) {
-      showToast(e.message || "Gagal menghapus cabang", "error");
-    }
-  };
-
   const handlePrint = () => {
     const printArea = document.getElementById("print-area-cabang");
     if (!printArea) return;
@@ -478,6 +453,8 @@ export default function CabangManagementPage() {
       (item.data_kode || "").toLowerCase().includes(s);
 
     if (!matchSearch) return false;
+
+    if (!includeInactive && item.is_active === false) return false;
 
     if (filterJenis === "INTERNAL") return item.jenis_cabang !== "INVESTOR" && !item.is_dc;
     if (filterJenis === "INVESTOR") return item.jenis_cabang === "INVESTOR";
@@ -554,7 +531,16 @@ export default function CabangManagementPage() {
             <Building2 className="w-6 h-6 text-primary" /> Pengaturan Cabang
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-on-surface-variant hover:text-on-surface select-none bg-surface border border-outline-variant/60 px-3 py-1.5 rounded-xl shadow-xs">
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(e) => setIncludeInactive(e.target.checked)}
+              className="rounded text-primary focus:ring-primary w-3.5 h-3.5 cursor-pointer accent-primary"
+            />
+            <span className="whitespace-nowrap">Sertakan Nonaktif</span>
+          </label>
           <div className="relative w-48 sm:w-64">
             <Search className="w-3.5 h-3.5 text-on-surface-variant absolute left-3 top-2.5" />
             <input
@@ -770,6 +756,14 @@ export default function CabangManagementPage() {
                     </div>
                   </th>
                   <th
+                    className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider w-28 cursor-pointer hover:bg-surface-container-high/40"
+                    onClick={() => handleSort("is_active")}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Status {renderSortIndicator("is_active")}
+                    </div>
+                  </th>
+                  <th
                     className="px-5 py-2.5 text-on-surface-variant text-xs font-semibold uppercase tracking-wider cursor-pointer hover:bg-surface-container-high/40"
                     onClick={() => handleSort("alamat")}
                   >
@@ -802,7 +796,7 @@ export default function CabangManagementPage() {
               <tbody className="divide-y divide-outline-variant/20">
                 {sortedList.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-8 text-center text-on-surface-variant">
+                    <td colSpan={8} className="px-5 py-8 text-center text-on-surface-variant">
                       Tidak ada cabang yang cocok dengan pencarian Anda.
                     </td>
                   </tr>
@@ -845,6 +839,17 @@ export default function CabangManagementPage() {
                               )}
                             </span>
                           </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-2.5">
+                        {item.is_active !== false ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full shadow-2xs">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Aktif
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 dark:text-red-300 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-full shadow-2xs">
+                            <XCircle className="w-3 h-3 text-red-500" /> Nonaktif
+                          </span>
                         )}
                       </td>
                       <td className="px-5 py-2.5 text-on-surface-variant max-w-xs truncate text-xs" title={item.alamat}>
@@ -920,15 +925,6 @@ export default function CabangManagementPage() {
                               <Edit2 className="w-4 h-4" />
                             </button>
                           )}
-                          {can_delete && (
-                            <button
-                              onClick={() => handleDelete(item.id_cabang)}
-                              className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -999,6 +995,60 @@ export default function CabangManagementPage() {
                   <span>{errorMsg}</span>
                 </div>
               )}
+
+              {/* STATUS OPERASIONAL CABANG (AKTIF / NONAKTIF) */}
+              <div className="flex items-center justify-between p-4 bg-surface-container-low rounded-2xl border border-outline-variant/60 shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs transition-colors shrink-0",
+                      formIsActive
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                        : "bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30"
+                    )}
+                  >
+                    {formIsActive ? <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /> : <XCircle className="w-5 h-5 text-red-500" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-on-surface">Status Operasional Cabang</span>
+                      <span
+                        className={cn(
+                          "text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider font-mono",
+                          formIsActive
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                            : "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30"
+                        )}
+                      >
+                        {formIsActive ? "AKTIF" : "NONAKTIF"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-on-surface-variant mt-0.5">
+                      {formIsActive
+                        ? "Cabang beroperasi normal dan muncul pada seluruh formulir transaksi & POS."
+                        : "Cabang dinonaktifkan. Data historis tetap aman tetapi disembunyikan dari transaksi baru."}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={formIsActive}
+                  onClick={() => setFormIsActive(!formIsActive)}
+                  className={cn(
+                    "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                    formIsActive ? "bg-emerald-600" : "bg-outline-variant"
+                  )}
+                  title={formIsActive ? "Klik untuk menonaktifkan cabang" : "Klik untuk mengaktifkan cabang"}
+                >
+                  <span
+                    className={cn(
+                      "pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                      formIsActive ? "translate-x-5" : "translate-x-0"
+                    )}
+                  />
+                </button>
+              </div>
 
               {/* SECTION 1: IDENTITAS UTAMA */}
               <div className="space-y-4">
@@ -1369,6 +1419,18 @@ export default function CabangManagementPage() {
                     {viewCabang.data_kode || "—"}
                   </span>
                 </div>
+                <div className="space-y-1 col-span-2 flex items-center justify-between pt-2 border-t border-outline-variant/20">
+                  <span className="text-on-surface-variant/60 font-semibold uppercase tracking-wider text-[10px]">Status Operasional</span>
+                  {viewCabang.is_active !== false ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Cabang Aktif
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 dark:text-red-300 bg-red-500/15 border border-red-500/30 px-2.5 py-0.5 rounded-full">
+                      <XCircle className="w-3.5 h-3.5 text-red-500" /> Cabang Nonaktif
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             
@@ -1720,44 +1782,6 @@ export default function CabangManagementPage() {
         }`}>
           {toast.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
           <span className="text-sm font-medium">{toast.message}</span>
-        </div>
-      )}
-
-      {/* Custom Delete Confirmation Modal (UX Polish & safe DELETE checks) */}
-      {deleteConfirm.show && deleteConfirm.id !== null && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-surface border border-outline-variant/60 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
-            <div className="flex items-center gap-3 text-error">
-              <AlertTriangle className="w-8 h-8 shrink-0" />
-              <div>
-                <h3 className="font-bold text-on-surface text-sm">Hapus Cabang?</h3>
-                <p className="text-[11px] text-on-surface-variant">Tindakan ini tidak dapat dibatalkan.</p>
-              </div>
-            </div>
-            
-            <p className="text-xs text-on-surface-variant">
-              Apakah Anda yakin ingin menghapus cabang <strong className="text-on-surface">{deleteConfirm.nama}</strong>?
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-outline-variant/20">
-              <button
-                onClick={() => setDeleteConfirm({ show: false, id: null, nama: "" })}
-                className="bg-surface hover:bg-surface-container-high text-on-surface-variant px-4 py-2 rounded-xl text-xs font-semibold border border-outline-variant/60 transition-colors cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => {
-                  if (deleteConfirm.id !== null) {
-                    confirmDelete(deleteConfirm.id);
-                  }
-                }}
-                className="bg-error hover:bg-red-600 text-on-error px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
-              >
-                Ya, Hapus
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

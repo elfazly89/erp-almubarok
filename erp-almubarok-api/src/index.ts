@@ -513,6 +513,38 @@ async function ensureDatabaseSchema() {
     console.warn("⚠️ Peringatan skema migrasi_log:", err.message);
   }
 
+  // 10. Penyesuaian skema tipe kolom moneter (numeric) untuk transaksi & barang
+  try {
+    await db.execute(sql`
+      ALTER TABLE penjualan 
+        ALTER COLUMN subtotal TYPE numeric(15,2),
+        ALTER COLUMN diskon TYPE numeric(15,2),
+        ALTER COLUMN total_akhir TYPE numeric(15,2),
+        ALTER COLUMN jumlah_bayar TYPE numeric(15,2);
+
+      ALTER TABLE penjualan_detail 
+        ALTER COLUMN harga_jual TYPE numeric(15,2),
+        ALTER COLUMN harga_rata_saat_transaksi TYPE numeric(15,2),
+        ALTER COLUMN diskon TYPE numeric(15,2),
+        ALTER COLUMN subtotal TYPE numeric(15,2);
+
+      ALTER TABLE barang 
+        ALTER COLUMN harga_beli TYPE numeric(15,2),
+        ALTER COLUMN harga_rata TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_1_1 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_1_2 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_1_3 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_2_1 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_2_2 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_2_3 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_3_1 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_3_2 TYPE numeric(15,2),
+        ALTER COLUMN harga_jual_3_3 TYPE numeric(15,2);
+    `);
+  } catch (err: any) {
+    console.warn("⚠️ Peringatan alter skema moneter numeric:", err.message);
+  }
+
   console.log("✅ Integritas skema database PostgreSQL (kolom, tabel enterprise & indeks performa) terverifikasi.");
 }
 

@@ -1104,8 +1104,33 @@ masterRoutes.delete("/barang/:id", async (c) => {
 // ==========================================
 // 4. CABANG
 // ==========================================
-masterRoutes.get("/cabang", async (c) => {
+async function ensureCabangSchema() {
   try {
+    await db.execute(sql`
+      ALTER TABLE cabang 
+        ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true NOT NULL;
+    `);
+  } catch (e: any) {
+    console.warn("⚠️ [Cabang] Auto-migration check:", e?.message);
+  }
+}
+
+masterRoutes.get("/cabang", async (c) => {
+  await ensureCabangSchema();
+  const all = c.req.query("all") === "true";
+  const includeInactive = c.req.query("include_inactive") === "true" || all;
+  const statusParam = c.req.query("is_active");
+
+  try {
+    const conditions = [];
+    if (statusParam === "true") {
+      conditions.push(eq(cabang.is_active, true));
+    } else if (statusParam === "false") {
+      conditions.push(eq(cabang.is_active, false));
+    } else if (!includeInactive) {
+      conditions.push(eq(cabang.is_active, true));
+    }
+
     const data = await db
       .select({
         id_cabang: cabang.id_cabang,
@@ -1124,10 +1149,12 @@ masterRoutes.get("/cabang", async (c) => {
         nisbah_pengelola: cabang.nisbah_pengelola,
         nisbah_investor: cabang.nisbah_investor,
         total_modal_investor: cabang.total_modal_investor,
+        is_active: cabang.is_active,
         jumlah_investor: sql<number>`(SELECT COUNT(*)::int FROM cabang_investor WHERE cabang_investor.id_cabang = ${cabang.id_cabang} AND cabang_investor.status = 'AKTIF')`,
       })
       .from(cabang)
       .leftJoin(users, eq(cabang.admin, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(cabang.nama_cabang);
     return c.json(data);
   } catch (err: any) {
@@ -1160,6 +1187,7 @@ masterRoutes.get("/cabang", async (c) => {
         nisbah_investor: "0",
         total_modal_investor: "0",
         jumlah_investor: 0,
+        is_active: true,
       }));
       return c.json(enriched);
     } catch (fallbackErr: any) {
@@ -1170,6 +1198,7 @@ masterRoutes.get("/cabang", async (c) => {
 });
 
 masterRoutes.post("/cabang", async (c) => {
+  await ensureCabangSchema();
   try {
     const body = await c.req.json();
 
@@ -1205,6 +1234,7 @@ masterRoutes.post("/cabang", async (c) => {
         nisbah_pengelola: body.nisbah_pengelola !== undefined ? String(body.nisbah_pengelola) : "0",
         nisbah_investor: body.nisbah_investor !== undefined ? String(body.nisbah_investor) : "0",
         total_modal_investor: body.total_modal_investor !== undefined ? String(body.total_modal_investor) : "0",
+        is_active: body.is_active !== undefined ? Boolean(body.is_active) : true,
       })
       .returning();
     return c.json(newCabang, 201);
@@ -1214,6 +1244,7 @@ masterRoutes.post("/cabang", async (c) => {
 });
 
 masterRoutes.put("/cabang/:id", async (c) => {
+  await ensureCabangSchema();
   try {
     const id = parseInt(c.req.param("id"));
     if (isNaN(id)) {
@@ -1254,6 +1285,7 @@ masterRoutes.put("/cabang/:id", async (c) => {
         nisbah_pengelola: body.nisbah_pengelola !== undefined ? String(body.nisbah_pengelola) : undefined,
         nisbah_investor: body.nisbah_investor !== undefined ? String(body.nisbah_investor) : undefined,
         total_modal_investor: body.total_modal_investor !== undefined ? String(body.total_modal_investor) : undefined,
+        is_active: body.is_active !== undefined ? Boolean(body.is_active) : undefined,
       })
       .where(eq(cabang.id_cabang, id));
     return c.json({ success: true });
@@ -1450,6 +1482,15 @@ masterRoutes.delete("/cabang/:id", async (c) => {
     await db.delete(cabang).where(eq(cabang.id_cabang, id));
     return c.json({ success: true });
   } catch (err: any) {
+    if (err?.code === "23503" || err?.message?.includes("foreign key") || err?.message?.includes("violates")) {
+      return c.json(
+        {
+          error:
+            "Cabang tidak dapat dihapus permanen karena masih memiliki relasi data historis (rekening kas, transaksi penjualan, mutasi, atau pembukuan). Silakan nonaktifkan cabang melalui menu Edit Cabang.",
+        },
+        409
+      );
+    }
     return c.json({ error: "Gagal menghapus cabang: " + err.message }, 500);
   }
 });
