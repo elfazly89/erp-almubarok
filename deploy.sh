@@ -368,8 +368,16 @@ ALTER TABLE barang
   ALTER COLUMN harga_jual_3_1 TYPE numeric(20,2),
   ALTER COLUMN harga_jual_3_2 TYPE numeric(20,2),
   ALTER COLUMN harga_jual_3_3 TYPE numeric(20,2);
-ALTER TABLE penjualan_detail ALTER COLUMN harga_satuan TYPE numeric(20,2), ALTER COLUMN subtotal TYPE numeric(20,2), ALTER COLUMN hpp TYPE numeric(20,2);
-ALTER TABLE penjualan ALTER COLUMN total_harga TYPE numeric(20,2), ALTER COLUMN subtotal TYPE numeric(20,2), ALTER COLUMN total_bayar TYPE numeric(20,2), ALTER COLUMN kembalian TYPE numeric(20,2);
+ALTER TABLE penjualan_detail 
+  ALTER COLUMN harga_jual TYPE numeric(20,2), 
+  ALTER COLUMN harga_rata_saat_transaksi TYPE numeric(20,2),
+  ALTER COLUMN diskon TYPE numeric(20,2),
+  ALTER COLUMN subtotal TYPE numeric(20,2);
+ALTER TABLE penjualan 
+  ALTER COLUMN subtotal TYPE numeric(20,2), 
+  ALTER COLUMN diskon TYPE numeric(20,2),
+  ALTER COLUMN total_akhir TYPE numeric(20,2), 
+  ALTER COLUMN jumlah_bayar TYPE numeric(20,2);
 EOF
 echo -e "${GREEN}✓ Skema dan indeks database PostgreSQL siap.${NC}"
 

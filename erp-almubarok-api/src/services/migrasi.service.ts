@@ -288,26 +288,194 @@ export function parseNumberSafe(val: any, def: number = 0): number {
 }
 
 export function parseIntSafe(val: any, def: number = 0): number {
-  return Math.round(parseNumberSafe(val, def));
+  const n = Math.round(parseNumberSafe(val, def));
+  return Number.isFinite(n) ? n : def;
+}
+
+/**
+ * Membatasi nilai agar muat di PostgreSQL 32-bit signed integer (maks ~2.14 Miliar)
+ */
+export function clampSafeInt32(val: number, fallback: number = 0, max: number = 1_000_000_000): number {
+  if (!Number.isFinite(val) || isNaN(val)) return fallback;
+  const rounded = Math.round(val);
+  if (rounded > max || rounded < -max) return fallback;
+  return rounded;
 }
 
 /**
  * Defensive sanitizer: Memulihkan angka harga jika terdapat anomali warisan parser lama
- * (contoh: 5782,886725 tanpa koma menjadi 5782886725 -> dipulihkan menjadi 5782.89)
+ * atau angka desimal tanpa pemisah (contoh: 5782886725 -> 5782.89, 1633333333 -> 16333.33).
+ * Jika refExpected tersedia (mis. total/qty atau harga_jual), memilih pembagi 10^k yang paling mendekati.
  */
-export function sanitizeHpp(hpp: number): number {
-  if (hpp > 100_000_000) {
-    const strHpp = String(Math.round(hpp));
-    if (strHpp.length >= 8) {
-      const intPart = strHpp.substring(0, strHpp.length - 6);
-      const decPart = strHpp.substring(strHpp.length - 6);
-      const candidate = parseFloat(`${intPart}.${decPart}`);
-      if (candidate > 0 && candidate < 10_000_000) {
-        return Math.round(candidate * 100) / 100;
+export function sanitizeHpp(
+  hpp: number,
+  refExpected?: number,
+  maxAllowed: number = 50_000_000,
+  isiSatuan: number = 1
+): number {
+  if (!Number.isFinite(hpp) || isNaN(hpp) || hpp < 0) return 0;
+
+  const isSuspiciousAgainstRef =
+    refExpected &&
+    refExpected > 0 &&
+    hpp > Math.max(refExpected * Math.max(isiSatuan, 1) * 2.5, 100_000) &&
+    (hpp > maxAllowed || hpp % 100 !== 0 || hpp > refExpected * Math.max(isiSatuan, 1) * 5);
+
+  if (hpp <= maxAllowed && !isSuspiciousAgainstRef) {
+    return Math.round(hpp * 100) / 100;
+  }
+
+  const divisors = [10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1e9, 1e12];
+
+  if (refExpected && refExpected > 0 && refExpected <= maxAllowed) {
+    let bestCandidate = -1;
+    let bestScore = Infinity;
+    for (const div of divisors) {
+      const cand = hpp / div;
+      if (cand > 0 && cand <= maxAllowed) {
+        const ratio = cand / refExpected;
+        if (ratio >= 0.2 && ratio <= 3.0) {
+          const diff = Math.abs(cand - refExpected * 0.85) + (ratio > 1.05 ? refExpected : 0);
+          if (diff < bestScore) {
+            bestScore = diff;
+            bestCandidate = cand;
+          }
+        }
+      }
+    }
+    if (bestCandidate > 0) {
+      return Math.round(bestCandidate * 100) / 100;
+    }
+  }
+
+  const strHpp = String(Math.round(hpp));
+  if (strHpp.length >= 8) {
+    const intPart = strHpp.substring(0, strHpp.length - 6);
+    const decPart = strHpp.substring(strHpp.length - 6);
+    const candidate = parseFloat(`${intPart}.${decPart}`);
+    if (candidate > 0 && candidate < 10_000_000) {
+      return Math.round(candidate * 100) / 100;
+    }
+  }
+
+  for (const div of [100_000, 1e12, 1e9, 1e8, 1e7, 1e4]) {
+    const cand = hpp / div;
+    if (cand >= 100 && cand <= 10_000_000) {
+      return Math.round(cand * 100) / 100;
+    }
+  }
+
+  return refExpected && refExpected > 0 && refExpected <= maxAllowed ? Math.round(refExpected * 100) / 100 : 0;
+}
+
+/**
+ * Sanitasi nominal pembayaran (jumlah_bayar):
+ * Mencegah kasus angka ekstrem (misal salah tekan nol puluhan kali 5000000000000000 atau scan barcode ke kotak bayar)
+ * agar tidak memicu overflow dan tidak merusak laporan tutup kasir.
+ */
+export function sanitizeBayar(rawBayar: number, totalAkhir: number): number {
+  if (!Number.isFinite(rawBayar) || isNaN(rawBayar) || rawBayar < 0) return Math.max(0, Math.round(totalAkhir));
+  const roundedBayar = Math.round(rawBayar);
+  const safeTotal = Math.max(0, Math.round(totalAkhir));
+
+  // Transaksi normal (<= 100 juta) atau transaksi grosir sah di mana nominal bayar proporsional dengan total nota
+  if (
+    roundedBayar <= 100_000_000 ||
+    (safeTotal > 10_000_000 && roundedBayar <= safeTotal * 5 && roundedBayar <= 10_000_000_000)
+  ) {
+    return roundedBayar;
+  }
+
+  // Pulihkan hanya jika benar-benar angka dengan deretan nol berlebih di belakang (misal 5000000000000000 -> 5000)
+  for (const div of [1e12, 1e11, 1e10, 1e9, 1e8, 1e7, 1e6, 1e5, 1e4, 1e3]) {
+    if (roundedBayar % div === 0) {
+      const cand = roundedBayar / div;
+      if (cand >= safeTotal && cand <= Math.max(safeTotal * 50, 2_000_000)) {
+        return cand;
       }
     }
   }
-  return hpp;
+
+  // Normalkan menjadi uang pas = totalAkhir
+  return safeTotal;
+}
+
+/**
+ * Sanitasi menyeluruh pada 1 grup nota transaksi (header & seluruh item detail)
+ */
+export function sanitizeTransaksiGrouped(tr: TransaksiGrouped): TransaksiGrouped {
+  let calculatedSubtotal = 0;
+  const cleanItems = (tr.items || []).map((it) => {
+    const qty = Math.max(1, clampSafeInt32(it.jumlah, 1, 100_000));
+    const isi = Math.max(1, clampSafeInt32(it.isi_satuan, 1, 100_000));
+    const rawTotal = Number(it.subtotal) || 0;
+    const rawHarga = Number(it.harga_jual) || 0;
+    const rawRata = Number(it.harga_rata) || 0;
+    const rawDisc = Number(it.diskon) || 0;
+
+    const validRefTotal = rawTotal > 0 && rawTotal <= 100_000_000 ? rawTotal : undefined;
+    const expectedUnit = validRefTotal ? validRefTotal / qty : undefined;
+
+    const cleanHarga = Math.round(sanitizeHpp(rawHarga, expectedUnit));
+    const cleanDisc = Math.round(sanitizeHpp(rawDisc, undefined, 50_000_000));
+
+    let cleanTotal = rawTotal;
+    if (cleanTotal > 100_000_000 || cleanTotal < 0 || !Number.isFinite(cleanTotal)) {
+      cleanTotal = Math.max(0, Math.round(qty * cleanHarga - cleanDisc));
+    } else {
+      cleanTotal = Math.round(cleanTotal);
+    }
+
+    const finalHarga =
+      cleanHarga > 50_000_000 && cleanTotal <= 50_000_000
+        ? Math.round((cleanTotal + cleanDisc) / qty)
+        : cleanHarga;
+
+    const cleanRata = Math.round(sanitizeHpp(rawRata, finalHarga > 0 ? finalHarga : undefined, 50_000_000, isi));
+
+    calculatedSubtotal += cleanTotal;
+
+    return {
+      ...it,
+      jumlah: qty,
+      isi_satuan: isi,
+      harga_jual: finalHarga,
+      harga_rata: cleanRata,
+      diskon: cleanDisc,
+      subtotal: cleanTotal,
+    };
+  });
+
+  let subtotalHeader = Number(tr.subtotal) || 0;
+  if (subtotalHeader > 100_000_000 && calculatedSubtotal > 0 && calculatedSubtotal <= 100_000_000) {
+    subtotalHeader = calculatedSubtotal;
+  } else if (subtotalHeader > 100_000_000) {
+    subtotalHeader = sanitizeHpp(subtotalHeader, calculatedSubtotal > 0 ? calculatedSubtotal : undefined, 500_000_000);
+    if (subtotalHeader > 100_000_000 && calculatedSubtotal <= 100_000_000) {
+      subtotalHeader = calculatedSubtotal;
+    }
+  } else {
+    subtotalHeader = Math.round(Math.max(0, subtotalHeader));
+  }
+
+  let potonganRp = Number(tr.diskon) || 0;
+  if (potonganRp > 100_000_000 || potonganRp < 0) {
+    potonganRp = Math.round(sanitizeHpp(potonganRp, undefined, subtotalHeader || 50_000_000));
+  } else {
+    potonganRp = Math.round(potonganRp);
+  }
+
+  const totalAkhir = Math.max(0, Math.round(subtotalHeader - potonganRp));
+  const cleanBayar = sanitizeBayar(Number(tr.jumlah_bayar) || 0, totalAkhir);
+
+  return {
+    ...tr,
+    subtotal: Math.round(subtotalHeader),
+    diskon: Math.round(potonganRp),
+    total_akhir: totalAkhir,
+    jumlah_bayar: cleanBayar,
+    items: cleanItems,
+  };
 }
 
 // ─── SQL VALUE PARSER ────────────────────────────────────────────────────────
@@ -653,17 +821,17 @@ export function mapRowToBarang(raw: Record<string, any>): ParsedBarangItem | nul
   const sat3 = (lookup["sat3"] || lookup["satuan3"] || "").toString().trim() || undefined;
   const sat4 = (lookup["sat4"] || lookup["satuan4"] || "").toString().trim() || undefined;
 
-  const isi2 = parseIntSafe(lookup["isi2"] || lookup["isi_2"]);
-  const isi3 = parseIntSafe(lookup["isi3"] || lookup["isi_3"]);
-  const isi4 = parseIntSafe(lookup["isi4"] || lookup["isi_4"]);
+  const isi2 = clampSafeInt32(parseIntSafe(lookup["isi2"] || lookup["isi_2"]), 0, 100_000);
+  const isi3 = clampSafeInt32(parseIntSafe(lookup["isi3"] || lookup["isi_3"]), 0, 100_000);
+  const isi4 = clampSafeInt32(parseIntSafe(lookup["isi4"] || lookup["isi_4"]), 0, 100_000);
 
-  const stock = parseIntSafe(lookup["stock"] || lookup["stok"] || lookup["saldo"] || lookup["qty"] || 0);
+  const stock = clampSafeInt32(parseIntSafe(lookup["stock"] || lookup["stok"] || lookup["saldo"] || lookup["qty"] || 0), 0, 10_000_000);
 
   const dept = (lookup["departement"] || lookup["departemen"] || lookup["dept"] || lookup["kategori"] || "").toString().trim() || undefined;
   const supp = (lookup["supplier"] || lookup["suplier"] || lookup["pemasok"] || "").toString().trim() || undefined;
 
-  const hrgBeli = Math.round(parseNumberSafe(lookup["hrgbeli"] || lookup["hargabeli"] || lookup["beli"] || lookup["hpp"] || 0));
-  const hbt = Math.round(parseNumberSafe(lookup["hbt"] || lookup["hargabeliterakhir"] || 0));
+  const hrgBeli = Math.round(sanitizeHpp(parseNumberSafe(lookup["hrgbeli"] || lookup["hargabeli"] || lookup["beli"] || lookup["hpp"] || 0)));
+  const hbt = Math.round(sanitizeHpp(parseNumberSafe(lookup["hbt"] || lookup["hargabeliterakhir"] || 0), hrgBeli > 0 ? hrgBeli : undefined));
   const finalHrgBeli = hbt > 0 ? hbt : hrgBeli;
 
   const tglBeliTerakhir = lookup["pembelianterakhir"] || lookup["tglbeliterakhir"] || undefined;
@@ -798,20 +966,22 @@ export function groupTransaksiRows(rawRows: Record<string, any>[]): TransaksiGro
     // Format invoice with MIG- prefix
     const cleanInvoice = noJual.toUpperCase().startsWith("MIG-") ? noJual.toUpperCase() : `MIG-${noJual}`;
 
-    result.push({
-      no_invoice: cleanInvoice,
-      tanggal_invoice: tgl,
-      jam_invoice: jam,
-      kd_cust: first["kdcust"] ? String(first["kdcust"]).trim() : undefined,
-      nama_pelanggan: nmcust,
-      nm_user: nmuser,
-      jenis_pembayaran: caraBayar,
-      subtotal: subtotalHeader,
-      diskon: potonganRp,
-      total_akhir: totalAkhir,
-      jumlah_bayar: bayar,
-      items: detailItems,
-    });
+    result.push(
+      sanitizeTransaksiGrouped({
+        no_invoice: cleanInvoice,
+        tanggal_invoice: tgl,
+        jam_invoice: jam,
+        kd_cust: first["kdcust"] ? String(first["kdcust"]).trim() : undefined,
+        nama_pelanggan: nmcust,
+        nm_user: nmuser,
+        jenis_pembayaran: caraBayar,
+        subtotal: subtotalHeader,
+        diskon: potonganRp,
+        total_akhir: totalAkhir,
+        jumlah_bayar: bayar,
+        items: detailItems,
+      })
+    );
   }
 
   return result;
@@ -1125,15 +1295,25 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
     });
 
     if (import_master && barangList.length > 0) {
+      const toInsertBarang: { values: any; rawItem: ParsedBarangItem }[] = [];
+      const pendingInsertBarcodes = new Set<string>();
+
       for (const item of barangList) {
+        const bCode = item.barcode.trim();
+        if (!bCode) continue;
+
         const catId = item.departement ? categoryMap.get(item.departement.toLowerCase().trim()) || null : null;
         const suppId = item.supplier ? supplierMap.get(item.supplier.toLowerCase().trim()) || null : null;
+        const safeBeli = sanitizeHpp(Math.round(item.harga_beli));
+        const safeRata = sanitizeHpp(Math.round(item.hbt || item.harga_beli), safeBeli > 0 ? safeBeli : undefined);
+        const safeIsi2 = item.isi_2 ? clampSafeInt32(item.isi_2, 0, 100_000) || null : null;
+        const safeIsi3 = item.isi_3 ? clampSafeInt32(item.isi_3, 0, 100_000) || null : null;
 
-        const isExisting = barcodeToId.has(item.barcode.trim());
+        const isExisting = barcodeToId.has(bCode) || pendingInsertBarcodes.has(bCode);
 
         if (isExisting) {
-          if (mode_duplikat === "UPDATE") {
-            const existingId = barcodeToId.get(item.barcode.trim())!;
+          if (mode_duplikat === "UPDATE" && barcodeToId.has(bCode)) {
+            const existingId = barcodeToId.get(bCode)!;
             await tx
               .update(barang)
               .set({
@@ -1144,9 +1324,9 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
                 satuan_1: item.satuan_1,
                 satuan_2: item.satuan_2 || null,
                 satuan_3: item.satuan_3 || null,
-                isi_2: item.isi_2 || null,
-                isi_3: item.isi_3 || null,
-                harga_beli: sanitizeHpp(Math.round(item.harga_beli)),
+                isi_2: safeIsi2,
+                isi_3: safeIsi3,
+                harga_beli: safeBeli,
                 level_barang: item.level,
                 lapor_pajak: item.lapor_pajak,
                 terakhir_terjual: item.penjualan_terakhir || null,
@@ -1159,41 +1339,61 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
             masterSkipped++;
           }
         } else {
-          // INSERT NEW
-          try {
-            const safeBeli = sanitizeHpp(Math.round(item.harga_beli));
-            const safeRata = sanitizeHpp(Math.round(item.hbt || item.harga_beli));
-            const [newB] = await tx
-              .insert(barang)
-              .values({
-                kode_barang: item.kode_barang || null,
-                barcode: item.barcode.trim(),
-                nama_barang: item.nama_barang,
-                id_kategori: catId,
-                id_supplier: suppId,
-                satuan_1: item.satuan_1,
-                satuan_2: item.satuan_2 || null,
-                satuan_3: item.satuan_3 || null,
-                isi_1: 1,
-                isi_2: item.isi_2 || null,
-                isi_3: item.isi_3 || null,
-                harga_beli: safeBeli,
-                harga_rata: safeRata,
-                harga_jual_1_1: Math.round(safeBeli * 1.15), // Default +15% margin if not set
-                level_barang: item.level,
-                lapor_pajak: item.lapor_pajak,
-                terakhir_terjual: item.penjualan_terakhir || null,
-                keterangan_1: item.keterangan_1 || null,
-                keterangan_2: item.keterangan_2 || null,
-                status: "Aktif",
-              })
-              .returning();
+          pendingInsertBarcodes.add(bCode);
+          toInsertBarang.push({
+            rawItem: item,
+            values: {
+              kode_barang: item.kode_barang || null,
+              barcode: bCode,
+              nama_barang: item.nama_barang,
+              id_kategori: catId,
+              id_supplier: suppId,
+              satuan_1: item.satuan_1,
+              satuan_2: item.satuan_2 || null,
+              satuan_3: item.satuan_3 || null,
+              isi_1: 1,
+              isi_2: safeIsi2,
+              isi_3: safeIsi3,
+              harga_beli: safeBeli,
+              harga_rata: safeRata,
+              harga_jual_1_1: Math.round(safeBeli * 1.15), // Default +15% margin if not set
+              level_barang: item.level,
+              lapor_pajak: item.lapor_pajak,
+              terakhir_terjual: item.penjualan_terakhir || null,
+              keterangan_1: item.keterangan_1 || null,
+              keterangan_2: item.keterangan_2 || null,
+              status: "Aktif",
+            },
+          });
+        }
+      }
+
+      // Batch insert master barang baru dalam chunk 500
+      const BARANG_CHUNK_SIZE = 500;
+      for (let i = 0; i < toInsertBarang.length; i += BARANG_CHUNK_SIZE) {
+        const slice = toInsertBarang.slice(i, i + BARANG_CHUNK_SIZE);
+        try {
+          const inserted = await tx
+            .insert(barang)
+            .values(slice.map((s) => s.values))
+            .returning({ id_barang: barang.id_barang, barcode: barang.barcode, kode_barang: barang.kode_barang });
+          inserted.forEach((newB) => {
             barcodeToId.set(newB.barcode.trim(), newB.id_barang);
             if (newB.kode_barang) barcodeToId.set(newB.kode_barang.trim(), newB.id_barang);
             masterInserted++;
-          } catch (insertErr: any) {
-            masterSkipped++;
-            errors.push(`Gagal menyimpan barang [${item.barcode}] ${item.nama_barang}: ${insertErr.message}`);
+          });
+        } catch {
+          // Fallback per baris jika ada 1 barang dalam batch yang bermasalah
+          for (const s of slice) {
+            try {
+              const [newB] = await tx.insert(barang).values(s.values).returning();
+              barcodeToId.set(newB.barcode.trim(), newB.id_barang);
+              if (newB.kode_barang) barcodeToId.set(newB.kode_barang.trim(), newB.id_barang);
+              masterInserted++;
+            } catch (insertErr: any) {
+              masterSkipped++;
+              errors.push(`Gagal menyimpan barang [${s.rawItem.barcode}] ${s.rawItem.nama_barang}: ${insertErr.message}`);
+            }
           }
         }
       }
@@ -1227,28 +1427,28 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
         if (b.harga_beli) dbPriceMap.set(b.id, Number(b.harga_beli) || 0);
       });
 
-      const toInsertStok: any[] = [];
-      const toInsertKartu: any[] = [];
+      const toUpdateStokMap = new Map<number, { id: number; stok_akhir: number; level_cabang: string; terakhir_terjual_cabang: string | null }>();
+      const toInsertStokMap = new Map<number, any>();
+      const toInsertKartuMap = new Map<number, any>();
 
       for (const item of barangList) {
         const idBarang = barcodeToId.get(item.barcode.trim());
         if (!idBarang) continue;
 
+        const safeStock = clampSafeInt32(item.stock, 0, 10_000_000);
         const existingStockId = branchStockMap.get(idBarang);
         if (existingStockId) {
-          await tx
-            .update(stok_barang)
-            .set({
-              stok_akhir: item.stock,
-              level_cabang: item.level,
-              terakhir_terjual_cabang: item.penjualan_terakhir || null,
-            })
-            .where(eq(stok_barang.id, existingStockId));
+          toUpdateStokMap.set(existingStockId, {
+            id: existingStockId,
+            stok_akhir: safeStock,
+            level_cabang: item.level,
+            terakhir_terjual_cabang: item.penjualan_terakhir || null,
+          });
         } else {
-          toInsertStok.push({
+          toInsertStokMap.set(idBarang, {
             id_barang: idBarang,
             id_cabang: id_cabang,
-            stok_akhir: item.stock,
+            stok_akhir: safeStock,
             level_cabang: item.level,
             terakhir_terjual_cabang: item.penjualan_terakhir || null,
           });
@@ -1262,18 +1462,18 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
         const hpp = sanitizeHpp(rawHpp);
 
         // Catat ke kartu_stok HANYA jika stok > 0 (sesuai keputusan user)
-        if (item.stock > 0) {
-          const totalNilai = Math.round(item.stock * hpp);
-          toInsertKartu.push({
+        if (safeStock > 0) {
+          const totalNilai = Math.round(safeStock * hpp);
+          toInsertKartuMap.set(idBarang, {
             id_barang: idBarang,
             id_cabang: id_cabang,
             tanggal_transaksi: nowIso.substring(0, 10),
             tipe_transaksi: "SALDO_AWAL",
             nomor_referensi: `MIG-STOK-${id_cabang}`,
             saldo_awal: 0,
-            masuk: item.stock,
+            masuk: safeStock,
             keluar: 0,
-            saldo_akhir: item.stock,
+            saldo_akhir: safeStock,
             hpp_satuan: hpp,
             total_nilai: totalNilai,
             keterangan: "Migrasi Saldo Awal Toko Sistem Lama",
@@ -1284,8 +1484,28 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
         stokUpdated++;
       }
 
-      // Batch insert stok_barang in chunks of 500 (optimasi performa 30x lebih cepat)
+      const toUpdateStok = Array.from(toUpdateStokMap.values());
+      const toInsertStok = Array.from(toInsertStokMap.values());
+      const toInsertKartu = Array.from(toInsertKartuMap.values());
+
+      // Batch update existing stok_barang in chunks of 500
       const CHUNK_SIZE = 500;
+      for (let i = 0; i < toUpdateStok.length; i += CHUNK_SIZE) {
+        const slice = toUpdateStok.slice(i, i + CHUNK_SIZE);
+        const valueTuples = slice.map(
+          (u) => sql`(${u.id}::int, ${u.stok_akhir}::int, ${u.level_cabang}::text, ${u.terakhir_terjual_cabang}::text)`
+        );
+        await tx.execute(sql`
+          UPDATE stok_barang AS sb
+          SET stok_akhir = v.stok_akhir,
+              level_cabang = v.level_cabang,
+              terakhir_terjual_cabang = v.terakhir_terjual_cabang
+          FROM (VALUES ${sql.join(valueTuples, sql`, `)}) AS v(id, stok_akhir, level_cabang, terakhir_terjual_cabang)
+          WHERE sb.id = v.id
+        `);
+      }
+
+      // Batch insert stok_barang in chunks of 500 (optimasi performa 30x lebih cepat)
       for (let i = 0; i < toInsertStok.length; i += CHUNK_SIZE) {
         const chunk = toInsertStok.slice(i, i + CHUNK_SIZE);
         await tx.insert(stok_barang).values(chunk);
@@ -1318,11 +1538,33 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
       const invRows = await tx.select({ no_invoice: penjualan.no_invoice }).from(penjualan);
       invRows.forEach((r) => existingInvoices.add(r.no_invoice.trim().toUpperCase()));
 
-      for (const tr of transaksiList) {
-        if (existingInvoices.has(tr.no_invoice.trim().toUpperCase())) {
+      const pendingSales: {
+        header: {
+          no_invoice: string;
+          tanggal_invoice: string;
+          jam_invoice: string;
+          id_pelanggan: number | null;
+          nama_pelanggan: string;
+          id_user: number;
+          id_cabang: number;
+          subtotal: number;
+          diskon: number;
+          total_akhir: number;
+          jenis_pembayaran: string;
+          jumlah_bayar: number;
+          created_at: string;
+        };
+        items: TransaksiGrouped["items"];
+      }[] = [];
+
+      for (const rawTr of transaksiList) {
+        const tr = sanitizeTransaksiGrouped(rawTr);
+        const invKey = tr.no_invoice.trim().toUpperCase();
+        if (existingInvoices.has(invKey)) {
           transaksiSkipped++;
           continue;
         }
+        existingInvoices.add(invKey);
 
         // Resolve user
         let userId = id_user;
@@ -1338,9 +1580,8 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
           custId = custCache.get(tr.nama_pelanggan.toLowerCase().trim())!;
         }
 
-        const [newSale] = await tx
-          .insert(penjualan)
-          .values({
+        pendingSales.push({
+          header: {
             no_invoice: tr.no_invoice,
             tanggal_invoice: tr.tanggal_invoice,
             jam_invoice: tr.jam_invoice,
@@ -1348,39 +1589,63 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
             nama_pelanggan: tr.nama_pelanggan,
             id_user: userId,
             id_cabang: id_cabang,
-            subtotal: Math.round(tr.subtotal),
-            diskon: Math.round(tr.diskon),
-            total_akhir: Math.round(tr.total_akhir),
+            subtotal: tr.subtotal,
+            diskon: tr.diskon,
+            total_akhir: tr.total_akhir,
             jenis_pembayaran: tr.jenis_pembayaran,
-            jumlah_bayar: Math.round(tr.jumlah_bayar),
+            jumlah_bayar: tr.jumlah_bayar,
             created_at: `${tr.tanggal_invoice} ${tr.jam_invoice}`,
-          })
-          .returning();
+          },
+          items: tr.items,
+        });
+      }
 
-        // Insert items
-        for (const item of tr.items) {
-          let resolvedIdBarang: number | null = null;
-          if (item.kd_brg && barcodeToId.has(item.kd_brg.trim())) {
-            resolvedIdBarang = barcodeToId.get(item.kd_brg.trim())!;
+      // Batch insert penjualan (chunk 300) & penjualan_detail (chunk 500) -> 30x lebih cepat, bebas timeout proxy
+      const SALE_CHUNK_SIZE = 300;
+      const DETAIL_CHUNK_SIZE = 500;
+      for (let i = 0; i < pendingSales.length; i += SALE_CHUNK_SIZE) {
+        const saleChunk = pendingSales.slice(i, i + SALE_CHUNK_SIZE);
+        const insertedHeaders = await tx
+          .insert(penjualan)
+          .values(saleChunk.map((s) => s.header))
+          .returning({ id_penjualan: penjualan.id_penjualan, no_invoice: penjualan.no_invoice });
+
+        const invoiceToSaleId = new Map<string, number>();
+        insertedHeaders.forEach((h) => {
+          invoiceToSaleId.set(h.no_invoice.trim().toUpperCase(), h.id_penjualan);
+        });
+
+        const detailRowsToInsert: any[] = [];
+        for (const s of saleChunk) {
+          const idPenjualan = invoiceToSaleId.get(s.header.no_invoice.trim().toUpperCase());
+          if (!idPenjualan) continue;
+
+          for (const item of s.items) {
+            let resolvedIdBarang: number | null = null;
+            if (item.kd_brg && barcodeToId.has(item.kd_brg.trim())) {
+              resolvedIdBarang = barcodeToId.get(item.kd_brg.trim())!;
+            }
+            detailRowsToInsert.push({
+              id_penjualan: idPenjualan,
+              id_barang: resolvedIdBarang,
+              nama_barang: item.nama_barang,
+              jumlah: item.jumlah,
+              satuan: item.satuan,
+              isi_satuan: item.isi_satuan,
+              harga_jual: Math.round(item.harga_jual),
+              harga_rata_saat_transaksi: Math.round(item.harga_rata),
+              diskon: Math.round(item.diskon),
+              subtotal: Math.round(item.subtotal),
+              jenis_item: item.jenis_item,
+            });
           }
-
-          await tx.insert(penjualan_detail).values({
-            id_penjualan: newSale.id_penjualan,
-            id_barang: resolvedIdBarang,
-            nama_barang: item.nama_barang,
-            jumlah: item.jumlah,
-            satuan: item.satuan,
-            isi_satuan: item.isi_satuan,
-            harga_jual: Math.round(item.harga_jual),
-            harga_rata_saat_transaksi: Math.round(item.harga_rata),
-            diskon: Math.round(item.diskon),
-            subtotal: Math.round(item.subtotal),
-            jenis_item: item.jenis_item,
-          });
+          transaksiInserted++;
         }
 
-        existingInvoices.add(tr.no_invoice.trim().toUpperCase());
-        transaksiInserted++;
+        for (let j = 0; j < detailRowsToInsert.length; j += DETAIL_CHUNK_SIZE) {
+          const detChunk = detailRowsToInsert.slice(j, j + DETAIL_CHUNK_SIZE);
+          await tx.insert(penjualan_detail).values(detChunk);
+        }
       }
     }
 
