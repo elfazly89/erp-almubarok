@@ -56,6 +56,18 @@ app.use("*", async (c, next) => {
   await next();
 });
 
+// Global Error Handler (memastikan seluruh error mengembalikan JSON terstruktur, bukan plain text 'Internal Server Error')
+app.onError((err, c) => {
+  console.error("[Global API Error]:", err);
+  return c.json(
+    {
+      success: false,
+      error: err.message || "Terjadi kesalahan internal pada server.",
+    },
+    500
+  );
+});
+
 // Root status check
 app.get("/status", (c) => c.json({ status: "ok", time: new Date().toISOString() }));
 

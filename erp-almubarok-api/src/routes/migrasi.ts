@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../lib/db";
-import { migrasi_log, cabang, users } from "../lib/db/schema";
+import { migrasi_log, cabang, users, role_menu_sub, menu_sub } from "../lib/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import type { JWTPayload } from "../lib/auth/jwt";
 import {
@@ -15,6 +15,59 @@ export const migrasiRoutes = new Hono<{
     user: JWTPayload;
   };
 }>();
+
+// ─── RBAC HAK AKSES CHECKER BERDASARKAN PENGATURAN HAK AKSES ─────────────────
+async function checkMigrasiAccess(user: JWTPayload, action: "read" | "create"): Promise<boolean> {
+  const jabId = Number(user.id_jabatan);
+  // Superuser (ID 1) memiliki akses penuh tanpa batasan
+  if (jabId === 1) return true;
+
+  try {
+    const [perm] = await db
+      .select({
+        can_read: role_menu_sub.can_read,
+        can_create: role_menu_sub.can_create,
+      })
+      .from(role_menu_sub)
+      .innerJoin(menu_sub, eq(role_menu_sub.id_menu_sub, menu_sub.id))
+      .where(
+        and(
+          eq(role_menu_sub.id_jabatan, jabId),
+          eq(menu_sub.link, "/pengaturan/migrasi")
+        )
+      )
+      .limit(1);
+
+    if (!perm) return false;
+    return action === "create" ? Boolean(perm.can_create) : Boolean(perm.can_read);
+  } catch (err) {
+    console.error("Gagal memeriksa hak akses migrasi:", err);
+    return false;
+  }
+}
+
+// Global Migrasi RBAC Guard Middleware
+migrasiRoutes.use("/*", async (c, next) => {
+  const user = c.get("user");
+  if (!user) {
+    return c.json({ error: "Sesi tidak valid. Silakan login kembali." }, 401);
+  }
+
+  const method = c.req.method;
+  const isWrite = method === "POST" || method === "PUT" || method === "DELETE";
+
+  const hasAccess = await checkMigrasiAccess(user, isWrite ? "create" : "read");
+  if (!hasAccess) {
+    return c.json(
+      {
+        error: `Akses ditolak. Role Anda tidak memiliki izin '${isWrite ? "Tambah" : "Lihat"}' untuk modul Migrasi Data. Silakan hubungi Administrator untuk mengatur hak akses di Pengaturan Hak Akses.`,
+      },
+      403
+    );
+  }
+
+  await next();
+});
 
 // ─── 1. UPLOAD FILE & GENERATE PREVIEW ───────────────────────────────────────
 migrasiRoutes.post("/upload", async (c) => {

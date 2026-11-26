@@ -35,6 +35,16 @@ masterRoutes.use("/*", async (c, next) => {
   const method = c.req.method;
   const path = c.req.path;
 
+  // Hanya periksa rute spesifik yang dikelola master data agar tidak mencegat modul lain (misal: /migrasi)
+  const masterPrefixes = ["/kategori", "/satuan", "/barang", "/cabang", "/supplier", "/pelanggan", "/stok"];
+  const isTargetMasterRoute = masterPrefixes.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`/master${prefix}`)
+  );
+
+  if (!isTargetMasterRoute) {
+    return next();
+  }
+
   const isPelangganWrite = path.includes("/pelanggan") && (method === "POST" || method === "PUT");
 
   if ((method === "POST" || method === "PUT" || method === "DELETE") && !isPelangganWrite) {

@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 
 export const numericNum = customType<{ data: number; driverData: string }>({
   dataType() {
-    return "numeric(15, 2)";
+    return "numeric(20, 2)";
   },
   fromDriver(value: string | number): number {
     return Number(value) || 0;

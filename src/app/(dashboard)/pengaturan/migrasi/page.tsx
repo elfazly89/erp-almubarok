@@ -97,6 +97,27 @@ interface MigrationLogItem {
   detail_error?: string;
 }
 
+// Helper membaca response HTTP secara aman tanpa crash jika server/proxy mengembalikan plain text/HTML
+async function parseJsonResponseSafe(res: Response): Promise<{ ok: boolean; data?: any; error?: string; message?: string }> {
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    return {
+      ok: res.ok && json.success !== false,
+      data: json.data,
+      error: json.error || (!res.ok ? (json.message || text) : undefined),
+      message: json.message,
+    };
+  } catch {
+    let cleanErr = text.replace(/<[^>]*>?/gm, "").trim();
+    if (cleanErr.length > 250) cleanErr = cleanErr.substring(0, 250) + "...";
+    return {
+      ok: false,
+      error: cleanErr || `HTTP ${res.status} (${res.statusText || "Internal Server Error"})`,
+    };
+  }
+}
+
 export default function MigrasiDataPage() {
   const { can_read, can_create, loading: permissionsLoading } = useMenuPermissions();
 
@@ -153,18 +174,22 @@ export default function MigrasiDataPage() {
 
   const handleExecuteRollback = async () => {
     if (!logToRollback) return;
+    if (!can_create) {
+      showToast("Role Anda tidak memiliki izin 'Tambah' untuk membatalkan migrasi data.", "error");
+      return;
+    }
     setRollingBack(true);
     try {
       const res = await fetch(`/api/migrasi/rollback/${logToRollback.id}`, {
         method: "POST",
       });
-      const json = await res.json();
-      if (res.ok && json.success) {
-        showToast(json.message || "Migrasi data berhasil dibatalkan.", "success");
+      const parsed = await parseJsonResponseSafe(res);
+      if (parsed.ok) {
+        showToast(parsed.message || "Migrasi data berhasil dibatalkan.", "success");
         setLogToRollback(null);
         fetchLogs();
       } else {
-        showToast(json.error || "Gagal membatalkan migrasi data.", "error");
+        showToast(parsed.error || "Gagal membatalkan migrasi data.", "error");
       }
     } catch (err: any) {
       showToast(err.message || "Terjadi kesalahan jaringan saat membatalkan migrasi.", "error");
@@ -246,6 +271,10 @@ export default function MigrasiDataPage() {
 
   // 3. Upload & Analyze File
   const handleAnalyzeFile = async () => {
+    if (!can_create) {
+      showToast("Role Anda tidak memiliki izin 'Tambah' untuk menganalisa/mengimpor berkas migrasi.", "error");
+      return;
+    }
     if (!file) {
       showToast("Pilih berkas .sql atau .csv terlebih dahulu.", "warning");
       return;
@@ -267,9 +296,9 @@ export default function MigrasiDataPage() {
         body: formData,
       });
 
-      const json = await res.json();
-      if (res.ok && json.success) {
-        const data: PreviewData = json.data;
+      const parsed = await parseJsonResponseSafe(res);
+      if (parsed.ok && parsed.data) {
+        const data: PreviewData = parsed.data;
         setPreview(data);
 
         // Smart preset for options based on detected type
@@ -293,7 +322,7 @@ export default function MigrasiDataPage() {
         setStep(2);
         showToast("Berkas berhasil dianalisa! Silakan tinjau ringkasan data.", "success");
       } else {
-        showToast(json.error || "Gagal menganalisa berkas migrasi.", "error");
+        showToast(parsed.error || "Gagal menganalisa berkas migrasi.", "error");
       }
     } catch (err: any) {
       showToast(err.message || "Terjadi kendala jaringan saat mengunggah berkas.", "error");
@@ -305,6 +334,10 @@ export default function MigrasiDataPage() {
   // 4. Commit Migration with Terminal Simulation
   const handleCommitMigration = async () => {
     if (!preview) return;
+    if (!can_create) {
+      showToast("Role Anda tidak memiliki izin 'Tambah' untuk mengeksekusi migrasi data.", "error");
+      return;
+    }
 
     setCommitting(true);
     setCommitProgress(5);
@@ -356,27 +389,27 @@ export default function MigrasiDataPage() {
       clearInterval(logInterval);
       setCommitProgress(100);
 
-      const json = await res.json();
-      if (res.ok && json.success) {
+      const parsed = await parseJsonResponseSafe(res);
+      if (parsed.ok) {
         setTerminalLogs((logs) => [
           ...logs,
           `[${new Date().toLocaleTimeString()}] ✅ Commit transaksi berhasil!`,
           `[${new Date().toLocaleTimeString()}] Menutup sesi migrasi & menyimpan audit log.`,
           `[${new Date().toLocaleTimeString()}] Selesai tanpa error kritis.`,
         ]);
-        setCommitResult(json.data);
-        showToast(json.message || "Migrasi berhasil diselesaikan!", "success");
+        setCommitResult(parsed.data);
+        showToast(parsed.message || "Migrasi berhasil diselesaikan!", "success");
       } else {
         setTerminalLogs((logs) => [
           ...logs,
-          `[${new Date().toLocaleTimeString()}] ❌ Galat terjadi: ${json.error || "Gagal komit data."}`,
+          `[${new Date().toLocaleTimeString()}] ❌ Galat terjadi: ${parsed.error || "Gagal komit data."}`,
           `[${new Date().toLocaleTimeString()}] 🔄 ROLLBACK dieksekusi: Seluruh perubahan dibatalkan demi integritas.`,
         ]);
         setCommitResult({
           status: "FAILED",
-          errors: [json.error || "Gagal mengeksekusi migrasi data."],
+          errors: [parsed.error || "Gagal mengeksekusi migrasi data."],
         });
-        showToast(json.error || "Migrasi data gagal.", "error");
+        showToast(parsed.error || "Migrasi data gagal.", "error");
       }
     } catch (err: any) {
       clearInterval(logInterval);
@@ -574,6 +607,16 @@ export default function MigrasiDataPage() {
           </div>
         </div>
       </div>
+
+      {/* Banner Peringatan Mode Read-Only jika role pengguna tidak memiliki izin Tambah (can_create) */}
+      {!permissionsLoading && !can_create && (
+        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs font-medium shrink-0 shadow-2xs">
+          <Info className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            <strong>Mode Akses Lihat Saja:</strong> Role akun Anda tidak memiliki izin <em>Tambah</em> untuk modul Migrasi Data. Anda dapat meninjau data dan riwayat log, namun tombol analisa berkas, eksekusi impor, dan pembatalan migrasi dinonaktifkan. Hubungi Administrator di menu <em>Pengaturan Hak Akses</em> jika memerlukan izin ini.
+          </span>
+        </div>
+      )}
 
       {/* ─── TAB 1: WIZARD MIGRASI ────────────────────────────────────────── */}
       {activeTab === "wizard" && (
@@ -871,8 +914,16 @@ export default function MigrasiDataPage() {
                         </span>
                         <button
                           onClick={handleAnalyzeFile}
-                          disabled={!file || analyzing || !selectedCabang}
-                          title={!selectedCabang ? "Pilih cabang tujuan terlebih dahulu" : !file ? "Pilih berkas terlebih dahulu" : "Analisa berkas"}
+                          disabled={!file || analyzing || !selectedCabang || !can_create}
+                          title={
+                            !can_create
+                              ? "Role Anda tidak memiliki izin 'Tambah' untuk menganalisa/mengimpor berkas migrasi"
+                              : !selectedCabang
+                              ? "Pilih cabang tujuan terlebih dahulu"
+                              : !file
+                              ? "Pilih berkas terlebih dahulu"
+                              : "Analisa & Validasi berkas migrasi"
+                          }
                           className="px-6 py-2 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold text-xs flex items-center gap-2 shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         >
                           {analyzing ? (
@@ -1374,8 +1425,9 @@ export default function MigrasiDataPage() {
                   </button>
                   <button
                     onClick={handleCommitMigration}
-                    disabled={!importMaster && !importStok && !importTransaksi}
-                    className="px-6 py-2 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-bold text-xs flex items-center gap-2 shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                    disabled={(!importMaster && !importStok && !importTransaksi) || !can_create}
+                    title={!can_create ? "Role Anda tidak memiliki izin 'Tambah' untuk mengeksekusi migrasi data" : undefined}
+                    className="px-6 py-2 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-bold text-xs flex items-center gap-2 shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <Database className="w-3.5 h-3.5" />
                     Mulai Eksekusi Migrasi
@@ -1674,8 +1726,18 @@ export default function MigrasiDataPage() {
                             {log.status !== "ROLLED_BACK" && log.status !== "FAILED" && (
                               <button
                                 onClick={() => setLogToRollback(log)}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition-all cursor-pointer flex items-center gap-1"
-                                title="Batalkan data migrasi ini"
+                                disabled={!can_create}
+                                className={cn(
+                                  "px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all flex items-center gap-1",
+                                  can_create
+                                    ? "bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30 cursor-pointer"
+                                    : "opacity-40 bg-surface-container border-outline-variant/40 text-on-surface-variant cursor-not-allowed"
+                                )}
+                                title={
+                                  can_create
+                                    ? "Batalkan data migrasi ini"
+                                    : "Memerlukan hak akses 'Tambah' untuk membatalkan migrasi"
+                                }
                               >
                                 <RotateCcw className="w-3 h-3" />
                                 <span>Batalkan</span>

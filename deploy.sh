@@ -294,8 +294,8 @@ CREATE TABLE IF NOT EXISTS kartu_stok (
   masuk integer DEFAULT 0 NOT NULL,
   keluar integer DEFAULT 0 NOT NULL,
   saldo_akhir integer NOT NULL,
-  hpp_satuan integer DEFAULT 0 NOT NULL,
-  total_nilai integer DEFAULT 0 NOT NULL,
+  hpp_satuan numeric(20,2) DEFAULT 0 NOT NULL,
+  total_nilai numeric(20,2) DEFAULT 0 NOT NULL,
   keterangan text,
   id_user integer NOT NULL,
   created_at text DEFAULT CURRENT_TIMESTAMP::text
@@ -355,10 +355,21 @@ CREATE TABLE IF NOT EXISTS migrasi_log (
 CREATE INDEX IF NOT EXISTS idx_migrasi_log_cabang ON migrasi_log (id_cabang);
 CREATE INDEX IF NOT EXISTS idx_migrasi_log_user ON migrasi_log (id_user);
 
-ALTER TABLE kartu_stok ALTER COLUMN hpp_satuan TYPE numeric(15,2), ALTER COLUMN total_nilai TYPE numeric(15,2);
-ALTER TABLE barang ALTER COLUMN harga_beli TYPE numeric(15,2), ALTER COLUMN harga_jual TYPE numeric(15,2);
-ALTER TABLE penjualan_detail ALTER COLUMN harga_satuan TYPE numeric(15,2), ALTER COLUMN subtotal TYPE numeric(15,2), ALTER COLUMN hpp TYPE numeric(15,2);
-ALTER TABLE penjualan ALTER COLUMN total_harga TYPE numeric(15,2), ALTER COLUMN subtotal TYPE numeric(15,2), ALTER COLUMN total_bayar TYPE numeric(15,2), ALTER COLUMN kembalian TYPE numeric(15,2);
+ALTER TABLE kartu_stok ALTER COLUMN hpp_satuan TYPE numeric(20,2), ALTER COLUMN total_nilai TYPE numeric(20,2);
+ALTER TABLE barang 
+  ALTER COLUMN harga_beli TYPE numeric(20,2), 
+  ALTER COLUMN harga_rata TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_1_1 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_1_2 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_1_3 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_2_1 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_2_2 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_2_3 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_3_1 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_3_2 TYPE numeric(20,2),
+  ALTER COLUMN harga_jual_3_3 TYPE numeric(20,2);
+ALTER TABLE penjualan_detail ALTER COLUMN harga_satuan TYPE numeric(20,2), ALTER COLUMN subtotal TYPE numeric(20,2), ALTER COLUMN hpp TYPE numeric(20,2);
+ALTER TABLE penjualan ALTER COLUMN total_harga TYPE numeric(20,2), ALTER COLUMN subtotal TYPE numeric(20,2), ALTER COLUMN total_bayar TYPE numeric(20,2), ALTER COLUMN kembalian TYPE numeric(20,2);
 EOF
 echo -e "${GREEN}✓ Skema dan indeks database PostgreSQL siap.${NC}"
 
