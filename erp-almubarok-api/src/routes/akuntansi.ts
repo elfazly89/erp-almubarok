@@ -221,7 +221,7 @@ akuntansiRoutes.get("/jurnal", async (c) => {
       no_referensi_bukti: jurnal_umum.no_referensi_bukti,
       tanggal_transaksi: jurnal_umum.tanggal_transaksi,
       deskripsi: jurnal_umum.deskripsi,
-      total_debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS INTEGER)`,
+      total_debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -376,8 +376,8 @@ akuntansiRoutes.get("/laporan", async (c) => {
       }
       const resPre = await db
         .select({
-          total_debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS INTEGER)`,
-          total_kredit: sql<number>`CAST(SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+          total_debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
+          total_kredit: sql<number>`CAST(SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
         })
         .from(jurnal_umum)
         .where(and(...conditionsPre));
@@ -440,8 +440,8 @@ akuntansiRoutes.get("/laporan", async (c) => {
         nama_akun: daftar_akun.nama_akun,
         tipe: tipe_akun.nama,
         posisi_saldo_normal: tipe_akun.posisi_saldo_normal,
-        debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS INTEGER)`,
-        kredit: sql<number>`CAST(SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
+        kredit: sql<number>`CAST(SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
       })
       .from(daftar_akun)
       .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
@@ -484,7 +484,7 @@ akuntansiRoutes.get("/laporan", async (c) => {
         id: daftar_akun.id,
         kode_akun: daftar_akun.kode_akun,
         nama_akun: daftar_akun.nama_akun,
-        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
       })
       .from(daftar_akun)
       .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
@@ -498,7 +498,7 @@ akuntansiRoutes.get("/laporan", async (c) => {
         id: daftar_akun.id,
         kode_akun: daftar_akun.kode_akun,
         nama_akun: daftar_akun.nama_akun,
-        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
       })
       .from(daftar_akun)
       .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
@@ -511,8 +511,8 @@ akuntansiRoutes.get("/laporan", async (c) => {
     const trend = await db
       .select({
         month: sql<string>`substring(${jurnal_umum.tanggal_transaksi} from 1 for 7)`,
-        pendapatan: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Pendapatan' THEN ${jurnal_umum.kredit} - ${jurnal_umum.debit} ELSE 0 END) AS INTEGER)`,
-        beban: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Beban' THEN ${jurnal_umum.debit} - ${jurnal_umum.kredit} ELSE 0 END) AS INTEGER)`,
+        pendapatan: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Pendapatan' THEN ${jurnal_umum.kredit} - ${jurnal_umum.debit} ELSE 0 END) AS DOUBLE PRECISION)`,
+        beban: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Beban' THEN ${jurnal_umum.debit} - ${jurnal_umum.kredit} ELSE 0 END) AS DOUBLE PRECISION)`,
       })
       .from(jurnal_umum)
       .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -541,7 +541,7 @@ akuntansiRoutes.get("/laporan", async (c) => {
         id: daftar_akun.id,
         kode_akun: daftar_akun.kode_akun,
         nama_akun: daftar_akun.nama_akun,
-        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
       })
       .from(daftar_akun)
       .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
@@ -555,7 +555,7 @@ akuntansiRoutes.get("/laporan", async (c) => {
         id: daftar_akun.id,
         kode_akun: daftar_akun.kode_akun,
         nama_akun: daftar_akun.nama_akun,
-        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
       })
       .from(daftar_akun)
       .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
@@ -569,7 +569,7 @@ akuntansiRoutes.get("/laporan", async (c) => {
         id: daftar_akun.id,
         kode_akun: daftar_akun.kode_akun,
         nama_akun: daftar_akun.nama_akun,
-        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
       })
       .from(daftar_akun)
       .leftJoin(tipe_akun, eq(daftar_akun.tipe_akun_id, tipe_akun.id))
@@ -581,8 +581,8 @@ akuntansiRoutes.get("/laporan", async (c) => {
     // Calculate net income
     const plRes = await db
       .select({
-        revenue: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Pendapatan' THEN ${jurnal_umum.kredit} - ${jurnal_umum.debit} ELSE 0 END) AS INTEGER)`,
-        expense: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Beban' THEN ${jurnal_umum.debit} - ${jurnal_umum.kredit} ELSE 0 END) AS INTEGER)`,
+        revenue: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Pendapatan' THEN ${jurnal_umum.kredit} - ${jurnal_umum.debit} ELSE 0 END) AS DOUBLE PRECISION)`,
+        expense: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Beban' THEN ${jurnal_umum.debit} - ${jurnal_umum.kredit} ELSE 0 END) AS DOUBLE PRECISION)`,
       })
       .from(jurnal_umum)
       .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -637,8 +637,8 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
 
   const [salesPOS] = await db
     .select({
-      bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS INTEGER)`,
-      diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS INTEGER)`,
+      bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS DOUBLE PRECISION)`,
+      diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS DOUBLE PRECISION)`,
       jumlah_transaksi: sql<number>`COUNT(${penjualan.id_penjualan})`,
     })
     .from(penjualan)
@@ -658,7 +658,7 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
 
   const [hppPOS] = await db
     .select({
-      total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS INTEGER)`,
+      total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS DOUBLE PRECISION)`,
     })
     .from(penjualan_detail)
     .innerJoin(penjualan, eq(penjualan_detail.id_penjualan, penjualan.id_penjualan))
@@ -679,7 +679,7 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
   // HPP Jurnal (Type 5: Harga Pokok Penjualan)
   const [hppJurnal] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -688,7 +688,7 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
   // Beban Jurnal (Type 6: Beban Operasional)
   const [bebanJurnal] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -697,7 +697,7 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
   // Jurnal Sales Bruto (Type 4: Pendapatan, specifically code starting with 4.1)
   const [salesBrutoJurnal] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -706,7 +706,7 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
   // Jurnal Sales Retur & Diskon (Type 4: Pendapatan, specifically code starting with 4.2)
   const [salesReductionsJurnal] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -715,8 +715,8 @@ akuntansiRoutes.get("/dashboard-profit", async (c) => {
   // Jurnal Pendapatan Lain-lain (Type 8: Pendapatan & Beban Lain-lain, Credit normal)
   const [lainJurnal] = await db
     .select({
-      debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS INTEGER)`,
-      kredit: sql<number>`CAST(SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+      debit: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
+      kredit: sql<number>`CAST(SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -819,8 +819,8 @@ akuntansiRoutes.get("/dashboard-profit/cabang", async (c) => {
 
     const [salesPOS] = await db
       .select({
-        bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS INTEGER)`,
-        diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS INTEGER)`,
+        bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS DOUBLE PRECISION)`,
+        diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS DOUBLE PRECISION)`,
       })
       .from(penjualan)
       .where(and(...salesCond));
@@ -831,7 +831,7 @@ akuntansiRoutes.get("/dashboard-profit/cabang", async (c) => {
 
     const [hppPOS] = await db
       .select({
-        total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS INTEGER)`,
+        total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS DOUBLE PRECISION)`,
       })
       .from(penjualan_detail)
       .innerJoin(penjualan, eq(penjualan_detail.id_penjualan, penjualan.id_penjualan))
@@ -843,7 +843,7 @@ akuntansiRoutes.get("/dashboard-profit/cabang", async (c) => {
 
     const [bebanJurnal] = await db
       .select({
-        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
       })
       .from(jurnal_umum)
       .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -917,8 +917,8 @@ akuntansiRoutes.get("/dashboard-profit/rekonsiliasi", async (c) => {
 
     const [salesPOS] = await db
       .select({
-        bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS INTEGER)`,
-        diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS INTEGER)`,
+        bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS DOUBLE PRECISION)`,
+        diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS DOUBLE PRECISION)`,
       })
       .from(penjualan)
       .where(and(...salesCond));
@@ -931,7 +931,7 @@ akuntansiRoutes.get("/dashboard-profit/rekonsiliasi", async (c) => {
 
     const [hppPOS] = await db
       .select({
-        total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS INTEGER)`,
+        total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS DOUBLE PRECISION)`,
       })
       .from(penjualan_detail)
       .innerJoin(penjualan, eq(penjualan_detail.id_penjualan, penjualan.id_penjualan))
@@ -945,7 +945,7 @@ akuntansiRoutes.get("/dashboard-profit/rekonsiliasi", async (c) => {
 
     const [salesBrutoJurnal] = await db
       .select({
-        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
       })
       .from(jurnal_umum)
       .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -953,7 +953,7 @@ akuntansiRoutes.get("/dashboard-profit/rekonsiliasi", async (c) => {
 
     const [salesReductionsJurnal] = await db
       .select({
-        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
       })
       .from(jurnal_umum)
       .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -963,7 +963,7 @@ akuntansiRoutes.get("/dashboard-profit/rekonsiliasi", async (c) => {
 
     const [hppJurnal] = await db
       .select({
-        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+        total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
       })
       .from(jurnal_umum)
       .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -1038,8 +1038,8 @@ akuntansiRoutes.get("/dashboard-profit/bagi-hasil", async (c) => {
 
       const [salesPOS] = await db
         .select({
-          bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS INTEGER)`,
-          diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS INTEGER)`,
+          bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS DOUBLE PRECISION)`,
+          diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS DOUBLE PRECISION)`,
         })
         .from(penjualan)
         .where(and(...salesCond));
@@ -1050,7 +1050,7 @@ akuntansiRoutes.get("/dashboard-profit/bagi-hasil", async (c) => {
 
       const [hppPOS] = await db
         .select({
-          total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS INTEGER)`,
+          total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS DOUBLE PRECISION)`,
         })
         .from(penjualan_detail)
         .innerJoin(penjualan, eq(penjualan_detail.id_penjualan, penjualan.id_penjualan))
@@ -1062,7 +1062,7 @@ akuntansiRoutes.get("/dashboard-profit/bagi-hasil", async (c) => {
 
       const [bebanOperasional] = await db
         .select({
-          total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+          total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
         })
         .from(jurnal_umum)
         .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))

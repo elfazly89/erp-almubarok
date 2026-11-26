@@ -168,9 +168,18 @@ export default function StokPage() {
   };
 
   useEffect(() => {
-    fetch("/api/cabang")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setCabangs(data))
+    Promise.all([
+      fetch("/api/cabang").then((res) => (res.ok ? res.json() : [])),
+      fetch("/api/pengaturan/profile").then((res) => (res.ok ? res.json() : null)),
+    ])
+      .then(([cabData, profile]) => {
+        const items = Array.isArray(cabData) ? cabData : cabData?.data || [];
+        setCabangs(items);
+        const jab = Number(profile?.id_jabatan || 0);
+        if ([1, 2, 4, 5, 8, 11].includes(jab)) {
+          setSelectedCabang((prev) => (prev === "" ? "ALL" : prev));
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -860,6 +869,11 @@ export default function StokPage() {
                             {s.nama_supplier && (
                               <span className="text-on-surface-variant/70 text-[11px] truncate max-w-[150px]">
                                 {s.nama_supplier}
+                              </span>
+                            )}
+                            {selectedCabang === "ALL" && s.nama_cabang && (
+                              <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-[11px] bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
+                                🏢 {s.nama_cabang}
                               </span>
                             )}
                           </div>

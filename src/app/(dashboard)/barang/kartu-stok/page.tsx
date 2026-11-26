@@ -55,7 +55,7 @@ export default function KartuStokPage() {
   const [loading, setLoading] = useState(true);
 
   // Filters
-  const [selectedCabang, setSelectedCabang] = useState<string>("");
+  const [selectedCabang, setSelectedCabang] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [tipeFilter, setTipeFilter] = useState("ALL");
   const [startDate, setStartDate] = useState(() => {
@@ -68,7 +68,10 @@ export default function KartuStokPage() {
   const fetchCabangs = useCallback(async () => {
     try {
       const res = await fetch("/api/cabang");
-      if (res.ok) setCabangs(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setCabangs(Array.isArray(data) ? data : data?.data || []);
+      }
     } catch (e) {
       console.error("Failed to load cabangs:", e);
     }
@@ -78,7 +81,7 @@ export default function KartuStokPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (selectedCabang) params.append("id_cabang", selectedCabang);
+      params.append("id_cabang", selectedCabang || "all");
       if (startDate) params.append("start_date", startDate);
       if (endDate) params.append("end_date", endDate);
       params.append("limit", "300");
@@ -178,7 +181,7 @@ export default function KartuStokPage() {
               onChange={(e) => setSelectedCabang(e.target.value)}
               className="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="">Semua Cabang / Gudang</option>
+              <option value="all">Semua Cabang / Gudang</option>
               {cabangs.map((c) => (
                 <option key={c.id_cabang} value={c.id_cabang}>{c.nama_cabang}</option>
               ))}

@@ -181,8 +181,8 @@ akuntansiLanjutanRoutes.post("/periode/close-year", async (c) => {
   // Hitung akumulasi pendapatan dan beban tahun tersebut
   const [plRes] = await db
     .select({
-      revenue: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Pendapatan' THEN ${jurnal_umum.kredit} - ${jurnal_umum.debit} ELSE 0 END) AS INTEGER)`,
-      expense: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Beban' THEN ${jurnal_umum.debit} - ${jurnal_umum.kredit} ELSE 0 END) AS INTEGER)`,
+      revenue: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Pendapatan' THEN ${jurnal_umum.kredit} - ${jurnal_umum.debit} ELSE 0 END) AS DOUBLE PRECISION)`,
+      expense: sql<number>`CAST(SUM(CASE WHEN ${tipe_akun.nama} = 'Beban' THEN ${jurnal_umum.debit} - ${jurnal_umum.kredit} ELSE 0 END) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -357,7 +357,7 @@ akuntansiLanjutanRoutes.get("/pajak/rekapitulasi", async (c) => {
 
   const [salesSummary] = await db
     .select({
-      total_omzet: sql<number>`CAST(SUM(${penjualan.total_akhir}) AS INTEGER)`,
+      total_omzet: sql<number>`CAST(SUM(${penjualan.total_akhir}) AS DOUBLE PRECISION)`,
       jumlah_nota: sql<number>`COUNT(${penjualan.id_penjualan})`,
     })
     .from(penjualan)
@@ -376,7 +376,7 @@ akuntansiLanjutanRoutes.get("/pajak/rekapitulasi", async (c) => {
 
   const [buySummary] = await db
     .select({
-      total_beli: sql<number>`CAST(SUM(${faktur_beli.total_faktur}) AS INTEGER)`,
+      total_beli: sql<number>`CAST(SUM(${faktur_beli.total_faktur}) AS DOUBLE PRECISION)`,
       jumlah_faktur: sql<number>`COUNT(${faktur_beli.id_faktur})`,
     })
     .from(faktur_beli)
@@ -644,7 +644,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
 
   const [salesCash] = await db
     .select({
-      total: sql<number>`CAST(SUM(${penjualan.total_akhir}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${penjualan.total_akhir}) AS DOUBLE PRECISION)`,
     })
     .from(penjualan)
     .where(and(...salesCond));
@@ -657,7 +657,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
 
   const [buyCash] = await db
     .select({
-      total: sql<number>`CAST(SUM(${faktur_beli.total_faktur}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${faktur_beli.total_faktur}) AS DOUBLE PRECISION)`,
     })
     .from(faktur_beli)
     .where(and(...buyCond));
@@ -670,7 +670,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
 
   const [gajiRes] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -680,7 +680,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
 
   const [opsRes] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -696,7 +696,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
 
   const [assetBuy] = await db
     .select({
-      total: sql<number>`CAST(SUM(${aset_tetap.harga_perolehan}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${aset_tetap.harga_perolehan}) AS DOUBLE PRECISION)`,
     })
     .from(aset_tetap)
     .where(and(...assetCond));
@@ -707,7 +707,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
   // III. ARUS KAS DARI AKTIVITAS PENDANAAN (Modal Pemilik)
   const [modalRes] = await db
     .select({
-      total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${jurnal_umum.kredit}) - SUM(${jurnal_umum.debit}) AS DOUBLE PRECISION)`,
     })
     .from(jurnal_umum)
     .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -720,7 +720,7 @@ akuntansiLanjutanRoutes.get("/laporan/arus-kas", async (c) => {
   // Saldo Awal Kas
   const [saldoKasAwalRes] = await db
     .select({
-      total: sql<number>`CAST(SUM(${rekening_kas.saldo_awal}) AS INTEGER)`,
+      total: sql<number>`CAST(SUM(${rekening_kas.saldo_awal}) AS DOUBLE PRECISION)`,
     })
     .from(rekening_kas)
     .where(idCabang ? eq(rekening_kas.id_cabang, idCabang) : undefined);

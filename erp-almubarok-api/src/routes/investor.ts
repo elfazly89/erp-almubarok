@@ -682,8 +682,8 @@ investorRoutes.get("/bagi-hasil/kalkulasi", async (c) => {
       // 1. Penjualan POS
       const [salesPOS] = await db
         .select({
-          bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS INTEGER)`,
-          diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS INTEGER)`,
+          bruto: sql<number>`CAST(SUM(${penjualan.subtotal}) AS DOUBLE PRECISION)`,
+          diskon: sql<number>`CAST(SUM(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}) AS DOUBLE PRECISION)`,
         })
         .from(penjualan)
         .where(
@@ -701,7 +701,7 @@ investorRoutes.get("/bagi-hasil/kalkulasi", async (c) => {
       // 2. HPP POS
       const [hppPOS] = await db
         .select({
-          total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS INTEGER)`,
+          total_hpp: sql<number>`CAST(SUM(${penjualan_detail.harga_rata_saat_transaksi} * ${penjualan_detail.jumlah} * ${penjualan_detail.isi_satuan}) AS DOUBLE PRECISION)`,
         })
         .from(penjualan_detail)
         .innerJoin(penjualan, eq(penjualan_detail.id_penjualan, penjualan.id_penjualan))
@@ -719,7 +719,7 @@ investorRoutes.get("/bagi-hasil/kalkulasi", async (c) => {
       // 3. Beban Operasional dari Jurnal Umum (Tipe Akun 6)
       const [bebanOperasional] = await db
         .select({
-          total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER)`,
+          total: sql<number>`CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION)`,
         })
         .from(jurnal_umum)
         .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))

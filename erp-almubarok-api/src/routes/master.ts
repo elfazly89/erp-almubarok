@@ -29,6 +29,20 @@ export const masterRoutes = new Hono<{
   };
 }>();
 
+/** Resolve target id_cabang: Multi-branch returns null ("all") unless explicit cabang ID is given. */
+function resolveCabangScope(user: JWTPayload | undefined, idCabangParam?: string): number | null {
+  const allowedRoles = [1, 2, 4, 5, 8, 11];
+  const isMultiBranch = allowedRoles.includes(Number(user?.id_jabatan || 0));
+  if (isMultiBranch) {
+    if (idCabangParam && idCabangParam.toLowerCase() !== "all") {
+      const parsed = parseInt(idCabangParam, 10);
+      return isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  }
+  return user?.id_cabang ? Number(user.id_cabang) : null;
+}
+
 // Centralized master data write-operation guard
 masterRoutes.use("/*", async (c, next) => {
   const user = c.get("user");
@@ -1637,12 +1651,14 @@ masterRoutes.get("/stok", async (c) => {
   let isAllBranches = false;
 
   if (isManagerOrAdmin && paramCabang) {
-    if (paramCabang === "ALL") {
+    if (paramCabang === "ALL" || paramCabang === "all") {
       isAllBranches = true;
       idCabang = null;
     } else {
       idCabang = parseInt(paramCabang);
     }
+  } else if (isManagerOrAdmin && !paramCabang && !idCabang) {
+    isAllBranches = true;
   }
 
   if (!idCabang && !isAllBranches) {
@@ -2477,7 +2493,7 @@ masterRoutes.get("/kartu-stok", async (c) => {
     const endDate = c.req.query("end_date");
     const limit = parseInt(c.req.query("limit") || "100");
 
-    const targetCabang = idCabang ? parseInt(idCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
+    const targetCabang = resolveCabangScope(user, idCabang);
 
     const conditions = [];
     if (targetCabang) conditions.push(eq(kartu_stok.id_cabang, targetCabang));
@@ -2530,7 +2546,7 @@ masterRoutes.get("/gudang-lokasi", async (c) => {
   try {
     const user = c.get("user");
     const idCabang = c.req.query("id_cabang");
-    const targetCabang = idCabang ? parseInt(idCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
+    const targetCabang = resolveCabangScope(user, idCabang);
 
     const rows = await db
       .select()
@@ -2553,7 +2569,7 @@ masterRoutes.get("/stok/reorder-suggestions", async (c) => {
   try {
     const user = c.get("user");
     const idCabang = c.req.query("id_cabang");
-    const targetCabang = idCabang ? parseInt(idCabang) : (user?.id_cabang ? Number(user.id_cabang) : null);
+    const targetCabang = resolveCabangScope(user, idCabang);
 
     const rows = await db
       .select({

@@ -47,13 +47,13 @@ penjualanRoutes.get("/summary", async (c) => {
 
   const conditions = [];
 
-  // Cabang filter
-  if (isMultiBranch && queryCabang && queryCabang !== "all") {
-    conditions.push(eq(penjualan.id_cabang, parseInt(queryCabang)));
-  } else if (!isMultiBranch || !queryCabang || queryCabang !== "all") {
-    if (user.id_cabang) {
-      conditions.push(eq(penjualan.id_cabang, user.id_cabang));
+  // Cabang filter: untuk Multi-Branch, tampilkan semua cabang kecuali jika queryCabang spesifik dikirim
+  if (isMultiBranch) {
+    if (queryCabang && queryCabang !== "all" && queryCabang !== "ALL") {
+      conditions.push(eq(penjualan.id_cabang, parseInt(queryCabang)));
     }
+  } else if (user.id_cabang) {
+    conditions.push(eq(penjualan.id_cabang, user.id_cabang));
   }
 
   // Date filters
@@ -97,13 +97,13 @@ penjualanRoutes.get("/summary", async (c) => {
 
   const [summary] = await db
     .select({
-      total_nota: sql<number>`count(*)`,
-      total_bruto: sql<number>`coalesce(sum(${penjualan.subtotal}), 0)`,
-      total_diskon: sql<number>`coalesce(sum(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}), 0)`,
-      total_infaq: sql<number>`coalesce(sum(${penjualan.infaq}), 0)`,
-      total_bersih: sql<number>`coalesce(sum(${penjualan.total_akhir}), 0)`,
-      omset_tunai: sql<number>`coalesce(sum(case when ${penjualan.jenis_pembayaran} = 'Tunai' then ${penjualan.total_akhir} else 0 end), 0)`,
-      omset_non_tunai: sql<number>`coalesce(sum(case when ${penjualan.jenis_pembayaran} != 'Tunai' then ${penjualan.total_akhir} else 0 end), 0)`,
+      total_nota: sql<number>`count(*)::float8`,
+      total_bruto: sql<number>`coalesce(sum(${penjualan.subtotal}), 0)::float8`,
+      total_diskon: sql<number>`coalesce(sum(${penjualan.diskon} + ${penjualan.nominal_voucher} + ${penjualan.potongan_poin}), 0)::float8`,
+      total_infaq: sql<number>`coalesce(sum(${penjualan.infaq}), 0)::float8`,
+      total_bersih: sql<number>`coalesce(sum(${penjualan.total_akhir}), 0)::float8`,
+      omset_tunai: sql<number>`coalesce(sum(case when ${penjualan.jenis_pembayaran} = 'Tunai' then ${penjualan.total_akhir} else 0 end), 0)::float8`,
+      omset_non_tunai: sql<number>`coalesce(sum(case when ${penjualan.jenis_pembayaran} != 'Tunai' then ${penjualan.total_akhir} else 0 end), 0)::float8`,
     })
     .from(penjualan)
     .where(whereClause);
@@ -210,13 +210,13 @@ penjualanRoutes.get("/", async (c) => {
 
   const conditions = [];
 
-  // Cabang filter
-  if (isMultiBranch && queryCabang && queryCabang !== "all") {
-    conditions.push(eq(penjualan.id_cabang, parseInt(queryCabang)));
-  } else if (!isMultiBranch || !queryCabang || queryCabang !== "all") {
-    if (user.id_cabang) {
-      conditions.push(eq(penjualan.id_cabang, user.id_cabang));
+  // Cabang filter: untuk Multi-Branch, tampilkan semua cabang kecuali jika queryCabang spesifik dikirim
+  if (isMultiBranch) {
+    if (queryCabang && queryCabang !== "all" && queryCabang !== "ALL") {
+      conditions.push(eq(penjualan.id_cabang, parseInt(queryCabang)));
     }
+  } else if (user.id_cabang) {
+    conditions.push(eq(penjualan.id_cabang, user.id_cabang));
   }
 
   // Date filters
@@ -265,10 +265,10 @@ penjualanRoutes.get("/", async (c) => {
 
   // Total count for pagination
   const [countRes] = await db
-    .select({ total: sql<number>`count(*)` })
+    .select({ total: sql<number>`count(*)::float8` })
     .from(penjualan)
     .where(whereClause);
-  const totalItems = countRes?.total || 0;
+  const totalItems = Number(countRes?.total || 0);
 
   const list = await db
     .select({

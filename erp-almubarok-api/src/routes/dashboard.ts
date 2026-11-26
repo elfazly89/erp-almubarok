@@ -63,8 +63,8 @@ async function fetchGrowthStats(granularity = "monthly") {
         .select({
           ym: sql<string>`SUBSTRING(${penjualan.tanggal_invoice}, 1, 7)`,
           id_cabang: penjualan.id_cabang,
-          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-          transaksi: sql<number>`COUNT(*)::int`,
+          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+          transaksi: sql<number>`COUNT(*)::float8`,
         })
         .from(penjualan)
         .where(gte(penjualan.tanggal_invoice, earliestDate))
@@ -162,7 +162,7 @@ async function fetchGrowthStats(granularity = "monthly") {
         .select({
           tanggal: penjualan.tanggal_invoice,
           id_cabang: penjualan.id_cabang,
-          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
         })
         .from(penjualan)
         .where(gte(penjualan.tanggal_invoice, earliestDate))
@@ -258,7 +258,7 @@ async function fetchGrowthStats(granularity = "monthly") {
         .select({
           tanggal: penjualan.tanggal_invoice,
           id_cabang: penjualan.id_cabang,
-          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
+          omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
         })
         .from(penjualan)
         .where(gte(penjualan.tanggal_invoice, startPrevStr))
@@ -487,8 +487,8 @@ dashboardRoutes.get("/stats", async (c) => {
 
         const [salesKpi] = await db
           .select({
-            omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-            totalTransaksi: sql<number>`COUNT(*)::int`,
+            omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+            totalTransaksi: sql<number>`COUNT(*)::float8`,
           })
           .from(penjualan)
           .where(and(...salesConditions));
@@ -503,8 +503,8 @@ dashboardRoutes.get("/stats", async (c) => {
         }
         const [salesPrev] = await db
           .select({
-            omzetPrev: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-            totalTransaksiPrev: sql<number>`COUNT(*)::int`,
+            omzetPrev: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+            totalTransaksiPrev: sql<number>`COUNT(*)::float8`,
           })
           .from(penjualan)
           .where(and(...prevConditions));
@@ -527,7 +527,7 @@ dashboardRoutes.get("/stats", async (c) => {
               margin: sql<number>`
                 COALESCE(SUM(
                   ${penjualan_detail.subtotal} - (${penjualan_detail.jumlah} * COALESCE(${barang.harga_beli}, 0))
-                ), 0)::int
+                ), 0)::float8
               `,
             })
             .from(penjualan_detail)
@@ -552,7 +552,7 @@ dashboardRoutes.get("/stats", async (c) => {
 
           const [bebanJurnalRes] = await db
             .select({
-              total: sql<number>`COALESCE(CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS INTEGER), 0)`,
+              total: sql<number>`COALESCE(CAST(SUM(${jurnal_umum.debit}) - SUM(${jurnal_umum.kredit}) AS DOUBLE PRECISION), 0)`,
             })
             .from(jurnal_umum)
             .leftJoin(daftar_akun, eq(jurnal_umum.akun_id, daftar_akun.id))
@@ -573,7 +573,7 @@ dashboardRoutes.get("/stats", async (c) => {
             }
             const [kasBebanRes] = await db
               .select({
-                total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+                total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::float8`,
               })
               .from(kas_transaksi)
               .where(and(...kasBebanCond));
@@ -628,7 +628,7 @@ dashboardRoutes.get("/stats", async (c) => {
 
         const [totalSaldoResult] = await db
           .select({
-            totalSaldo: sql<number>`COALESCE(SUM(${rekening_kas.saldo}), 0)::int`,
+            totalSaldo: sql<number>`COALESCE(SUM(${rekening_kas.saldo}), 0)::float8`,
           })
           .from(rekening_kas)
           .where(and(...kasConditions));
@@ -671,8 +671,8 @@ dashboardRoutes.get("/stats", async (c) => {
 
         const [hutangResult] = await db
           .select({
-            totalHutang: sql<number>`COALESCE(SUM(${faktur_beli.total_faktur}), 0)::int`,
-            countHutang: sql<number>`COUNT(*)::int`,
+            totalHutang: sql<number>`COALESCE(SUM(${faktur_beli.total_faktur}), 0)::float8`,
+            countHutang: sql<number>`COUNT(*)::float8`,
           })
           .from(faktur_beli)
           .where(and(...hutangConditions));
@@ -719,8 +719,8 @@ dashboardRoutes.get("/stats", async (c) => {
           const monthlySales = await db
             .select({
               ym: sql<string>`SUBSTRING(${penjualan.tanggal_invoice}, 1, 7)`,
-              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-              transaksi: sql<number>`COUNT(*)::int`,
+              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+              transaksi: sql<number>`COUNT(*)::float8`,
             })
             .from(penjualan)
             .where(and(...trendSalesCond))
@@ -732,7 +732,7 @@ dashboardRoutes.get("/stats", async (c) => {
             .select({
               ym: sql<string>`SUBSTRING(${kas_transaksi.tanggal}, 1, 7)`,
               tipe: kas_transaksi.tipe,
-              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::float8`,
             })
             .from(kas_transaksi)
             .where(and(...trendKasCond))
@@ -778,8 +778,8 @@ dashboardRoutes.get("/stats", async (c) => {
           const dailySales = await db
             .select({
               tanggal: penjualan.tanggal_invoice,
-              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-              transaksi: sql<number>`COUNT(*)::int`,
+              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+              transaksi: sql<number>`COUNT(*)::float8`,
             })
             .from(penjualan)
             .where(and(...trendSalesCond))
@@ -791,7 +791,7 @@ dashboardRoutes.get("/stats", async (c) => {
             .select({
               tanggal: kas_transaksi.tanggal,
               tipe: kas_transaksi.tipe,
-              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::float8`,
             })
             .from(kas_transaksi)
             .where(and(...trendKasCond))
@@ -856,8 +856,8 @@ dashboardRoutes.get("/stats", async (c) => {
           const dailySales = await db
             .select({
               tanggal: penjualan.tanggal_invoice,
-              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-              transaksi: sql<number>`COUNT(*)::int`,
+              omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+              transaksi: sql<number>`COUNT(*)::float8`,
             })
             .from(penjualan)
             .where(and(...trendSalesCond))
@@ -869,7 +869,7 @@ dashboardRoutes.get("/stats", async (c) => {
             .select({
               tanggal: kas_transaksi.tanggal,
               tipe: kas_transaksi.tipe,
-              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::int`,
+              total: sql<number>`COALESCE(SUM(${kas_transaksi.nominal}), 0)::float8`,
             })
             .from(kas_transaksi)
             .where(and(...trendKasCond))
@@ -933,8 +933,8 @@ dashboardRoutes.get("/stats", async (c) => {
         const leaderboardSales = await db
           .select({
             id_cabang: penjualan.id_cabang,
-            omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::int`,
-            transaksi: sql<number>`COUNT(*)::int`,
+            omzet: sql<number>`COALESCE(SUM(${penjualan.total_akhir}), 0)::float8`,
+            transaksi: sql<number>`COUNT(*)::float8`,
           })
           .from(penjualan)
           .where(and(gte(penjualan.tanggal_invoice, startDate), lte(penjualan.tanggal_invoice, endDate)))

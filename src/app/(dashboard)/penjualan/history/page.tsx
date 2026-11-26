@@ -30,6 +30,8 @@ interface Invoice {
   no_invoice: string;
   tanggal_invoice: string;
   jam_invoice: string;
+  id_cabang?: number;
+  nama_cabang?: string;
   nama_pelanggan: string;
   subtotal: number;
   diskon: number;
@@ -41,6 +43,8 @@ interface Invoice {
   jumlah_bayar: number;
   poin_didapat: number;
 }
+
+const MULTI_BRANCH_JABATANS = [1, 2, 4, 8, 11];
 
 export default function HistoryPage() {
   const { can_create, can_read, can_update, can_delete, loading: permissionsLoading } = useMenuPermissions();
@@ -72,8 +76,10 @@ export default function HistoryPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // Master options for Import Modal
+  // Master options for Import Modal & Cabang Filter
   const [cabangList, setCabangList] = useState<{ id_cabang: number; nama_cabang: string }[]>([]);
+  const [selectedCabang, setSelectedCabang] = useState<string>("all");
+  const [isMultiBranch, setIsMultiBranch] = useState<boolean>(true);
   const [kasirList, setKasirList] = useState<{ id: number; nama_user: string }[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
 
@@ -106,17 +112,26 @@ export default function HistoryPage() {
   const [branchName, setBranchName] = useState("Cabang");
 
   const fetchData = useCallback(
-    async (targetPage = page, targetLimit = limit, targetSearch = debouncedSearch, targetSource = sourceFilter) => {
+    async (
+      targetPage = page,
+      targetLimit = limit,
+      targetSearch = debouncedSearch,
+      targetSource = sourceFilter,
+      targetCabang = selectedCabang
+    ) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({
           page: targetPage.toString(),
           limit: targetLimit.toString(),
+          id_cabang: targetCabang || "all",
         });
         if (targetSearch.trim()) params.append("search", targetSearch.trim());
         if (targetSource !== "ALL") params.append("tipe_sumber", targetSource);
 
-        const sumParams = new URLSearchParams();
+        const sumParams = new URLSearchParams({
+          id_cabang: targetCabang || "all",
+        });
         if (targetSearch.trim()) sumParams.append("search", targetSearch.trim());
         if (targetSource !== "ALL") sumParams.append("tipe_sumber", targetSource);
         const sumQuery = sumParams.toString() ? `?${sumParams.toString()}` : "";
@@ -161,6 +176,11 @@ export default function HistoryPage() {
         const profileData = await resProfile.json();
         if (profileData && profileData.id) {
           setUserProfile(profileData);
+          const canMulti = MULTI_BRANCH_JABATANS.includes(Number(profileData.id_jabatan || 0));
+          setIsMultiBranch(canMulti);
+          if (!canMulti && profileData.id_cabang) {
+            setSelectedCabang(String(profileData.id_cabang));
+          }
           if (profileData.id_cabang) setSelectedImportCabang(profileData.id_cabang);
           if (profileData.id) setSelectedImportFallbackKasir(profileData.id);
 
@@ -191,12 +211,12 @@ export default function HistoryPage() {
         setLoading(false);
       }
     },
-    [page, limit, debouncedSearch, sourceFilter, showToast]
+    [page, limit, debouncedSearch, sourceFilter, selectedCabang, showToast]
   );
 
   useEffect(() => {
-    fetchData(page, limit, debouncedSearch, sourceFilter);
-  }, [page, limit, debouncedSearch, sourceFilter, fetchData]);
+    fetchData(page, limit, debouncedSearch, sourceFilter, selectedCabang);
+  }, [page, limit, debouncedSearch, sourceFilter, selectedCabang, fetchData]);
 
   // Debounced search (350ms)
   useEffect(() => {
@@ -604,6 +624,26 @@ export default function HistoryPage() {
           </p>
         </div>
         <div className="flex items-center flex-wrap gap-2.5 w-full md:w-auto">
+          {/* Filter Cabang (untuk akun Multi-Branch) */}
+          {isMultiBranch && cabangList.length > 0 && (
+            <select
+              value={selectedCabang}
+              onChange={(e) => {
+                setSelectedCabang(e.target.value);
+                setPage(1);
+              }}
+              className="bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl px-3 py-1.5 text-xs font-semibold focus:outline-none focus:border-primary/80 max-w-[200px]"
+              title="Filter berdasarkan Cabang"
+            >
+              <option value="all">🌐 Semua Cabang</option>
+              {cabangList.map((c) => (
+                <option key={c.id_cabang} value={String(c.id_cabang)}>
+                  🏢 {c.nama_cabang}
+                </option>
+              ))}
+            </select>
+          )}
+
           {/* Filter Sumber Transaksi (Semua | POS | Migrasi) */}
           <div className="flex items-center p-1 bg-surface-container rounded-xl border border-outline-variant/40 shrink-0">
             <button
@@ -735,6 +775,7 @@ export default function HistoryPage() {
                 <tr className="border-b border-outline-variant/35 bg-surface-container-low text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
                   <th className="px-5 py-2.5 w-12">#</th>
                   <th className="px-5 py-2.5">No. Invoice</th>
+                  <th className="px-5 py-2.5">Cabang</th>
                   <th className="px-5 py-2.5">Tanggal & Waktu</th>
                   <th className="px-5 py-2.5">Pelanggan</th>
                   <th className="px-5 py-2.5">Pembayaran</th>
@@ -745,21 +786,26 @@ export default function HistoryPage() {
               <tbody className="divide-y divide-outline-variant/20 text-xs">
                 {filteredList.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-8 text-center text-on-surface-variant/60">
+                    <td colSpan={8} className="px-5 py-8 text-center text-on-surface-variant/60">
                       Tidak ada data riwayat penjualan ditemukan.
                     </td>
                   </tr>
                 ) : (
                   filteredList.map((item, idx) => (
                     <tr key={item.id_penjualan} className="hover:bg-surface-container-high/40 transition-colors">
-                      <td className="px-5 py-2.5 text-on-surface-variant/60">{idx + 1}</td>
-                      <td className="px-5 py-2.5 font-medium font-mono text-primary flex items-center gap-2">
-                        <span>{item.no_invoice}</span>
-                        {item.no_invoice?.startsWith("MIG-") && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shrink-0">
-                            Migrasi
-                          </span>
-                        )}
+                      <td className="px-5 py-2.5 text-on-surface-variant/60">{(page - 1) * limit + idx + 1}</td>
+                      <td className="px-5 py-2.5 font-medium font-mono text-primary">
+                        <div className="flex items-center gap-2">
+                          <span>{item.no_invoice}</span>
+                          {item.no_invoice?.startsWith("MIG-") && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shrink-0">
+                              Migrasi
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-2.5 text-on-surface-variant font-medium">
+                        {item.nama_cabang || "-"}
                       </td>
                       <td className="px-5 py-2.5 text-on-surface-variant">
                         {item.tanggal_invoice} {item.jam_invoice}

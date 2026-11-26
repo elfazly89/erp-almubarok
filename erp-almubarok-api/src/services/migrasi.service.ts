@@ -203,8 +203,8 @@ function cleanKey(k: string): string {
 function normalizeDate(raw?: string): string {
   if (!raw) return new Date().toISOString().substring(0, 10);
   const clean = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
-    return clean.substring(0, 10);
+  if (/^\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(clean)) {
+    return clean.substring(0, 10).replace(/\//g, "-");
   }
   // DD/MM/YYYY or DD-MM-YYYY
   const dmy = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
@@ -1667,11 +1667,20 @@ export async function commitMigration(opts: MigrationCommitOptions): Promise<Mig
 
     const statusVal = errors.length === 0 ? "SUCCESS" : totalSuccess > 0 ? "PARTIAL" : "FAILED";
 
+    const tipeMigrasiStr =
+      import_transaksi && import_master
+        ? "ALL"
+        : import_transaksi
+        ? "TRANSAKSI"
+        : import_master
+        ? "MASTER"
+        : "STOK";
+
     await tx.insert(migrasi_log).values({
       id_cabang: id_cabang,
       id_user: id_user,
       nama_file: preview.nama_file,
-      tipe_migrasi: import_transaksi && import_master ? "ALL" : import_master ? "MASTER" : "STOK",
+      tipe_migrasi: tipeMigrasiStr,
       total_baris: totalLines,
       berhasil: totalSuccess,
       gagal: totalFailed,
