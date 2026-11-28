@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "100mb",
     },
+    // Naikkan batas body proxy Next.js (default bawaan hanya 10MB = 10485760 bytes!) & timeout 5 menit
+    proxyClientMaxBodySize: "100mb",
+    proxyTimeout: 300_000,
   },
   async redirects() {
     return [

@@ -192,12 +192,17 @@ setInterval(() => {
       }
     }
   }
-}, 15 * 60 * 1000);
+}, 15 * 60 * 1000).unref();
 
 // ─── UTILITY HELPERS ─────────────────────────────────────────────────────────
 
+const cleanKeyCache = new Map<string, string>();
 function cleanKey(k: string): string {
-  return k.replace(/^\uFEFF/, "").toLowerCase().replace(/[\s_\-`'"\[\]\(\)]/g, "");
+  let cached = cleanKeyCache.get(k);
+  if (cached !== undefined) return cached;
+  cached = k.replace(/^\uFEFF/, "").toLowerCase().replace(/[\s_\-`'"\[\]\(\)]/g, "");
+  if (cleanKeyCache.size < 2000) cleanKeyCache.set(k, cached);
+  return cached;
 }
 
 function normalizeDate(raw?: string): string {
@@ -858,12 +863,36 @@ export function parseCsvContent(
   const barangRows: Record<string, string>[] = [];
   const transaksiRows: Record<string, string>[] = [];
 
-  const cleanContent = content.replace(/^\uFEFF/, "");
-  const lines = cleanContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return { barangRows, transaksiRows };
+  const cleanContent = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  const len = cleanContent.length;
+  let pos = 0;
+
+  const nextNonEmptyLine = (): string | null => {
+    while (pos < len) {
+      let end = cleanContent.indexOf("\n", pos);
+      if (end === -1) end = len;
+      let lineEnd = end;
+      if (lineEnd > pos && cleanContent.charCodeAt(lineEnd - 1) === 13) {
+        lineEnd--;
+      }
+      const line = cleanContent.substring(pos, lineEnd);
+      pos = end + 1;
+      if (line.trim().length > 0) return line;
+    }
+    return null;
+  };
+
+  // Baca maksimal 5 baris pertama untuk deteksi delimiter tanpa memecah seluruh string ke array
+  const sampleLines: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const l = nextNonEmptyLine();
+    if (l === null) break;
+    sampleLines.push(l);
+  }
+  if (sampleLines.length < 2) return { barangRows, transaksiRows };
 
   // Detect delimiter: tab, semicolon, or comma based on highest count in header sample
-  const sample = lines.slice(0, 5).join("\n");
+  const sample = sampleLines.join("\n");
   const countTab = (sample.match(/\t/g) || []).length;
   const countSemi = (sample.match(/;/g) || []).length;
   const countComma = (sample.match(/,/g) || []).length;
@@ -875,7 +904,7 @@ export function parseCsvContent(
     delimiter = ";";
   }
 
-  const headers = splitCsvLine(lines[0], delimiter);
+  const headers = splitCsvLine(sampleLines[0], delimiter);
   const headerKeysClean = headers.map(cleanKey);
 
   let isTransaksi = false;
@@ -889,19 +918,25 @@ export function parseCsvContent(
     );
   }
 
-  for (let i = 1; i < lines.length; i++) {
-    const rawCols = splitCsvLine(lines[i], delimiter);
+  const pushCsvLine = (line: string) => {
+    const rawCols = splitCsvLine(line, delimiter);
     const row: Record<string, string> = {};
     for (let c = 0; c < headers.length; c++) {
-      const val = rawCols[c] !== undefined ? rawCols[c] : "";
-      row[headers[c]] = val;
+      row[headers[c]] = rawCols[c] !== undefined ? rawCols[c] : "";
     }
-
     if (isTransaksi) {
       transaksiRows.push(row);
     } else {
       barangRows.push(row);
     }
+  };
+
+  for (let s = 1; s < sampleLines.length; s++) {
+    pushCsvLine(sampleLines[s]);
+  }
+  let line: string | null;
+  while ((line = nextNonEmptyLine()) !== null) {
+    pushCsvLine(line);
   }
 
   return { barangRows, transaksiRows };
@@ -1107,8 +1142,12 @@ export async function processUploadAndGeneratePreview(
   idCabang: number,
   targetType: "AUTO" | "MASTER_STOK" | "TRANSAKSI" = "AUTO"
 ): Promise<MigrationPreviewData> {
+  const fileSizeBytes = fileBuffer.length;
   const content = fileBuffer.toString("utf8").replace(/^\uFEFF/, "");
-  const isSql = filename.toLowerCase().endsWith(".sql") || content.includes("INSERT INTO");
+  const lowerFilename = filename.toLowerCase();
+  const isSql =
+    lowerFilename.endsWith(".sql") ||
+    (!lowerFilename.endsWith(".csv") && !lowerFilename.endsWith(".tsv") && content.includes("INSERT INTO"));
 
   let rawBarang: Record<string, string>[] = [];
   let rawTransaksi: Record<string, string>[] = [];
@@ -1143,6 +1182,10 @@ export async function processUploadAndGeneratePreview(
   }
 
   const transaksiList = groupTransaksiRows(rawTransaksi);
+
+  // Bebaskan memori objek mentah sesudah transformasi
+  rawBarang = [];
+  rawTransaksi = [];
 
   // Determine detected type
   let tipeTerdeteksi: "MASTER_STOK" | "TRANSAKSI" | "COMBINED" | "UNKNOWN" = "UNKNOWN";
@@ -1256,7 +1299,7 @@ export async function processUploadAndGeneratePreview(
   const previewData: MigrationPreviewData = {
     job_id: jobId,
     nama_file: filename,
-    ukuran_file_kb: Math.round(fileBuffer.length / 1024),
+    ukuran_file_kb: Math.round(fileSizeBytes / 1024),
     id_cabang: idCabang,
     tipe_terdeteksi: tipeTerdeteksi,
     barang_belum_terdaftar: barangBelumTerdaftar,

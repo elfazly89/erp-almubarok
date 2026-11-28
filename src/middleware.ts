@@ -81,5 +81,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Kecualikan /api/ agar upload file besar tidak di-clone/buffer 2x di Next.js middleware (auth API ditangani langsung oleh Hono authMiddleware)
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico).*)"],
 };
