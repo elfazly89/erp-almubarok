@@ -386,12 +386,94 @@ echo -e "\n${YELLOW}[4/5] Mem-build ulang dan me-restart container (Next.js & AP
 docker compose up -d --build
 echo -e "${GREEN}✓ Container berhasil di-build dan berjalan.${NC}"
 
-# Sinkronisasi Nginx host di VPS jika tersedia (memastikan upload 100MB & timeout 300s aktif)
-if [ -f "$APP_DIR/nginx-almubarok.conf" ]; then
-  if [ -d "/etc/nginx/sites-available" ]; then
-    cp "$APP_DIR/nginx-almubarok.conf" /etc/nginx/sites-available/almubarok.systems 2>/dev/null || true
-    ln -sf /etc/nginx/sites-available/almubarok.systems /etc/nginx/sites-enabled/ 2>/dev/null || true
-    nginx -t 2>/dev/null && nginx -s reload 2>/dev/null && echo -e "${GREEN}✓ Nginx host berhasil disinkronkan & direload.${NC}" || true
+# Sinkronisasi Nginx host di VPS secara aman (memulihkan & melindungi SSL Certbot serta memastikan limit 100MB/300s aktif)
+NGINX_SITE="/etc/nginx/sites-available/almubarok.systems"
+NGINX_LINK="/etc/nginx/sites-enabled/almubarok.systems"
+CERT_DIR="/etc/letsencrypt/live/almubarok.systems"
+
+if [ -d "/etc/nginx/sites-available" ] && [ -f "$APP_DIR/nginx-almubarok.conf" ]; then
+  echo -e "\n${YELLOW}Memeriksa konfigurasi Nginx host (SSL & limit upload 100MB)...${NC}"
+  BACKUP_FILE=""
+  if [ -f "$NGINX_SITE" ]; then
+    BACKUP_FILE="/tmp/almubarok.systems.nginx.bak.$(date +%s)"
+    cp "$NGINX_SITE" "$BACKUP_FILE"
+  fi
+
+  if [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
+    if [ ! -f "$NGINX_SITE" ] || ! grep -qE "listen[[:space:]]+.*443" "$NGINX_SITE"; then
+      echo -e "${YELLOW}↺ Blok HTTPS (443) tidak ditemukan. Memulihkan SSL almubarok.systems dari sertifikat Let's Encrypt...${NC}"
+      cat > "$NGINX_SITE" << 'NGINX_EOF'
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name almubarok.systems www.almubarok.systems;
+
+    ssl_certificate /etc/letsencrypt/live/almubarok.systems/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/almubarok.systems/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:almubarok_SSL:10m;
+    ssl_session_timeout 10m;
+
+    # Kapasitas upload file besar (migrasi SQL/CSV, gambar produk, import excel) hingga 100MB
+    client_max_body_size 100M;
+    client_body_buffer_size 1M;
+
+    location / {
+        # Proxy diarahkan ke container erp-web yang berjalan di port 3100
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeout settings diperpanjang ke 300 detik (5 menit) agar migrasi berkas besar tidak putus di tengah jalan
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        send_timeout 300s;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name almubarok.systems www.almubarok.systems;
+    return 301 https://$host$request_uri;
+}
+NGINX_EOF
+    else
+      echo -e "${GREEN}✓ Konfigurasi SSL 443 sudah aktif (tidak ditimpa). Memastikan limit 100M & timeout 300s...${NC}"
+      if grep -q "client_max_body_size" "$NGINX_SITE"; then
+        sed -i -E 's/client_max_body_size[[:space:]]+[^;]+;/client_max_body_size 100M;/g' "$NGINX_SITE"
+      else
+        sed -i -E 's|(server_name[[:space:]]+[^;]+;)|\1\n    client_max_body_size 100M;|' "$NGINX_SITE"
+      fi
+      sed -i -E 's/proxy_connect_timeout[[:space:]]+[^;]+;/proxy_connect_timeout 300s;/g' "$NGINX_SITE"
+      sed -i -E 's/proxy_send_timeout[[:space:]]+[^;]+;/proxy_send_timeout 300s;/g' "$NGINX_SITE"
+      sed -i -E 's/proxy_read_timeout[[:space:]]+[^;]+;/proxy_read_timeout 300s;/g' "$NGINX_SITE"
+    fi
+  elif [ ! -f "$NGINX_SITE" ]; then
+    cp "$APP_DIR/nginx-almubarok.conf" "$NGINX_SITE"
+  fi
+
+  ln -sf "$NGINX_SITE" "$NGINX_LINK"
+
+  if nginx -t; then
+    nginx -s reload
+    echo -e "${GREEN}✓ Nginx host berhasil divalidasi & direload.${NC}"
+    if [ -n "$BACKUP_FILE" ]; then rm -f "$BACKUP_FILE"; fi
+  else
+    echo -e "${RED}✗ Validasi nginx -t gagal! Mengembalikan konfigurasi Nginx sebelumnya (auto-rollback)...${NC}"
+    if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
+      cp "$BACKUP_FILE" "$NGINX_SITE"
+      if nginx -t; then nginx -s reload || true; fi
+      rm -f "$BACKUP_FILE"
+    fi
   fi
 fi
 
