@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { db } from "../lib/db";
 import { migrasi_log, cabang, users, role_menu_sub, menu_sub } from "../lib/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -69,68 +70,83 @@ migrasiRoutes.use("/*", async (c, next) => {
   await next();
 });
 
-// ─── 1. UPLOAD FILE & GENERATE PREVIEW ───────────────────────────────────────
-migrasiRoutes.post("/upload", async (c) => {
-  const user = c.get("user");
-  if (!user) {
-    return c.json({ error: "Sesi tidak valid. Silakan login kembali." }, 401);
+// ─── 1. UPLOAD FILE & GENERATE PREVIEW (BODY LIMIT 100MB) ───────────────────
+migrasiRoutes.post(
+  "/upload",
+  bodyLimit({
+    maxSize: 100 * 1024 * 1024, // Maksimal 100 MB
+    onError: (c) => {
+      return c.json(
+        {
+          success: false,
+          error: "Ukuran berkas melebihi batas kapasitas maksimal 100 MB.",
+        },
+        413
+      );
+    },
+  }),
+  async (c) => {
+    const user = c.get("user");
+    if (!user) {
+      return c.json({ error: "Sesi tidak valid. Silakan login kembali." }, 401);
+    }
+
+    try {
+      const body = await c.req.parseBody();
+      const file = body["file"];
+      const idCabangParam = body["id_cabang"];
+
+      if (!file || !(file instanceof File)) {
+        return c.json({ error: "File migrasi (.sql / .csv) wajib diunggah." }, 400);
+      }
+
+      if (!idCabangParam) {
+        return c.json({ error: "Pilih cabang tujuan migrasi terlebih dahulu." }, 400);
+      }
+
+      const idCabang = parseInt(String(idCabangParam));
+      if (isNaN(idCabang) || idCabang <= 0) {
+        return c.json({ error: "ID Cabang tidak valid." }, 400);
+      }
+
+      // Verify branch exists
+      const [foundCabang] = await db
+        .select()
+        .from(cabang)
+        .where(eq(cabang.id_cabang, idCabang))
+        .limit(1);
+
+      if (!foundCabang) {
+        return c.json({ error: "Cabang yang dipilih tidak ditemukan di sistem." }, 404);
+      }
+
+      // Check size limit: 100MB
+      const MAX_SIZE = 100 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        return c.json({ error: "Ukuran file terlalu besar. Maksimal 100 MB." }, 400);
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const targetTypeRaw = (body["target_type"] || "AUTO").toString().toUpperCase();
+      const targetType = ["AUTO", "MASTER_STOK", "TRANSAKSI"].includes(targetTypeRaw)
+        ? (targetTypeRaw as "AUTO" | "MASTER_STOK" | "TRANSAKSI")
+        : "AUTO";
+
+      const preview = await processUploadAndGeneratePreview(buffer, file.name, idCabang, targetType);
+
+      return c.json({
+        success: true,
+        message: "File berhasil dianalisa. Silakan tinjau ringkasan migrasi.",
+        data: preview,
+      });
+    } catch (error: any) {
+      console.error("Error processing migration upload:", error);
+      return c.json({ success: false, error: error.message || "Gagal memproses file migrasi." }, 500);
+    }
   }
-
-  try {
-    const body = await c.req.parseBody();
-    const file = body["file"];
-    const idCabangParam = body["id_cabang"];
-
-    if (!file || !(file instanceof File)) {
-      return c.json({ error: "File migrasi (.sql / .csv) wajib diunggah." }, 400);
-    }
-
-    if (!idCabangParam) {
-      return c.json({ error: "Pilih cabang tujuan migrasi terlebih dahulu." }, 400);
-    }
-
-    const idCabang = parseInt(String(idCabangParam));
-    if (isNaN(idCabang) || idCabang <= 0) {
-      return c.json({ error: "ID Cabang tidak valid." }, 400);
-    }
-
-    // Verify branch exists
-    const [foundCabang] = await db
-      .select()
-      .from(cabang)
-      .where(eq(cabang.id_cabang, idCabang))
-      .limit(1);
-
-    if (!foundCabang) {
-      return c.json({ error: "Cabang yang dipilih tidak ditemukan di sistem." }, 404);
-    }
-
-    // Check size limit: 100MB
-    const MAX_SIZE = 100 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      return c.json({ error: "Ukuran file terlalu besar. Maksimal 100 MB." }, 400);
-    }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const targetTypeRaw = (body["target_type"] || "AUTO").toString().toUpperCase();
-    const targetType = ["AUTO", "MASTER_STOK", "TRANSAKSI"].includes(targetTypeRaw)
-      ? (targetTypeRaw as "AUTO" | "MASTER_STOK" | "TRANSAKSI")
-      : "AUTO";
-
-    const preview = await processUploadAndGeneratePreview(buffer, file.name, idCabang, targetType);
-
-    return c.json({
-      success: true,
-      message: "File berhasil dianalisa. Silakan tinjau ringkasan migrasi.",
-      data: preview,
-    });
-  } catch (error: any) {
-    console.error("Error processing migration upload:", error);
-    return c.json({ error: error.message || "Gagal memproses file migrasi." }, 500);
-  }
-});
+);
 
 // ─── 2. COMMIT MIGRATION ─────────────────────────────────────────────────────
 migrasiRoutes.post("/commit/:job_id", async (c) => {

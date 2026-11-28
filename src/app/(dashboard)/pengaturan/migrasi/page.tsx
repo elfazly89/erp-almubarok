@@ -99,6 +99,19 @@ interface MigrationLogItem {
 
 // Helper membaca response HTTP secara aman tanpa crash jika server/proxy mengembalikan plain text/HTML
 async function parseJsonResponseSafe(res: Response): Promise<{ ok: boolean; data?: any; error?: string; message?: string }> {
+  if (res.status === 413) {
+    return {
+      ok: false,
+      error: "Ukuran berkas melebihi batas kapasitas server (Maksimal 100 MB).",
+    };
+  }
+  if (res.status === 504 || res.status === 502) {
+    return {
+      ok: false,
+      error: `Server mengalami timeout (${res.status}). Berkas sedang diproses atau ukuran data memerlukan waktu lebih lama.`,
+    };
+  }
+
   const text = await res.text();
   try {
     const json = JSON.parse(text);
@@ -264,6 +277,11 @@ export default function MigrasiDataPage() {
     const ext = f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
     if (!validExts.includes(ext)) {
       showToast("Format file tidak didukung. Harap unggah berkas .sql atau .csv", "error");
+      return;
+    }
+    const MAX_MB = 100;
+    if (f.size > MAX_MB * 1024 * 1024) {
+      showToast(`Ukuran berkas (${(f.size / (1024 * 1024)).toFixed(1)} MB) melebihi batas maksimal ${MAX_MB} MB.`, "error");
       return;
     }
     setFile(f);

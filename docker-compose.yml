@@ -36,13 +36,14 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-almubarok_secret_2026}@postgres:5432/${POSTGRES_DB:-erp_almubarok}
       JWT_SECRET: ${JWT_SECRET:-super_secret_key_erp_al_mubarok_2026_abdi_priyayi}
+      NODE_OPTIONS: "--max-old-space-size=1024"
       PORT: 3001
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "127.0.0.1:3101:3001"
-    mem_limit: 512m
+    mem_limit: 1536m
     logging:
       driver: "json-file"
       options:
@@ -59,13 +60,14 @@ services:
       API_BACKEND_URL: http://api:3001
       NEXT_PUBLIC_API_URL: http://api:3001
       JWT_SECRET: ${JWT_SECRET:-super_secret_key_erp_al_mubarok_2026_abdi_priyayi}
+      NODE_OPTIONS: "--max-old-space-size=1024"
       PORT: 3000
     depends_on:
       - api
     ports:
       # Port 3000 diubah ke 3100 agar tidak bentrok dengan PM2 (port 3000) di VPS
       - "127.0.0.1:3100:3000"
-    mem_limit: 1024m
+    mem_limit: 1536m
     logging:
       driver: "json-file"
       options:

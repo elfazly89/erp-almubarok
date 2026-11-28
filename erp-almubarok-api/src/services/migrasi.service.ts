@@ -478,29 +478,43 @@ export function sanitizeTransaksiGrouped(tr: TransaksiGrouped): TransaksiGrouped
   };
 }
 
-// ─── SQL VALUE PARSER ────────────────────────────────────────────────────────
+// ─── SQL VALUE PARSER (HIGH PERFORMANCE ZERO-ALLOCATION) ────────────────────
+
+function cleanSqlValue(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.toLowerCase() === "null") return "";
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === "'" && last === "'") || (first === '"' && last === '"') || (first === "`" && last === "`")) {
+    let unquoted = trimmed.substring(1, trimmed.length - 1);
+    if (first === "'") unquoted = unquoted.replace(/''/g, "'");
+    if (first === '"') unquoted = unquoted.replace(/""/g, '"');
+    return unquoted.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return trimmed;
+}
 
 /**
  * Tokenize SQL tuple: (val1, 'val2', NULL, 123)
+ * High-performance index-slice parser without intermediate character concatenation.
  */
 function parseSqlValuesTuple(tupleStr: string): string[] {
   const result: string[] = [];
-  let current = "";
-  let inString = false;
-  let quoteChar = "";
-  let escapeNext = false;
-
   const trimmed = tupleStr.trim();
-  // Remove outer parentheses
   const content = trimmed.startsWith("(") && trimmed.endsWith(")")
     ? trimmed.substring(1, trimmed.length - 1)
     : trimmed;
 
-  for (let i = 0; i < content.length; i++) {
+  const len = content.length;
+  let inString = false;
+  let quoteChar = "";
+  let escapeNext = false;
+  let start = 0;
+
+  for (let i = 0; i < len; i++) {
     const char = content[i];
 
     if (escapeNext) {
-      current += char;
       escapeNext = false;
       continue;
     }
@@ -517,10 +531,8 @@ function parseSqlValuesTuple(tupleStr: string): string[] {
     }
 
     if (inString && char === quoteChar) {
-      // Check for doubled quote escape in SQL: '' or ""
-      if (i + 1 < content.length && content[i + 1] === quoteChar) {
-        current += quoteChar;
-        i++; // skip next quote
+      if (i + 1 < len && content[i + 1] === quoteChar) {
+        i++; // skip escaped doubled quote
         continue;
       }
       inString = false;
@@ -529,96 +541,159 @@ function parseSqlValuesTuple(tupleStr: string): string[] {
     }
 
     if (!inString && char === ",") {
-      result.push(current.trim());
-      current = "";
-      continue;
+      result.push(cleanSqlValue(content.substring(start, i)));
+      start = i + 1;
     }
-
-    current += char;
   }
 
-  result.push(current.trim());
-
-  // Clean values: 'NULL' -> null, strip quotes
-  return result.map((v) => {
-    const lower = v.toLowerCase();
-    if (lower === "null" || v === "") return "";
-    return v;
-  });
+  result.push(cleanSqlValue(content.substring(start)));
+  return result;
 }
 
 /**
  * Splits standard multi-row INSERT INTO statement into individual value tuples.
  * e.g. VALUES (1, 'A'), (2, 'B'); -> ["(1, 'A')", "(2, 'B')"]
+ * Optimized with index-slicing to prevent V8 heap thrashing and quadratic string copying.
  */
 function splitSqlTuples(valuesBlock: string): string[] {
   const tuples: string[] = [];
-  let current = "";
+  const len = valuesBlock.length;
   let inString = false;
   let quoteChar = "";
   let escapeNext = false;
   let parenDepth = 0;
+  let tupleStart = -1;
 
-  for (let i = 0; i < valuesBlock.length; i++) {
+  for (let i = 0; i < len; i++) {
     const char = valuesBlock[i];
 
     if (escapeNext) {
-      if (parenDepth > 0) current += char;
       escapeNext = false;
       continue;
     }
 
     if (char === "\\") {
       escapeNext = true;
-      if (parenDepth > 0) current += char;
       continue;
     }
 
     if (!inString && (char === "'" || char === '"')) {
       inString = true;
       quoteChar = char;
-      if (parenDepth > 0) current += char;
       continue;
     }
 
     if (inString && char === quoteChar) {
-      if (i + 1 < valuesBlock.length && valuesBlock[i + 1] === quoteChar) {
-        if (parenDepth > 0) current += char + quoteChar;
-        i++;
+      if (i + 1 < len && valuesBlock[i + 1] === quoteChar) {
+        i++; // skip escaped quote
         continue;
       }
       inString = false;
       quoteChar = "";
-      if (parenDepth > 0) current += char;
       continue;
     }
 
     if (!inString) {
       if (char === "(") {
-        if (parenDepth === 0) {
-          current = "(";
-        } else {
-          current += char;
-        }
+        if (parenDepth === 0) tupleStart = i;
         parenDepth++;
-        continue;
       } else if (char === ")") {
         parenDepth--;
-        current += ")";
-        if (parenDepth === 0) {
-          tuples.push(current.trim());
-          current = "";
+        if (parenDepth === 0 && tupleStart !== -1) {
+          tuples.push(valuesBlock.substring(tupleStart, i + 1));
+          tupleStart = -1;
         }
-        continue;
       }
-    }
-
-    if (parenDepth > 0) {
-      current += char;
     }
   }
 
   return tuples;
+}
+
+/**
+ * Robustly scans SQL text for INSERT INTO statements, immune to semicolons inside strings or comments.
+ */
+function scanInsertStatements(sqlContent: string): string[] {
+  const insertStatements: string[] = [];
+  let i = 0;
+  const len = sqlContent.length;
+
+  while (i < len) {
+    // Single line comments
+    if (sqlContent[i] === "-" && sqlContent[i + 1] === "-") {
+      const nextNl = sqlContent.indexOf("\n", i);
+      if (nextNl === -1) break;
+      i = nextNl + 1;
+      continue;
+    }
+    // Block comments
+    if (sqlContent[i] === "/" && sqlContent[i + 1] === "*") {
+      const nextEnd = sqlContent.indexOf("*/", i);
+      if (nextEnd === -1) break;
+      i = nextEnd + 2;
+      continue;
+    }
+
+    // Match 'INSERT INTO'
+    if (
+      (sqlContent[i] === "I" || sqlContent[i] === "i") &&
+      sqlContent.substring(i, i + 11).toUpperCase() === "INSERT INTO"
+    ) {
+      const stmtStart = i;
+      i += 11;
+      let inString = false;
+      let quoteChar = "";
+      let escapeNext = false;
+      let parenDepth = 0;
+
+      while (i < len) {
+        const char = sqlContent[i];
+        if (escapeNext) {
+          escapeNext = false;
+          i++;
+          continue;
+        }
+        if (char === "\\") {
+          escapeNext = true;
+          i++;
+          continue;
+        }
+        if (!inString && (char === "'" || char === '"' || char === "`")) {
+          inString = true;
+          quoteChar = char;
+          i++;
+          continue;
+        }
+        if (inString && char === quoteChar) {
+          if (i + 1 < len && sqlContent[i + 1] === quoteChar) {
+            i += 2;
+            continue;
+          }
+          inString = false;
+          quoteChar = "";
+          i++;
+          continue;
+        }
+        if (!inString) {
+          if (char === "(") {
+            parenDepth++;
+          } else if (char === ")") {
+            if (parenDepth > 0) parenDepth--;
+          } else if (char === ";" && parenDepth === 0) {
+            insertStatements.push(sqlContent.substring(stmtStart, i + 1));
+            i++;
+            break;
+          }
+        }
+        i++;
+      }
+      continue;
+    }
+
+    i++;
+  }
+
+  return insertStatements;
 }
 
 // ─── SQL DUMP PARSER ─────────────────────────────────────────────────────────
@@ -637,32 +712,62 @@ export function parseSqlDump(sqlContent: string): {
   while ((ctMatch = createTableRegex.exec(sqlContent)) !== null) {
     const tableName = ctMatch[1].toLowerCase();
     const tableBody = ctMatch[2];
-    const colLines = tableBody.split("\n");
     const cols: string[] = [];
-    for (const line of colLines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("PRIMARY") || trimmed.startsWith("KEY") || trimmed.startsWith("UNIQUE") || trimmed.startsWith("CONSTRAINT")) {
-        continue;
+    let pDepth = 0;
+    let startIdx = 0;
+    for (let c = 0; c < tableBody.length; c++) {
+      const ch = tableBody[c];
+      if (ch === "(") pDepth++;
+      else if (ch === ")") {
+        if (pDepth > 0) pDepth--;
+      } else if (ch === "," && pDepth === 0) {
+        const segment = tableBody.substring(startIdx, c).trim();
+        startIdx = c + 1;
+        const upper = segment.toUpperCase();
+        if (
+          segment &&
+          !upper.startsWith("PRIMARY") &&
+          !upper.startsWith("KEY") &&
+          !upper.startsWith("UNIQUE") &&
+          !upper.startsWith("CONSTRAINT")
+        ) {
+          const colMatch = segment.match(/^[`"']?([a-zA-Z0-9_\-]+)[`"']?\s+/);
+          if (colMatch) cols.push(colMatch[1]);
+        }
       }
-      const colMatch = trimmed.match(/^[`"']?([a-zA-Z0-9_\-]+)[`"']?\s+/);
-      if (colMatch) {
-        cols.push(colMatch[1]);
-      }
+    }
+    const lastSeg = tableBody.substring(startIdx).trim();
+    const lastUpper = lastSeg.toUpperCase();
+    if (
+      lastSeg &&
+      !lastUpper.startsWith("PRIMARY") &&
+      !lastUpper.startsWith("KEY") &&
+      !lastUpper.startsWith("UNIQUE") &&
+      !lastUpper.startsWith("CONSTRAINT")
+    ) {
+      const colMatch = lastSeg.match(/^[`"']?([a-zA-Z0-9_\-]+)[`"']?\s+/);
+      if (colMatch) cols.push(colMatch[1]);
     }
     if (cols.length > 0) {
       tableColumnsMap.set(tableName, cols);
     }
   }
 
-  // 2. Parse INSERT INTO statements
-  // Handles: INSERT INTO `table` (`col1`, `col2`) VALUES (...) or INSERT INTO `table` VALUES (...)
-  const insertRegex = /INSERT\s+INTO\s+[`"']?([a-zA-Z0-9_\-]+)[`"']?\s*(?:\(([^)]+)\))?\s+VALUES\s*([\s\S]*?);/gi;
-  let insertMatch;
+  // 2. Parse INSERT INTO statements robustly (streaming statement extractor)
+  const insertStatements = scanInsertStatements(sqlContent);
 
-  while ((insertMatch = insertRegex.exec(sqlContent)) !== null) {
-    const tableName = insertMatch[1].toLowerCase();
-    const explicitColsRaw = insertMatch[2];
-    const valuesContent = insertMatch[3];
+  for (const stmt of insertStatements) {
+    const valuesIdx = stmt.search(/\bVALUES\b/i);
+    if (valuesIdx === -1) continue;
+
+    const header = stmt.substring(0, valuesIdx);
+    const valuesContent = stmt.substring(valuesIdx + 6, stmt.endsWith(";") ? stmt.length - 1 : stmt.length).trim();
+
+    const headerMatch = header.match(/INSERT\s+INTO\s+[`"']?([a-zA-Z0-9_\-]+)[`"']?\s*(?:\(([^)]+)\))?/i);
+    if (!headerMatch) continue;
+
+    const tableName = headerMatch[1].toLowerCase();
+    const explicitColsRaw = headerMatch[2];
 
     let columnNames: string[] = [];
     if (explicitColsRaw) {
@@ -710,30 +815,37 @@ export function parseSqlDump(sqlContent: string): {
   return { barangRows, transaksiRows };
 }
 
-// ─── CSV / TSV PARSER ────────────────────────────────────────────────────────
+// ─── CSV / TSV PARSER (OPTIMIZED INDEX-SLICING) ──────────────────────────────
+
+function cleanCsvVal(val: string): string {
+  const trimmed = val.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.substring(1, trimmed.length - 1).trim();
+  }
+  return trimmed;
+}
 
 export function splitCsvLine(line: string, delimiter: string): string[] {
   const result: string[] = [];
-  let current = "";
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
+  let start = 0;
+  const len = line.length;
+
+  for (let i = 0; i < len; i++) {
     const char = line[i];
     if (char === '"' || char === "'") {
-      if (inQuotes && i + 1 < line.length && line[i + 1] === char) {
-        current += char;
-        i++;
+      if (inQuotes && i + 1 < len && line[i + 1] === char) {
+        i++; // skip escaped quote
       } else {
         inQuotes = !inQuotes;
       }
     } else if (char === delimiter && !inQuotes) {
-      result.push(current.trim());
-      current = "";
-    } else {
-      current += char;
+      result.push(cleanCsvVal(line.substring(start, i)));
+      start = i + 1;
     }
   }
-  result.push(current.trim());
-  return result.map((v) => v.replace(/^["']|["']$/g, "").trim());
+  result.push(cleanCsvVal(line.substring(start)));
+  return result;
 }
 
 export function parseCsvContent(
@@ -1042,20 +1154,16 @@ export async function processUploadAndGeneratePreview(
     tipeTerdeteksi = "TRANSAKSI";
   }
 
-  // 1. Cross-reference with existing DB for Master Barang
+  // 1. Cross-reference with existing DB for Master Barang (Single query, O(1) in-memory lookup)
   const existingBarcodes = new Set<string>();
-  if (barangList.length > 0) {
-    const allBarcodes = barangList.map((b) => b.barcode);
-    // Query existing barcodes in batches of 500
-    for (let i = 0; i < allBarcodes.length; i += 500) {
-      const slice = allBarcodes.slice(i, i + 500);
-      const rows = await db
-        .select({ barcode: barang.barcode })
-        .from(barang)
-        .where(inArray(barang.barcode, slice));
-      rows.forEach((r) => existingBarcodes.add(r.barcode));
-    }
-  }
+  const existingKodeBarang = new Set<string>();
+  const existingBarangRows = await db
+    .select({ barcode: barang.barcode, kode_barang: barang.kode_barang })
+    .from(barang);
+  existingBarangRows.forEach((r) => {
+    if (r.barcode) existingBarcodes.add(r.barcode.trim());
+    if (r.kode_barang) existingKodeBarang.add(r.kode_barang.trim());
+  });
 
   // 2. Categories in file vs existing DB
   const detectedCategories = new Set<string>();
@@ -1102,42 +1210,27 @@ export async function processUploadAndGeneratePreview(
     if (!maxDate || t.tanggal_invoice > maxDate) maxDate = t.tanggal_invoice;
   });
 
-  // 6. Cross-reference items in transaksi against master barang
+  // 6. Cross-reference items in transaksi against master barang (Zero network roundtrips)
   let barangBelumTerdaftar = 0;
   if (transaksiList.length > 0) {
-    const transactionCodes = new Set<string>();
-    for (const tr of transaksiList) {
-      for (const it of tr.items) {
-        if (it.kd_brg) {
-          transactionCodes.add(it.kd_brg.trim());
-        }
-      }
-    }
-
     const inMemoryCodes = new Set<string>();
     for (const b of barangList) {
       if (b.barcode) inMemoryCodes.add(b.barcode.trim());
       if (b.kode_barang) inMemoryCodes.add(b.kode_barang.trim());
     }
 
-    const toCheckDb = Array.from(transactionCodes).filter((c) => !inMemoryCodes.has(c));
-    const foundInDb = new Set<string>();
-    if (toCheckDb.length > 0) {
-      for (let i = 0; i < toCheckDb.length; i += 500) {
-        const slice = toCheckDb.slice(i, i + 500);
-        const rows = await db
-          .select({ barcode: barang.barcode, kode_barang: barang.kode_barang })
-          .from(barang)
-          .where(sql`${barang.barcode} IN ${slice} OR ${barang.kode_barang} IN ${slice}`);
-        rows.forEach((r) => {
-          if (r.barcode) foundInDb.add(r.barcode.trim());
-          if (r.kode_barang) foundInDb.add(r.kode_barang.trim());
-        });
+    const transactionCodes = new Set<string>();
+    for (const tr of transaksiList) {
+      for (const it of tr.items) {
+        if (it.kd_brg) {
+          const code = it.kd_brg.trim();
+          if (code) transactionCodes.add(code);
+        }
       }
     }
 
     for (const code of transactionCodes) {
-      if (!inMemoryCodes.has(code) && !foundInDb.has(code)) {
+      if (!inMemoryCodes.has(code) && !existingBarcodes.has(code) && !existingKodeBarang.has(code)) {
         barangBelumTerdaftar++;
       }
     }
@@ -1195,6 +1288,9 @@ export async function processUploadAndGeneratePreview(
     },
     warnings,
   };
+
+  // Bersihkan cache lama di memori agar RAM tetap longgar (mencegah memory leak)
+  jobCache.clear();
 
   // Cache in memory and write backup file
   jobCache.set(jobId, {

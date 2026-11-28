@@ -386,6 +386,15 @@ echo -e "\n${YELLOW}[4/5] Mem-build ulang dan me-restart container (Next.js & AP
 docker compose up -d --build
 echo -e "${GREEN}✓ Container berhasil di-build dan berjalan.${NC}"
 
+# Sinkronisasi Nginx host di VPS jika tersedia (memastikan upload 100MB & timeout 300s aktif)
+if [ -f "$APP_DIR/nginx-almubarok.conf" ]; then
+  if [ -d "/etc/nginx/sites-available" ]; then
+    cp "$APP_DIR/nginx-almubarok.conf" /etc/nginx/sites-available/almubarok.systems 2>/dev/null || true
+    ln -sf /etc/nginx/sites-available/almubarok.systems /etc/nginx/sites-enabled/ 2>/dev/null || true
+    nginx -t 2>/dev/null && nginx -s reload 2>/dev/null && echo -e "${GREEN}✓ Nginx host berhasil disinkronkan & direload.${NC}" || true
+  fi
+fi
+
 # 5. Bersihkan cache & image lama agar hemat penyimpanan
 echo -e "\n${YELLOW}[5/5] Membersihkan image build lama (docker image prune)...${NC}"
 docker image prune -f > /dev/null 2>&1 || true
